@@ -1,12 +1,12 @@
-use axum::{Router, http::Method};
+use axum::Router;
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+mod config;
 mod controllers;
 mod db;
 mod docs;
@@ -54,10 +54,7 @@ async fn main() -> anyhow::Result<()> {
         stellar,
     });
 
-    let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_origin(Any)
-        .allow_headers(Any);
+    let cors = config::cors::cors_layer_from_env();
 
     let app = Router::new()
         .merge(SwaggerUi::new("/swagger-ui")
