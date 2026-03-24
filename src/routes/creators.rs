@@ -13,9 +13,14 @@ use crate::db::connection::AppState;
 use crate::models::creator::{CreateCreatorRequest, CreatorResponse};
 use crate::models::tip::TipResponse;
 
-pub fn router() -> Router<Arc<AppState>> {
+/// Write routes: POST /creators — subject to stricter rate limiting.
+pub fn write_router() -> Router<Arc<AppState>> {
+    Router::new().route("/creators", post(create_creator))
+}
+
+/// Read routes: GET /creators/:username, GET /creators/:username/tips — general rate limiting.
+pub fn read_router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/creators", post(create_creator))
         .route("/creators/:username", get(get_creator))
         .route("/creators/:username/tips", get(get_creator_tips))
 }

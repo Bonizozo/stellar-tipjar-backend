@@ -65,15 +65,31 @@ async fn main() -> anyhow::Result<()> {
         .allow_origin(Any)
         .allow_headers(Any);
 
+    // Build rate limiters and spawn background cleanup tasks for each.
+    let (general_config, general_limiter) = middleware::rate_limiter::general_limiter();
+    let (write_config, write_limiter) = middleware::rate_limiter::write_limiter();
+    middleware::rate_limiter::spawn_cleanup(&general_config);
+    middleware::rate_limiter::spawn_cleanup(&write_config);
+
+    // Write endpoints get a stricter per-IP limit.
+    let write_routes = Router::new()
+        .merge(routes::tips::router())
+        .merge(routes::creators::write_router())
+        .layer(write_limiter);
+
+    // Read endpoints use the general limit.
+    let read_routes = Router::new()
+        .merge(routes::creators::read_router())
+        .merge(routes::health::router())
+        .layer(general_limiter);
+
     let app = Router::new()
         .merge(SwaggerUi::new("/swagger-ui")
             .url("/api-docs/openapi.json", ApiDoc::openapi()))
-        .merge(routes::creators::router())
-        .merge(routes::tips::router())
-        .merge(routes::health::router())
+        .merge(write_routes)
+        .merge(read_routes)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
-        .layer(middleware::rate_limiter::build_rate_limiter())
         .with_state(state);
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "8000".to_string());
