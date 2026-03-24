@@ -13,6 +13,7 @@ mod docs;
 mod models;
 mod routes;
 mod services;
+mod shutdown;
 
 use db::connection::AppState;
 use docs::ApiDoc;
@@ -74,7 +75,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Server listening on {}", addr);
     tracing::info!("Swagger UI available at http://{}/swagger-ui", addr);
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown::shutdown_signal())
+        .await?;
 
+    tracing::info!("Server shut down gracefully");
     Ok(())
 }
