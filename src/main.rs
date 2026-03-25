@@ -17,6 +17,7 @@ mod middleware;
 mod routes;
 mod search;
 mod services;
+mod shutdown;
 
 use db::connection::AppState;
 use docs::ApiDoc;
@@ -109,5 +110,6 @@ async fn main() -> anyhow::Result<()> {
 
     axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
 
+    tracing::info!("Server shut down gracefully");
     Ok(())
 }
