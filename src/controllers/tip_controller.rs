@@ -6,29 +6,32 @@ use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
 use crate::models::tip::{RecordTipRequest, Tip};
 
+#[tracing::instrument(skip(state), fields(username = %req.username, amount = %req.amount))]
 pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> Result<Tip> {
     let query = r#"
         INSERT INTO tips (id, creator_username, amount, transaction_hash, created_at)
         VALUES ($1, $2, $3, $4, NOW())
         RETURNING id, creator_username, amount, transaction_hash, created_at
         "#;
-    
+
     let start = Instant::now();
     let tip = sqlx::query_as::<_, Tip>(query)
-    .bind(Uuid::new_v4())
-    .bind(&req.username)
-    .bind(&req.amount)
-    .bind(&req.transaction_hash)
-    .fetch_one(&state.db)
-    .await?;
+        .bind(Uuid::new_v4())
+        .bind(&req.username)
+        .bind(&req.amount)
+        .bind(&req.transaction_hash)
+        .fetch_one(&state.db)
+        .await?;
     let duration = start.elapsed();
 
     QueryLogger::log_query(query, duration);
     state.performance.track_query(query, duration);
+    tracing::info!(duration_ms = duration.as_millis(), tip_id = %tip.id, "Tip recorded");
 
     Ok(tip)
 }
 
+#[tracing::instrument(skip(state), fields(username = %username))]
 pub async fn get_tips_for_creator(state: &AppState, username: &str) -> Result<Vec<Tip>> {
     let query = r#"
         SELECT id, creator_username, amount, transaction_hash, created_at
@@ -39,13 +42,14 @@ pub async fn get_tips_for_creator(state: &AppState, username: &str) -> Result<Ve
 
     let start = Instant::now();
     let tips = sqlx::query_as::<_, Tip>(query)
-    .bind(username)
-    .fetch_all(&state.db)
-    .await?;
+        .bind(username)
+        .fetch_all(&state.db)
+        .await?;
     let duration = start.elapsed();
 
     QueryLogger::log_query(query, duration);
     state.performance.track_query(query, duration);
+    tracing::debug!(duration_ms = duration.as_millis(), count = tips.len(), "Tips fetched");
 
     Ok(tips)
 }

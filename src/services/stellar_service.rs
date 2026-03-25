@@ -35,6 +35,7 @@ impl StellarService {
     }
 
     /// Verify that a transaction exists and was successful on the Stellar network.
+    #[tracing::instrument(skip(self), fields(network = %self.network))]
     pub async fn verify_transaction(
         &self,
         transaction_hash: &str,
@@ -51,9 +52,13 @@ impl StellarService {
         match response {
             Ok(resp) if resp.status().is_success() => {
                 let tx: HorizonTransactionResponse = resp.json().await?;
+                tracing::info!(successful = tx.successful, "Transaction verified");
                 Ok(tx.successful)
             }
-            Ok(_) => Ok(false),
+            Ok(resp) => {
+                tracing::warn!(status = %resp.status(), "Transaction not found on Stellar");
+                Ok(false)
+            }
             Err(e) => {
                 tracing::warn!("Failed to verify transaction {}: {}", transaction_hash, e);
                 Ok(false)
