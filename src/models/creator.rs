@@ -3,11 +3,12 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Creator {
     pub id: Uuid,
     pub username: String,
     pub wallet_address: String,
+    pub email: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -18,6 +19,8 @@ pub struct CreateCreatorRequest {
     pub username: String,
     /// Stellar wallet address (public key)
     pub wallet_address: String,
+    /// Optional email for tip notifications
+    pub email: Option<String>,
 }
 
 /// Creator profile response
@@ -28,6 +31,7 @@ pub struct CreatorResponse {
     pub username: String,
     /// Stellar wallet address (public key)
     pub wallet_address: String,
+    pub email: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -37,6 +41,7 @@ impl From<Creator> for CreatorResponse {
             id: c.id,
             username: c.username,
             wallet_address: c.wallet_address,
+            email: c.email,
             created_at: c.created_at,
         }
     }

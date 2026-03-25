@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f7fafc; color: #2d3748; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); border: 1px solid #e2e8f0; }
+        .header { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 32px; text-align: center; }
+        .header h1 { color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+        .content { padding: 40px; line-height: 1.6; }
+        .amount { background-image: linear-gradient(to right, #fef3c7, #fffbeb); border: 1px solid #fde68a; color: #92400e; padding: 12px 24px; border-radius: 9999px; font-size: 24px; font-weight: 800; display: inline-block; margin: 20px 0; }
+        .footer { background-color: #f8fafc; padding: 24px; text-align: center; font-size: 14px; color: #718096; border-top: 1px solid #e2e8f0; }
+        .button { display: inline-block; background-color: #4f46e5; color: #ffffff !important; padding: 12px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; transition: all 0.2s; box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3); }
+        .highlight { color: #4f46e5; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Stellar TipJar</h1>
+        </div>
+        <div class="content">
+            <h2>You've Received a New Tip! 🚀</h2>
+            <p>Hello <span class="highlight">{{ username }}</span>,</p>
+            <p>We're excited to let you know that you just received a generous tip through Stellar TipJar!</p>
+            
+            <div style="text-align: center;">
+                <div class="amount">{{ amount }} XLM</div>
+            </div>
+
+            <p>This contribution helps support your work and growth. You can view the transaction details here:</p>
+            
+            <div style="text-align: center; margin-top: 30px;">
+                <a href="https://stellar.expert/explorer/testnet/tx/{{ transaction_hash }}" class="button">View on Explorer</a>
+            </div>
+            
+            <p style="margin-top: 40px; font-size: 14px; color: #718096;">If you have any questions, our support team is always here to help.</p>
+        </div>
+        <div class="footer">
+            &copy; 2026 Nova Launch &bull; Stellar TipJar Backend
+        </div>
+    </div>
+</body>
+</html>
