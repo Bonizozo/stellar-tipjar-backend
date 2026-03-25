@@ -14,7 +14,6 @@ mod db;
 mod docs;
 mod middleware;
 mod models;
-mod middleware;
 mod routes;
 mod search;
 mod services;
@@ -69,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
         db: pool,
         stellar,
         performance,
+        redis,
     });
 
     let cors = CorsLayer::new()
@@ -101,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(read_routes)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(middleware::cache::cache_control))
         .layer(middleware::timeout::timeout_layer_from_env())
         .with_state(state);
 

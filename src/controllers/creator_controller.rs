@@ -6,6 +6,8 @@ use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
 use crate::models::creator::{CreateCreatorRequest, Creator};
 use crate::search::SearchQuery;
+use crate::cache::{redis_client, keys};
+use sqlx::PgPool;
 
 pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> Result<Creator> {
     let query = r#"
@@ -27,9 +29,9 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> Resu
     state.performance.track_query(query, duration);
 
     // Warm the cache immediately after creation.
-    if let Some(conn) = redis.as_ref() {
+    if let Some(conn) = state.redis.as_ref() {
         let mut conn = conn.clone();
-        redis_client::set(&mut conn, &keys::creator(&creator.username), &creator, redis_client::TTL_CREATOR).await;
+        let _ = redis_client::set(&mut conn, &keys::creator(&creator.username), &creator, redis_client::TTL_CREATOR).await;
     }
 
     Ok(creator)
@@ -53,9 +55,9 @@ pub async fn get_creator_by_username(state: &AppState, username: &str) -> Result
     state.performance.track_query(query, duration);
 
     // Populate cache if found.
-    if let (Some(ref c), Some(conn)) = (&creator, redis.as_ref()) {
+    if let (Some(ref c), Some(conn)) = (&creator, state.redis.as_ref()) {
         let mut conn = conn.clone();
-        redis_client::set(&mut conn, &keys::creator(username), c, redis_client::TTL_CREATOR).await;
+        let _ = redis_client::set(&mut conn, &keys::creator(username), c, redis_client::TTL_CREATOR).await;
     }
 
     Ok(creator)

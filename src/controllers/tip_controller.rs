@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
 use crate::models::tip::{RecordTipRequest, Tip};
+use crate::cache::{redis_client, keys};
 
 pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> Result<Tip> {
     let query = r#"
@@ -27,10 +28,10 @@ pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> Result<Tip> 
     state.performance.track_query(query, duration);
 
     // Invalidate the tip list cache for this creator since it's now stale.
-    if let Some(conn) = redis.as_ref() {
+    if let Some(conn) = state.redis.as_ref() {
         let mut conn = conn.clone();
         let tips_key = keys::creator_tips(&tip.creator_username);
-        redis_client::del(&mut conn, &[tips_key.as_str()]).await;
+        let _ = redis_client::del(&mut conn, &[tips_key.as_str()]).await;
     }
 
     Ok(tip)
@@ -55,9 +56,10 @@ pub async fn get_tips_for_creator(state: &AppState, username: &str) -> Result<Ve
     state.performance.track_query(query, duration);
 
     // Populate cache.
-    if let Some(conn) = redis.as_ref() {
+    if let Some(conn) = state.redis.as_ref() {
         let mut conn = conn.clone();
-        redis_client::set(&mut conn, &cache_key, &tips, redis_client::TTL_TIPS).await;
+        let cache_key = keys::creator_tips(username);
+        let _ = redis_client::set(&mut conn, &cache_key, &tips, redis_client::TTL_TIPS).await;
     }
 
     Ok(tips)
