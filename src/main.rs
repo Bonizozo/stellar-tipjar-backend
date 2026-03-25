@@ -1,4 +1,4 @@
-use axum::{Router, http::Method};
+use axum::{Router, http::Method, middleware};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,7 +14,6 @@ mod db;
 mod docs;
 mod middleware;
 mod models;
-mod middleware;
 mod routes;
 mod search;
 mod services;
@@ -77,28 +76,56 @@ async fn main() -> anyhow::Result<()> {
         .allow_headers(Any);
 
     // Build rate limiters and spawn background cleanup tasks for each.
-    let (general_config, general_limiter) = middleware::rate_limiter::general_limiter();
-    let (write_config, write_limiter) = middleware::rate_limiter::write_limiter();
-    middleware::rate_limiter::spawn_cleanup(&general_config);
-    middleware::rate_limiter::spawn_cleanup(&write_config);
+    let general_limiter_v1 = middleware::rate_limiter::general_limiter();
+    let write_limiter_v1 = middleware::rate_limiter::write_limiter();
+    let general_limiter_v2 = middleware::rate_limiter::general_limiter();
+    let write_limiter_v2 = middleware::rate_limiter::write_limiter();
 
-    // Write endpoints get a stricter per-IP limit.
-    let write_routes = Router::new()
-        .merge(routes::tips::router())
-        .merge(routes::creators::write_router())
-        .layer(write_limiter);
+    // v1 — deprecated. Injects Deprecation + Sunset headers on every response.
+    let v1 = Router::new()
+        .nest(
+            "/api/v1",
+            Router::new()
+                .merge(routes::admin::router(Arc::clone(&state)))
+                .merge(
+                    Router::new()
+                        .merge(routes::tips::router())
+                        .merge(routes::creators::write_router())
+                        .layer(write_limiter_v1),
+                )
+                .merge(
+                    Router::new()
+                        .merge(routes::creators::read_router())
+                        .merge(routes::health::router())
+                        .layer(general_limiter_v1),
+                ),
+        )
+        .layer(middleware::from_fn(middleware::deprecation::deprecation_notice));
 
-    // Read endpoints use the general limit.
-    let read_routes = Router::new()
-        .merge(routes::creators::read_router())
-        .merge(routes::health::router())
-        .layer(general_limiter);
+    // v2 — current stable version, no deprecation headers.
+    let v2 = Router::new().nest(
+        "/api/v2",
+        Router::new()
+            .merge(routes::admin::router(Arc::clone(&state)))
+            .merge(
+                Router::new()
+                    .merge(routes::tips::router())
+                    .merge(routes::creators::write_router())
+                    .layer(write_limiter_v2),
+            )
+            .merge(
+                Router::new()
+                    .merge(routes::creators::read_router())
+                    .merge(routes::health::router())
+                    .layer(general_limiter_v2),
+            ),
+    );
 
     let app = Router::new()
         .merge(SwaggerUi::new("/swagger-ui")
             .url("/api-docs/openapi.json", ApiDoc::openapi()))
-        .merge(write_routes)
-        .merge(read_routes)
+        .merge(v1)
+        .merge(v2)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .layer(middleware::timeout::timeout_layer_from_env())
