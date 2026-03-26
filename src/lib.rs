@@ -9,6 +9,7 @@ pub mod middleware;
 pub mod models;
 pub mod routes;
 pub mod search;
+pub mod security;
 pub mod services;
 pub mod shutdown;
 pub mod validation;

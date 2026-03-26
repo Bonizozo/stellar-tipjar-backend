@@ -19,6 +19,7 @@ mod logging;
 mod middleware;
 mod models;
 mod routes;
+mod security;
 mod webhooks;
 mod search;
 mod services;

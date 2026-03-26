@@ -1,5 +1,6 @@
 pub mod admin_auth;
 pub mod auth;
+pub mod authorization;
 pub mod cache;
 pub mod compression;
 pub mod deprecation;
