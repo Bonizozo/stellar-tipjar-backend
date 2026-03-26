@@ -2,9 +2,9 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 /// Initialise the global tracing subscriber.
 ///
-/// - `LOG_FORMAT=json`  → structured JSON output (recommended for production)
-/// - anything else      → human-readable pretty output (default for development)
-/// - `RUST_LOG`         → controls log level filter (default: `info`)
+/// - `LOG_FORMAT=json`                  → structured JSON output (production)
+/// - `OTEL_EXPORTER_OTLP_ENDPOINT=...`  → also exports spans via OTLP
+/// - `RUST_LOG`                         → log level filter (default: `info`)
 pub fn init() {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "stellar_tipjar_backend=debug,tower_http=debug,sqlx=warn".into());
@@ -13,7 +13,9 @@ pub fn init() {
         .map(|v| v.to_lowercase() == "json")
         .unwrap_or(false);
 
-    let registry = tracing_subscriber::registry().with(filter);
+    let otel_layer = crate::telemetry::init_tracer();
+
+    let registry = tracing_subscriber::registry().with(filter).with(otel_layer);
 
     if json_format {
         registry

@@ -50,6 +50,13 @@ async-graphql-axum = "7"
 tokio-stream = "0.1"
 async-trait = "0.1"
 
+# OpenTelemetry distributed tracing
+opentelemetry = { version = "0.22", features = ["trace"] }
+opentelemetry_sdk = { version = "0.22", features = ["rt-tokio", "trace"] }
+opentelemetry-otlp = { version = "0.15", features = ["grpc-tonic", "trace"] }
+opentelemetry-semantic-conventions = "0.14"
+tracing-opentelemetry = "0.23"
+
 [dev-dependencies]
 axum-test = "15"
 tokio = { version = "1", features = ["full"] }
