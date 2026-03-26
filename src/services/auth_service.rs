@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Result};
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 
+use crate::errors::{AppError, AppResult};
 use crate::models::auth::{AuthResponse, Claims};
 
 const ACCESS_TOKEN_SECS: i64 = 60 * 60 * 24;
@@ -12,7 +12,7 @@ fn jwt_secret() -> String {
 }
 
 #[tracing::instrument(skip_all, fields(username = %username))]
-pub fn generate_tokens(username: &str) -> Result<AuthResponse> {
+pub fn generate_tokens(username: &str) -> AppResult<AuthResponse> {
     let secret = jwt_secret();
     let now = Utc::now().timestamp() as usize;
 
@@ -34,13 +34,21 @@ pub fn generate_tokens(username: &str) -> Result<AuthResponse> {
         &Header::default(),
         &access_claims,
         &EncodingKey::from_secret(secret.as_bytes()),
-    )?;
+    )
+    .map_err(|e| {
+        tracing::error!(error = %e, "Token generation failed");
+        AppError::internal()
+    })?;
 
     let refresh_token = encode(
         &Header::default(),
         &refresh_claims,
         &EncodingKey::from_secret(secret.as_bytes()),
-    )?;
+    )
+    .map_err(|e| {
+        tracing::error!(error = %e, "Refresh token generation failed");
+        AppError::internal()
+    })?;
 
     tracing::debug!("Tokens generated");
     Ok(AuthResponse {
@@ -51,7 +59,7 @@ pub fn generate_tokens(username: &str) -> Result<AuthResponse> {
 }
 
 #[tracing::instrument(skip_all)]
-pub fn validate_token(token: &str, expected_kind: &str) -> Result<Claims> {
+pub fn validate_token(token: &str, expected_kind: &str) -> AppResult<Claims> {
     let secret = jwt_secret();
     let token_data = decode::<Claims>(
         token,
@@ -60,23 +68,33 @@ pub fn validate_token(token: &str, expected_kind: &str) -> Result<Claims> {
     )
     .map_err(|e| {
         tracing::warn!(error = %e, "Token validation failed");
-        anyhow!("Invalid token: {}", e)
+        AppError::Unauthorized {
+            message: "Invalid or expired token".to_string(),
+        }
     })?;
 
     if token_data.claims.kind != expected_kind {
         tracing::warn!(expected = %expected_kind, got = %token_data.claims.kind, "Wrong token kind");
-        return Err(anyhow!("Wrong token kind"));
+        return Err(AppError::Unauthorized {
+            message: "Invalid token kind".to_string(),
+        });
     }
 
     Ok(token_data.claims)
 }
 
 #[tracing::instrument(skip_all)]
-pub fn hash_password(password: &str) -> Result<String> {
-    bcrypt::hash(password, bcrypt::DEFAULT_COST).map_err(|e| anyhow!(e))
+pub fn hash_password(password: &str) -> AppResult<String> {
+    bcrypt::hash(password, bcrypt::DEFAULT_COST).map_err(|e| {
+        tracing::error!(error = %e, "Password hashing failed");
+        AppError::internal()
+    })
 }
 
 #[tracing::instrument(skip_all)]
-pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
-    bcrypt::verify(password, hash).map_err(|e| anyhow!(e))
+pub fn verify_password(password: &str, hash: &str) -> AppResult<bool> {
+    bcrypt::verify(password, hash).map_err(|e| {
+        tracing::error!(error = %e, "Password verification failed");
+        AppError::internal()
+    })
 }

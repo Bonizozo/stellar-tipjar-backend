@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::errors::{AppError, AppResult, StellarError};
 use super::circuit_breaker::CircuitBreaker;
 use super::retry::{with_retry, RetryConfig};
 
@@ -51,13 +52,13 @@ impl StellarService {
     pub async fn verify_transaction(
         &self,
         transaction_hash: &str,
-    ) -> anyhow::Result<bool> {
+    ) -> AppResult<bool> {
         if !self.circuit_breaker.allow_request() {
             tracing::warn!(
                 "Circuit breaker open; skipping verification for {}",
                 transaction_hash
             );
-            return Err(anyhow::anyhow!("Stellar service circuit breaker is open"));
+            return Err(AppError::Stellar(StellarError::CircuitBreakerOpen));
         }
 
         let horizon_base = if self.network == "mainnet" {
@@ -78,21 +79,22 @@ impl StellarService {
                     .get(&url)
                     .send()
                     .await
-                    .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
+                    .map_err(|_| AppError::Stellar(StellarError::NetworkUnavailable))?;
 
                 if resp.status().is_success() {
                     let tx: HorizonTransactionResponse = resp
                         .json()
                         .await
-                        .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+                        .map_err(|_| {
+                            AppError::Stellar(StellarError::InvalidTransaction {
+                                reason: "Malformed Horizon response".to_string(),
+                            })
+                        })?;
                     Ok(tx.successful)
                 } else if resp.status().as_u16() == 404 {
                     Ok(false)
                 } else {
-                    Err(anyhow::anyhow!(
-                        "Horizon returned status {}",
-                        resp.status()
-                    ))
+                    Err(AppError::Stellar(StellarError::NetworkUnavailable))
                 }
             }
         })
@@ -108,7 +110,7 @@ impl StellarService {
 
     /// Get the current health of the Stellar network connection.
     #[allow(dead_code)]
-    pub async fn get_network_health(&self) -> anyhow::Result<serde_json::Value> {
+    pub async fn get_network_health(&self) -> AppResult<serde_json::Value> {
         let req = SorobanRpcRequest {
             jsonrpc: "2.0".to_string(),
             id: 1,
@@ -121,9 +123,11 @@ impl StellarService {
             .post(&self.rpc_url)
             .json(&req)
             .send()
-            .await?
+            .await
+            .map_err(|_| AppError::Stellar(StellarError::NetworkUnavailable))?
             .json::<serde_json::Value>()
-            .await?;
+            .await
+            .map_err(|_| AppError::Stellar(StellarError::NetworkUnavailable))?;
 
         Ok(response)
     }

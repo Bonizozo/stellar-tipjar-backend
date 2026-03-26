@@ -2,11 +2,19 @@ use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use axum::{http::Method, Router};
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 mod cache;
 mod controllers;
 mod db;
 mod docs;
+mod email;
+mod errors;
+mod logging;
 mod middleware;
 mod models;
 mod routes;
@@ -14,6 +22,7 @@ mod webhooks;
 mod search;
 mod services;
 mod shutdown;
+mod validation;
 mod ws;
 
 use db::connection::AppState;

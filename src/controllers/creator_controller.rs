@@ -1,16 +1,16 @@
-use anyhow::Result;
 use std::time::Instant;
 use uuid::Uuid;
 
 use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
+use crate::errors::{AppError, AppResult, ValidationError};
 use crate::models::creator::{CreateCreatorRequest, Creator};
 use crate::search::SearchQuery;
 use crate::cache::{redis_client, keys};
 use sqlx::PgPool;
 
 #[tracing::instrument(skip(state), fields(username = %req.username))]
-pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> Result<Creator> {
+pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppResult<Creator> {
     let query = r#"
         INSERT INTO creators (id, username, wallet_address, email, created_at)
         VALUES ($1, $2, $3, $4, NOW())
@@ -38,17 +38,17 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> Resu
     }
 
     // Notify external services via webhook.
-    crate::webhooks::trigger_webhooks(
-        state.db.clone(), 
-        "creator.created", 
-        serde_json::to_value(&creator).unwrap()
-    ).await;
+    let payload = serde_json::to_value(&creator).map_err(|e| {
+        tracing::error!(error = %e, "Failed to serialize creator webhook payload");
+        AppError::internal()
+    })?;
+    crate::webhooks::trigger_webhooks(state.db.clone(), "creator.created", payload).await;
 
     Ok(creator)
 }
 
 #[tracing::instrument(skip(state), fields(username = %username))]
-pub async fn get_creator_by_username(state: &AppState, username: &str) -> Result<Option<Creator>> {
+pub async fn get_creator_by_username(state: &AppState, username: &str) -> AppResult<Option<Creator>> {
     let query = r#"
         SELECT id, username, wallet_address, email, created_at
         FROM creators
@@ -75,10 +75,23 @@ pub async fn get_creator_by_username(state: &AppState, username: &str) -> Result
     Ok(creator)
 }
 
+#[tracing::instrument(skip(state), fields(username = %username))]
+pub async fn get_creator_or_not_found(state: &AppState, username: &str) -> AppResult<Creator> {
+    let creator = get_creator_by_username(state, username).await?;
+    creator.ok_or_else(|| AppError::CreatorNotFound {
+        username: username.to_string(),
+    })
+}
+
 /// Search creators by username using PostgreSQL full-text search with trigram
 /// fuzzy fallback. Results are ranked by ts_rank descending.
-pub async fn search_creators(pool: &PgPool, query: &SearchQuery) -> Result<Vec<Creator>> {
+pub async fn search_creators(pool: &PgPool, query: &SearchQuery) -> AppResult<Vec<Creator>> {
     let term = query.q.trim().to_string();
+    if term.is_empty() {
+        return Err(AppError::Validation(ValidationError::InvalidRequest {
+            message: "Query parameter 'q' must not be empty".to_string(),
+        }));
+    }
     let limit = query.clamped_limit();
 
     let creators = sqlx::query_as::<_, Creator>(
@@ -101,3 +114,8 @@ pub async fn search_creators(pool: &PgPool, query: &SearchQuery) -> Result<Vec<C
 
     Ok(creators)
 }
+
+
+
+
+

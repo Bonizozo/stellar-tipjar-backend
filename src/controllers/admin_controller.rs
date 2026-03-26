@@ -1,12 +1,12 @@
-use anyhow::Result;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::errors::AppResult;
 use crate::models::admin::{AuditLog, StatsResponse};
 
 // ── Statistics ────────────────────────────────────────────────────────────────
 
-pub async fn get_stats(pool: &PgPool) -> Result<StatsResponse> {
+pub async fn get_stats(pool: &PgPool) -> AppResult<StatsResponse> {
     let total_creators = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM creators")
         .fetch_one(pool)
         .await?;
@@ -31,7 +31,7 @@ pub async fn get_stats(pool: &PgPool) -> Result<StatsResponse> {
 
 // ── Creator moderation ────────────────────────────────────────────────────────
 
-pub async fn delete_creator(pool: &PgPool, username: &str) -> Result<bool> {
+pub async fn delete_creator(pool: &PgPool, username: &str) -> AppResult<bool> {
     let result = sqlx::query("DELETE FROM creators WHERE username = $1")
         .bind(username)
         .execute(pool)
@@ -49,7 +49,7 @@ pub async fn write_audit_log(
     target_type: Option<&str>,
     target_id: Option<&str>,
     detail: Option<&str>,
-) -> Result<()> {
+) -> AppResult<()> {
     sqlx::query(
         r#"
         INSERT INTO audit_logs (id, admin_username, action, target_type, target_id, detail, created_at)
@@ -68,7 +68,7 @@ pub async fn write_audit_log(
     Ok(())
 }
 
-pub async fn get_audit_logs(pool: &PgPool, limit: i64) -> Result<Vec<AuditLog>> {
+pub async fn get_audit_logs(pool: &PgPool, limit: i64) -> AppResult<Vec<AuditLog>> {
     let logs = sqlx::query_as::<_, AuditLog>(
         r#"
         SELECT id, admin_username, action, target_type, target_id, detail, created_at
@@ -89,7 +89,7 @@ pub async fn get_audit_logs(pool: &PgPool, limit: i64) -> Result<Vec<AuditLog>> 
 pub async fn get_admin_username_by_key_hash(
     pool: &PgPool,
     key_hash: &str,
-) -> Result<Option<String>> {
+) -> AppResult<Option<String>> {
     let username = sqlx::query_scalar::<_, String>(
         "SELECT username FROM admin_users WHERE api_key_hash = $1",
     )

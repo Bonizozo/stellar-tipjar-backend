@@ -9,6 +9,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::db::connection::AppState;
+use crate::errors::AppError;
 use crate::models::auth::{AuthResponse, LoginRequest, RefreshRequest, RegisterRequest};
 use crate::models::creator::Creator;
 use crate::services::auth_service;
@@ -36,20 +37,14 @@ pub fn router() -> Router<Arc<AppState>> {
 async fn register(
     State(state): State<Arc<AppState>>,
     ValidatedJson(body): ValidatedJson<RegisterRequest>,
-) -> impl IntoResponse {
-    let password_hash = match auth_service::hash_password(&body.password) {
-        Ok(h) => h,
-        Err(e) => {
-            tracing::error!("Password hashing failed: {}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "Internal server error" })),
-            )
-                .into_response();
-        }
-    };
+) -> Result<impl IntoResponse, AppError> {
+    let password_hash = auth_service::hash_password(&body.password)
+        .map_err(|e| {
+            tracing::error!(error = %e, "Password hashing failed");
+            AppError::internal()
+        })?;
 
-    let result = sqlx::query_as::<_, Creator>(
+    let creator = sqlx::query_as::<_, Creator>(
         r#"
         INSERT INTO creators (id, username, wallet_address, password_hash, created_at)
         VALUES ($1, $2, $3, $4, NOW())
@@ -61,34 +56,26 @@ async fn register(
     .bind(&body.wallet_address)
     .bind(&password_hash)
     .fetch_one(&state.db)
-    .await;
-
-    match result {
-        Ok(creator) => match auth_service::generate_tokens(&creator.username) {
-            Ok(tokens) => (StatusCode::CREATED, Json(serde_json::json!(tokens))).into_response(),
-            Err(e) => {
-                tracing::error!("Token generation failed: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": "Internal server error" })),
-                )
-                    .into_response()
+    .await
+    .map_err(|e| {
+        if let sqlx::Error::Database(db_err) = &e {
+            if db_err.code().as_deref() == Some("23505") {
+                return AppError::Conflict {
+                    code: "USERNAME_TAKEN",
+                    message: "Username already taken".to_string(),
+                };
             }
-        },
-        Err(e) if e.to_string().contains("unique") || e.to_string().contains("duplicate") => (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": "Username already taken" })),
-        )
-            .into_response(),
-        Err(e) => {
-            tracing::error!("Registration failed: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "Internal server error" })),
-            )
-                .into_response()
         }
-    }
+        tracing::error!(error = %e, "Registration failed");
+        AppError::from(e)
+    })?;
+
+    let tokens = auth_service::generate_tokens(&creator.username).map_err(|e| {
+        tracing::error!(error = %e, "Token generation failed");
+        AppError::internal()
+    })?;
+
+    Ok((StatusCode::CREATED, Json(serde_json::json!(tokens))).into_response())
 }
 
 /// Login with username and password
@@ -106,7 +93,7 @@ async fn register(
 async fn login(
     State(state): State<Arc<AppState>>,
     ValidatedJson(body): ValidatedJson<LoginRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, AppError> {
     let row = sqlx::query_as::<_, Creator>(
         "SELECT id, username, wallet_address, password_hash, created_at FROM creators WHERE username = $1",
     )
@@ -116,49 +103,27 @@ async fn login(
 
     let creator = match row {
         Ok(Some(c)) => c,
-        Ok(None) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "Invalid credentials" })),
-            )
-                .into_response()
-        }
+        Ok(None) => return Err(AppError::unauthorized("Invalid credentials")),
         Err(e) => {
-            tracing::error!("Login DB error: {}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "Internal server error" })),
-            )
-                .into_response();
+            tracing::error!(error = %e, "Login DB error");
+            return Err(AppError::from(e));
         }
     };
 
-    match auth_service::verify_password(&body.password, &creator.password_hash) {
-        Ok(true) => match auth_service::generate_tokens(&creator.username) {
-            Ok(tokens) => (StatusCode::OK, Json(serde_json::json!(tokens))).into_response(),
-            Err(e) => {
-                tracing::error!("Token generation failed: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": "Internal server error" })),
-                )
-                    .into_response()
-            }
-        },
-        Ok(false) => (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": "Invalid credentials" })),
-        )
-            .into_response(),
-        Err(e) => {
-            tracing::error!("Password verification error: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "Internal server error" })),
-            )
-                .into_response()
-        }
+    let valid = auth_service::verify_password(&body.password, &creator.password_hash).map_err(|e| {
+        tracing::error!(error = %e, "Password verification error");
+        AppError::internal()
+    })?;
+    if !valid {
+        return Err(AppError::unauthorized("Invalid credentials"));
     }
+
+    let tokens = auth_service::generate_tokens(&creator.username).map_err(|e| {
+        tracing::error!(error = %e, "Token generation failed");
+        AppError::internal()
+    })?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!(tokens))).into_response())
 }
 
 /// Refresh access token using a valid refresh token
@@ -172,23 +137,14 @@ async fn login(
         (status = 401, description = "Invalid or expired refresh token")
     )
 )]
-async fn refresh(ValidatedJson(body): ValidatedJson<RefreshRequest>) -> impl IntoResponse {
-    match auth_service::validate_token(&body.refresh_token, "refresh") {
-        Ok(claims) => match auth_service::generate_tokens(&claims.sub) {
-            Ok(tokens) => (StatusCode::OK, Json(serde_json::json!(tokens))).into_response(),
-            Err(e) => {
-                tracing::error!("Token generation failed: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": "Internal server error" })),
-                )
-                    .into_response()
-            }
-        },
-        Err(_) => (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": "Invalid or expired refresh token" })),
-        )
-            .into_response(),
-    }
+async fn refresh(ValidatedJson(body): ValidatedJson<RefreshRequest>) -> Result<impl IntoResponse, AppError> {
+    let claims = auth_service::validate_token(&body.refresh_token, "refresh")
+        .map_err(|_| AppError::unauthorized("Invalid or expired refresh token"))?;
+
+    let tokens = auth_service::generate_tokens(&claims.sub).map_err(|e| {
+        tracing::error!(error = %e, "Token generation failed");
+        AppError::internal()
+    })?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!(tokens))).into_response())
 }

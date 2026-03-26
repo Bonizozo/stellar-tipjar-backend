@@ -30,6 +30,14 @@ redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 reqwest = { version = "0.12", features = ["json"] }
 thiserror = "1"
 anyhow = "1"
+validator = { version = "0.18", features = ["derive"] }
+bcrypt = "0.15"
+jsonwebtoken = "9"
+regex = "1"
+lazy_static = "1"
+tera = "1"
+lettre = { version = "0.11", default-features = false, features = ["tokio1-native-tls", "smtp-transport", "builder", "hostname", "pool"] }
+csv = "1"
 sha2 = "0.10"
 hmac = "0.12"
 hex = "0.4"

@@ -3,12 +3,16 @@ pub mod controllers;
 pub mod db;
 pub mod docs;
 pub mod email;
+pub mod errors;
 pub mod middleware;
 pub mod models;
 pub mod routes;
 pub mod search;
 pub mod services;
 pub mod shutdown;
+pub mod validation;
+pub mod webhooks;
+pub mod ws;
 
 use axum::{Router, http::Method};
 use std::sync::Arc;

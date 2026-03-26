@@ -1,11 +1,10 @@
 use axum::{
     extract::Request,
-    http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
 };
 
+use crate::errors::AppError;
 use crate::services::auth_service;
 
 /// Axum middleware that validates a Bearer JWT in the Authorization header.
@@ -19,11 +18,7 @@ pub async fn require_auth(mut req: Request, next: Next) -> Response {
         .map(|s| s.to_owned());
 
     let Some(token) = token else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": "Missing Authorization header" })),
-        )
-            .into_response();
+        return AppError::unauthorized("Missing Authorization header").into_response();
     };
 
     match auth_service::validate_token(&token, "access") {
@@ -31,10 +26,6 @@ pub async fn require_auth(mut req: Request, next: Next) -> Response {
             req.extensions_mut().insert(claims);
             next.run(req).await
         }
-        Err(_) => (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": "Invalid or expired token" })),
-        )
-            .into_response(),
+        Err(_) => AppError::unauthorized("Invalid or expired token").into_response(),
     }
 }
