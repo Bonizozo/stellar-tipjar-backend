@@ -1,14 +1,13 @@
 use axum::{
     extract::{Request, State},
-    http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 use crate::db::connection::AppState;
+use crate::errors::AppError;
 
 /// Axum middleware that validates the `X-Admin-Key` header against hashed
 /// keys stored in the `admin_users` table.
@@ -24,29 +23,24 @@ pub async fn require_admin(
         .map(|s| s.to_owned());
 
     let Some(raw_key) = key else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": "Missing X-Admin-Key header" })),
-        )
-            .into_response();
+        return AppError::unauthorized("Missing X-Admin-Key header").into_response();
     };
 
     let hash = format!("{:x}", Sha256::digest(raw_key.as_bytes()));
 
-    let exists = sqlx::query_scalar::<_, bool>(
+    let exists = match sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM admin_users WHERE api_key_hash = $1)",
     )
     .bind(&hash)
     .fetch_one(&state.db)
     .await
-    .unwrap_or(false);
+    {
+        Ok(found) => found,
+        Err(e) => return AppError::from(e).into_response(),
+    };
 
     if !exists {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": "Invalid admin key" })),
-        )
-            .into_response();
+        return AppError::unauthorized("Invalid admin key").into_response();
     }
 
     next.run(req).await

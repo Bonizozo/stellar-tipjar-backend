@@ -13,4 +13,5 @@ pub struct AppState {
     pub stellar: StellarService,
     pub performance: Arc<PerformanceMonitor>,
     pub redis: Option<ConnectionManager>,
+    pub broadcast_tx: broadcast::Sender<TipEvent>,
 }

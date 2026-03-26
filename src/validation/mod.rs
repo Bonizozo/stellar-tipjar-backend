@@ -3,12 +3,12 @@ pub mod stellar;
 
 use axum::{
     extract::{rejection::JsonRejection, FromRequest, Request},
-    http::StatusCode,
-    response::{IntoResponse, Response},
     Json,
 };
 use serde::de::DeserializeOwned;
 use validator::Validate;
+
+use crate::errors::{AppError, ValidationError};
 
 /// A drop-in replacement for `axum::Json` that also runs `validator::Validate`
 /// on the deserialized body, returning a structured 400 on failure.
@@ -20,16 +20,16 @@ where
     S: Send + Sync,
     Json<T>: FromRequest<S, Rejection = JsonRejection>,
 {
-    type Rejection = Response;
+    type Rejection = AppError;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let Json(value) = Json::<T>::from_request(req, state).await.map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
-        })?;
+        let Json(value) = Json::<T>::from_request(req, state)
+            .await
+            .map_err(|e: JsonRejection| {
+                ValidationError::InvalidJson {
+                    reason: e.to_string(),
+                }
+            })?;
 
         value.validate().map_err(|errors| {
             // Flatten validator errors into a simple field -> [messages] map.
@@ -50,11 +50,7 @@ where
                 })
                 .collect();
 
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "errors": fields })),
-            )
-                .into_response()
+            AppError::Validation(ValidationError::InvalidFields { fields })
         })?;
 
         Ok(ValidatedJson(value))

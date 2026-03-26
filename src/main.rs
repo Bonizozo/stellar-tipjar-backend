@@ -3,22 +3,39 @@ use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use axum::{http::Method, Router};
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
+mod analytics;
 mod cache;
 mod controllers;
+mod cqrs;
 mod db;
 mod docs;
+mod email;
+mod errors;
+mod events;
+mod graphql;
+mod logging;
 mod middleware;
 mod models;
 mod routes;
+mod saga;
+mod security;
 mod webhooks;
 mod search;
 mod services;
 mod shutdown;
+mod telemetry;
+mod validation;
 mod ws;
 
 use db::connection::AppState;
 use docs::ApiDoc;
+use graphql::schema::{graphql_handler, graphql_ws_handler};
 use services::stellar_service::StellarService;
 use tokio::sync::broadcast;
 
@@ -86,9 +103,16 @@ async fn main() -> anyhow::Result<()> {
         stellar,
         performance,
         redis,
+        broadcast_tx,
     });
 
-    let cors = config::cors::cors_layer_from_env();
+    // Start the real-time analytics pipeline as a background task.
+    analytics::stream_processor::spawn(Arc::clone(&state));
+
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_origin(Any)
+        .allow_headers(Any);
 
     // Build rate limiters and spawn background cleanup tasks for each.
     let general_limiter_v1 = middleware::rate_limiter::general_limiter();
@@ -138,14 +162,19 @@ async fn main() -> anyhow::Result<()> {
 
     let x_request_id = axum::http::HeaderName::from_static("x-request-id");
 
+    let gql_schema = graphql::schema::build_schema(Arc::clone(&state));
+
     let app = Router::new()
         .route("/ws", axum::routing::get(ws::ws_handler))
+        .route("/graphql", axum::routing::post(graphql_handler).get(graphql_ws_handler))
         .merge(SwaggerUi::new("/swagger-ui")
             .url("/api-docs/openapi.json", ApiDoc::openapi()))
         .merge(v1)
         .merge(v2)
+        .layer(axum::Extension(gql_schema))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(middleware::tracing::trace_request))
         .layer(axum::middleware::from_fn(middleware::cache::cache_control))
         .layer(middleware::timeout::timeout_layer_from_env())
         .with_state(state);

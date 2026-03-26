@@ -57,7 +57,7 @@ pub async fn create_test_app(pool: PgPool) -> (Router, String) {
         stellar,
         performance,
         redis,
-        email: email_sender,
+        broadcast_tx: tokio::sync::broadcast::channel(16).0,
     });
 
     (create_app(state), "mock_token".into())
