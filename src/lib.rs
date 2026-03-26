@@ -8,6 +8,7 @@ pub mod graphql;
 pub mod middleware;
 pub mod models;
 pub mod routes;
+pub mod saga;
 pub mod search;
 pub mod security;
 pub mod services;
