@@ -4,6 +4,7 @@ pub mod db;
 pub mod docs;
 pub mod email;
 pub mod errors;
+pub mod graphql;
 pub mod middleware;
 pub mod models;
 pub mod routes;

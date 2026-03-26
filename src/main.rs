@@ -14,6 +14,7 @@ mod db;
 mod docs;
 mod email;
 mod errors;
+mod graphql;
 mod logging;
 mod middleware;
 mod models;
@@ -27,6 +28,7 @@ mod ws;
 
 use db::connection::AppState;
 use docs::ApiDoc;
+use graphql::schema::{graphql_handler, graphql_ws_handler};
 use services::stellar_service::StellarService;
 use tokio::sync::broadcast;
 
@@ -94,6 +96,7 @@ async fn main() -> anyhow::Result<()> {
         stellar,
         performance,
         redis,
+        broadcast_tx,
     });
 
     let cors = CorsLayer::new()
@@ -149,12 +152,16 @@ async fn main() -> anyhow::Result<()> {
 
     let x_request_id = axum::http::HeaderName::from_static("x-request-id");
 
+    let gql_schema = graphql::schema::build_schema(Arc::clone(&state));
+
     let app = Router::new()
         .route("/ws", axum::routing::get(ws::ws_handler))
+        .route("/graphql", axum::routing::post(graphql_handler).get(graphql_ws_handler))
         .merge(SwaggerUi::new("/swagger-ui")
             .url("/api-docs/openapi.json", ApiDoc::openapi()))
         .merge(v1)
         .merge(v2)
+        .layer(axum::Extension(gql_schema))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(middleware::cache::cache_control))
