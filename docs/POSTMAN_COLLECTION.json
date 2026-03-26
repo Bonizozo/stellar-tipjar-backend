@@ -1,0 +1,134 @@
+{
+  "info": {
+    "_postman_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Nova Launch TipJar API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Check Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Creators",
+      "item": [
+        {
+          "name": "Create Creator",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"alice\",\n    \"wallet_address\": \"GABC...\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/creators",
+              "host": ["{{base_url}}"],
+              "path": ["creators"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Creator",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/creators/alice",
+              "host": ["{{base_url}}"],
+              "path": ["creators", "alice"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Search Creators",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/creators/search?q=ali",
+              "host": ["{{base_url}}"],
+              "path": ["creators", "search"],
+              "query": [
+                { "key": "q", "value": "ali" }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Tips",
+      "item": [
+        {
+          "name": "Record Tip",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"alice\",\n    \"amount\": \"10.5\",\n    \"transaction_hash\": \"abc123...\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/tips",
+              "host": ["{{base_url}}"],
+              "path": ["tips"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Creator Tips",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/creators/alice/tips",
+              "host": ["{{base_url}}"],
+              "path": ["creators", "alice", "tips"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": { "type": "text/javascript", "exec": [""] }
+    },
+    {
+      "listen": "test",
+      "script": { "type": "text/javascript", "exec": [""] }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    }
+  ]
+}

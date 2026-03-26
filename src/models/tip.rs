@@ -2,8 +2,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
+use validator::Validate;
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Tip {
     pub id: Uuid,
     pub creator_username: String,
@@ -13,25 +14,37 @@ pub struct Tip {
 }
 
 /// Request body for recording a tip
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct RecordTipRequest {
     /// Username of the creator receiving the tip
+    #[validate(length(min = 3, max = 30, message = "Username must be between 3 and 30 characters"))]
     pub username: String,
-    /// Amount in XLM (e.g. "10.5")
+
+    /// Amount in XLM (e.g. "10.5"), positive, max 7 decimal places
+    #[validate(custom(function = "crate::validation::amount::validate_xlm_amount"))]
     pub amount: String,
-    /// Stellar transaction hash to verify on-chain
+
+    /// Stellar transaction hash — 64 hex characters
+    #[validate(length(equal = 64, message = "Transaction hash must be exactly 64 characters"))]
+    #[validate(custom(function = "validate_tx_hash"))]
     pub transaction_hash: String,
+}
+
+fn validate_tx_hash(hash: &str) -> Result<(), validator::ValidationError> {
+    if !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        let mut e = validator::ValidationError::new("invalid_tx_hash");
+        e.message = Some("Transaction hash must contain only hexadecimal characters".into());
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// Tip record response
 #[derive(Debug, Serialize, ToSchema)]
 pub struct TipResponse {
-    /// Unique identifier
     pub id: Uuid,
     pub creator_username: String,
-    /// Amount in XLM
     pub amount: String,
-    /// Verified Stellar transaction hash
     pub transaction_hash: String,
     pub created_at: DateTime<Utc>,
 }

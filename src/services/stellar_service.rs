@@ -23,6 +23,7 @@ pub struct SorobanRpcRequest {
     pub params: serde_json::Value,
 }
 
+#[derive(Clone)]
 pub struct StellarService {
     client: Client,
     #[allow(dead_code)]

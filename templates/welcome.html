@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f7fafc; color: #2d3748; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); border: 1px solid #e2e8f0; }
+        .header { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 48px 32px; text-align: center; }
+        .header h1 { color: #ffffff; margin: 0; font-size: 28px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; }
+        .content { padding: 40px; line-height: 1.6; }
+        .welcome-badge { background-color: #ebf4ff; color: #2b6cb0; padding: 8px 16px; border-radius: 9999px; font-weight: 700; font-size: 14px; text-transform: uppercase; display: inline-block; margin-bottom: 16px; }
+        .footer { background-color: #f8fafc; padding: 24px; text-align: center; font-size: 14px; color: #718096; border-top: 1px solid #e2e8f0; }
+        .button { display: inline-block; background-color: #4f46e5; color: #ffffff !important; padding: 14px 40px; text-decoration: none; border-radius: 12px; font-weight: 600; transition: all 0.2s; box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.4); margin: 30px 0; }
+        .highlight { color: #4f46e5; font-weight: 700; }
+        .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 40px; }
+        .feature-item { text-align: left; padding: 15px; border-radius: 8px; background-color: #f9fafb; border: 1px solid #f3f4f6; }
+        .feature-item strong { display: block; margin-bottom: 5px; color: #4338ca; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Welcome to TipJar</h1>
+        </div>
+        <div class="content">
+            <div class="welcome-badge">Welcome Onboard! ✨</div>
+            <p>Hey there <span class="highlight">@{{ username }}</span>,</p>
+            <p>Welcome to the Stellar TipJar community! We're thrilled to have you here. Your journey to seamless, on-chain support for your work starts now.</p>
+            
+            <div style="text-align: center;">
+                <a href="#" class="button">Go to Dashboard</a>
+            </div>
+
+            <div class="feature-grid">
+                <div class="feature-item">
+                    <strong>🚀 Fast Tips</strong>
+                    Get tipped instantly across the Stellar network.
+                </div>
+                <div class="feature-item">
+                    <strong>🛡️ Secure</strong>
+                    On-chain verification for every single transaction.
+                </div>
+                <div class="feature-item">
+                    <strong>📊 Real-time</strong>
+                    Track your growth with live stats and notifications.
+                </div>
+                <div class="feature-item">
+                    <strong>🎨 Customize</strong>
+                    Make your profile stand out and represent your brand.
+                </div>
+            </div>
+
+            <p style="margin-top: 40px;">Ready to start? If you have any questions, simply reply to this email.</p>
+        </div>
+        <div class="footer">
+            &copy; 2026 Nova Launch &bull; Stellar TipJar Backend
+        </div>
+    </div>
+</body>
+</html>

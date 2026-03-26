@@ -37,7 +37,8 @@ fn build_layer(
             .unwrap(),
     );
 
-    // Spawn a background task to prune stale entries every 60 seconds.
+    // Spawn a background task to prune stale entries every 60 seconds internally.
+    // This allows main.rs to stay clean without tracking configs.
     let limiter = config.limiter().clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));

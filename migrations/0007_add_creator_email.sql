@@ -1,0 +1,1 @@
+ALTER TABLE creators ADD COLUMN email TEXT;

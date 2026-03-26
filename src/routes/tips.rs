@@ -10,7 +10,6 @@ use std::sync::Arc;
 use crate::controllers::tip_controller;
 use crate::db::connection::AppState;
 use crate::models::tip::{RecordTipRequest, TipResponse};
-use crate::metrics::collectors::TIPS_CREATED_TOTAL;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/tips", post(record_tip))
@@ -62,8 +61,6 @@ pub async fn record_tip(
 
     match tip_controller::record_tip(&state, body).await {
         Ok(tip) => {
-            TIPS_CREATED_TOTAL.inc();
-
             let response: TipResponse = tip.into();
             (StatusCode::CREATED, Json(serde_json::json!(response))).into_response()
         }
