@@ -2,7 +2,7 @@ pub use redis::aio::ConnectionManager;
 use redis::{AsyncCommands, RedisError};
 
 pub const TTL_CREATOR: u64 = 300; // 5 minutes
-pub const TTL_TIPS: u64 = 60;     // 1 minute
+pub const TTL_TIPS: u64 = 60; // 1 minute
 
 /// Attempt to get a cached JSON value. Returns None on miss or any Redis error.
 pub async fn get<T>(conn: &mut ConnectionManager, key: &str) -> Option<T>
