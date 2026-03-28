@@ -1,7 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use crate::models::{creator::Creator, tip::Tip};
 use async_graphql::dataloader::Loader;
 use sqlx::PgPool;
-use crate::models::{creator::Creator, tip::Tip};
+use std::{collections::HashMap, sync::Arc};
 
 pub struct CreatorLoader {
     pub pool: PgPool,
@@ -20,7 +20,10 @@ impl Loader<String> for CreatorLoader {
         .await
         .map_err(Arc::new)?;
 
-        Ok(creators.into_iter().map(|c| (c.username.clone(), c)).collect())
+        Ok(creators
+            .into_iter()
+            .map(|c| (c.username.clone(), c))
+            .collect())
     }
 }
 
@@ -43,7 +46,9 @@ impl Loader<String> for TipLoader {
 
         let mut map: HashMap<String, Vec<Tip>> = HashMap::new();
         for tip in tips {
-            map.entry(tip.creator_username.clone()).or_default().push(tip);
+            map.entry(tip.creator_username.clone())
+                .or_default()
+                .push(tip);
         }
         Ok(map)
     }

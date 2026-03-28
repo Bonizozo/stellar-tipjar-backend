@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
+use super::{aggregators, anomaly_detector};
 use crate::db::connection::AppState;
 use crate::ws::TipEvent;
-use super::{aggregators, anomaly_detector};
 
 /// Spawns a background task that consumes `TipEvent`s from the broadcast channel
 /// and drives the analytics pipeline (aggregation + anomaly detection).
@@ -26,12 +26,16 @@ async fn run(state: Arc<AppState>, mut rx: broadcast::Receiver<TipEvent>) {
 
 async fn process(state: &AppState, event: TipEvent) {
     // 1. Update per-creator aggregate stats.
-    if let Err(e) = aggregators::update_creator_stats(&state.db, &event.creator_id, event.amount).await {
+    if let Err(e) =
+        aggregators::update_creator_stats(&state.db, &event.creator_id, event.amount).await
+    {
         tracing::error!(error = %e, "Failed to update creator stats");
     }
 
     // 2. Check for anomalies against the freshly updated baseline.
-    if let Err(e) = anomaly_detector::check_and_log(&state.db, &event.creator_id, event.amount).await {
+    if let Err(e) =
+        anomaly_detector::check_and_log(&state.db, &event.creator_id, event.amount).await
+    {
         tracing::error!(error = %e, "Anomaly detection failed");
     }
 }

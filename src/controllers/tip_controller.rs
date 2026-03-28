@@ -1,15 +1,14 @@
 use std::time::Instant;
 use uuid::Uuid;
 
+use crate::cache::{keys, redis_client};
 use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
+use crate::db::transaction;
 use crate::errors::{AppError, AppResult};
-use crate::moderation::ContentType;
+use crate::metrics::collectors::DB_QUERY_DURATION_SECONDS; // Kept from your branch
 use crate::models::pagination::{PaginatedResponse, PaginationParams};
 use crate::models::tip::{RecordTipRequest, Tip};
-use crate::cache::{redis_client, keys};
-use crate::metrics::collectors::DB_QUERY_DURATION_SECONDS; // Kept from your branch
-use crate::db::transaction;
 
 #[tracing::instrument(skip(state), fields(username = %req.username, amount = %req.amount))]
 pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Tip> {
@@ -57,8 +56,9 @@ pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Ti
     crate::webhooks::trigger_webhooks(
         state.db.clone(),
         "tip.recorded",
-        serde_json::to_value(&tip).unwrap()
-    ).await;
+        serde_json::to_value(&tip).unwrap(),
+    )
+    .await;
     // Notify external services via webhook.
     let payload = serde_json::to_value(&tip).map_err(|e| {
         tracing::error!(error = %e, "Failed to serialize tip webhook payload");
@@ -153,12 +153,10 @@ pub async fn get_tips_paginated(
 ) -> AppResult<PaginatedResponse<Tip>> {
     let params = params.validated();
 
-    let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tips WHERE creator_username = $1",
-    )
-    .bind(username)
-    .fetch_one(&state.db)
-    .await?;
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tips WHERE creator_username = $1")
+        .bind(username)
+        .fetch_one(&state.db)
+        .await?;
 
     let start = Instant::now();
     let tips = sqlx::query_as::<_, Tip>(

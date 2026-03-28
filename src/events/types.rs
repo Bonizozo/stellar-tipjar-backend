@@ -25,7 +25,7 @@ impl Event {
     pub fn event_type(&self) -> &'static str {
         match self {
             Event::CreatorRegistered { .. } => "creator_registered",
-            Event::TipReceived { .. }       => "tip_received",
+            Event::TipReceived { .. } => "tip_received",
         }
     }
 
@@ -39,7 +39,7 @@ impl Event {
     pub fn timestamp(&self) -> DateTime<Utc> {
         match self {
             Event::CreatorRegistered { timestamp, .. } => *timestamp,
-            Event::TipReceived { timestamp, .. }       => *timestamp,
+            Event::TipReceived { timestamp, .. } => *timestamp,
         }
     }
 }

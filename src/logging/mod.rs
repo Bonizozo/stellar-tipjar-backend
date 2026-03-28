@@ -22,8 +22,6 @@ pub fn init() {
             .with(tracing_subscriber::fmt::layer().json().flatten_event(true))
             .init();
     } else {
-        registry
-            .with(tracing_subscriber::fmt::layer())
-            .init();
+        registry.with(tracing_subscriber::fmt::layer()).init();
     }
 }

@@ -1,13 +1,13 @@
 use std::time::Instant;
 use uuid::Uuid;
 
+use crate::cache::{keys, redis_client};
 use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
 use crate::errors::{AppError, AppResult, ValidationError};
 use crate::moderation::ContentType;
 use crate::models::creator::{CreateCreatorRequest, Creator};
 use crate::search::SearchQuery;
-use crate::cache::{keys, redis_client};
 
 #[tracing::instrument(skip(state), fields(username = %req.username))]
 pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppResult<Creator> {
@@ -45,15 +45,22 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppR
     // Cache the new creator
     if let Some(conn) = state.redis.as_ref() {
         let mut conn = conn.clone();
-        let _ = redis_client::set(&mut conn, &keys::creator(&creator.username), &creator, redis_client::TTL_CREATOR).await;
+        let _ = redis_client::set(
+            &mut conn,
+            &keys::creator(&creator.username),
+            &creator,
+            redis_client::TTL_CREATOR,
+        )
+        .await;
     }
 
     // Main branch added Webhook notification
     crate::webhooks::trigger_webhooks(
         state.db.clone(),
         "creator.created",
-        serde_json::to_value(&creator).unwrap()
-    ).await;
+        serde_json::to_value(&creator).unwrap(),
+    )
+    .await;
     // Notify external services via webhook.
     let payload = serde_json::to_value(&creator).map_err(|e| {
         tracing::error!(error = %e, "Failed to serialize creator webhook payload");
@@ -65,7 +72,10 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppR
 }
 
 #[tracing::instrument(skip(state), fields(username = %username))]
-pub async fn get_creator_by_username(state: &AppState, username: &str) -> AppResult<Option<Creator>> {
+pub async fn get_creator_by_username(
+    state: &AppState,
+    username: &str,
+) -> AppResult<Option<Creator>> {
     let query = r#"
         SELECT id, username, wallet_address, email, created_at
         FROM creators
@@ -81,12 +91,22 @@ pub async fn get_creator_by_username(state: &AppState, username: &str) -> AppRes
 
     QueryLogger::log_query(query, duration);
     state.performance.track_query(query, duration);
-    tracing::debug!(duration_ms = duration.as_millis(), found = creator.is_some(), "Creator lookup");
+    tracing::debug!(
+        duration_ms = duration.as_millis(),
+        found = creator.is_some(),
+        "Creator lookup"
+    );
 
     // Populate cache if found.
     if let (Some(ref c), Some(conn)) = (&creator, state.redis.as_ref()) {
         let mut conn = conn.clone();
-        let _ = redis_client::set(&mut conn, &keys::creator(username), c, redis_client::TTL_CREATOR).await;
+        let _ = redis_client::set(
+            &mut conn,
+            &keys::creator(username),
+            c,
+            redis_client::TTL_CREATOR,
+        )
+        .await;
     }
 
     Ok(creator)
@@ -131,8 +151,3 @@ pub async fn search_creators(pool: &PgPool, query: &SearchQuery) -> AppResult<Ve
 
     Ok(creators)
 }
-
-
-
-
-

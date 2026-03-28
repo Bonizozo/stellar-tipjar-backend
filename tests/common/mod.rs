@@ -1,33 +1,30 @@
 pub mod fixtures;
-use sqlx::{PgPool, postgres::PgPoolOptions};
-use std::time::Duration;
+use axum::Router;
+use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
+use std::time::Duration;
 use stellar_tipjar_backend::db::connection::AppState;
 use stellar_tipjar_backend::services::stellar_service::StellarService;
-use stellar_tipjar_backend::{cache, db, email, create_app};
-use axum::Router;
+use stellar_tipjar_backend::{cache, create_app, db, email};
 
 pub async fn setup_test_db() -> PgPool {
     dotenvy::from_filename(".env.test").ok();
     dotenvy::dotenv().ok(); // Fallback to .env
-    
+
     let database_url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("TEST_DATABASE_URL or DATABASE_URL must be set");
-    
+
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .acquire_timeout(Duration::from_secs(3))
         .connect(&database_url)
         .await
         .unwrap();
-    
+
     // Run migrations
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .unwrap();
-    
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
     pool
 }
 
@@ -46,10 +43,10 @@ pub async fn create_test_app(pool: PgPool) -> (Router, String) {
 
     let stellar = StellarService::new(stellar_rpc_url, stellar_network);
     let performance = Arc::new(db::performance::PerformanceMonitor::new());
-    
+
     // Mock redis (or just let it fail/disable)
     let redis = None;
-    
+
     // Initialize email system
     let (email_sender, _email_rx) = email::sender::EmailSender::new();
     let email_sender = Arc::new(email_sender);
@@ -65,16 +62,19 @@ pub async fn create_test_app(pool: PgPool) -> (Router, String) {
     (create_app(state), "mock_token".into())
 }
 
-pub async fn create_test_app_with_mock_stellar(pool: PgPool, mock_stellar_url: &str) -> (Router, String) {
+pub async fn create_test_app_with_mock_stellar(
+    pool: PgPool,
+    mock_stellar_url: &str,
+) -> (Router, String) {
     let stellar_network = "testnet".to_string();
-    
+
     // Use the mock server URL for stellar service
     let stellar = StellarService::new(mock_stellar_url.to_string(), stellar_network);
     let performance = Arc::new(db::performance::PerformanceMonitor::new());
-    
+
     // Mock redis (or just let it fail/disable)
     let redis = None;
-    
+
     // Initialize email system
     let (email_sender, _email_rx) = email::sender::EmailSender::new();
     let email_sender = Arc::new(email_sender);

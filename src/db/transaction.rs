@@ -1,5 +1,5 @@
-use sqlx::{Postgres, Transaction};
 use anyhow::Result;
+use sqlx::{Postgres, Transaction};
 
 /// A helper to begin a new database transaction.
 /// Rolls back automatically on drop if not committed.
@@ -52,22 +52,27 @@ mod tests {
     #[tokio::test]
     async fn transaction_rollback_works() {
         let pool = get_test_pool().await;
-        
+
         let mut tx = begin_transaction(&pool).await.unwrap();
-        sqlx::query("INSERT INTO creators (username, wallet_address) VALUES ('rollback_test', 'abc')")
-            .execute(&mut *tx)
-            .await
-            .unwrap();
-        
+        sqlx::query(
+            "INSERT INTO creators (username, wallet_address) VALUES ('rollback_test', 'abc')",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
         // Explicitly drop without commit (should rollback)
         drop(tx);
-        
+
         let found = sqlx::query("SELECT 1 FROM creators WHERE username = 'rollback_test'")
             .fetch_optional(&pool)
             .await
             .unwrap();
-        
-        assert!(found.is_none(), "Identity should not have been persisted after rollback");
+
+        assert!(
+            found.is_none(),
+            "Identity should not have been persisted after rollback"
+        );
     }
 
     #[tokio::test]
@@ -83,14 +88,15 @@ mod tests {
 
         // 2. Start savepoint
         create_savepoint(&mut tx, "sp1").await.unwrap();
-        
+
         // 3. Failing insert (duplicate username if we used 'p1' again, but let's just use bad SQL)
-        let res = sqlx::query("INSERT INTO creators (username, wallet_address) VALUES ('p1', 'addr1')")
-            .execute(&mut *tx)
-            .await;
-        
+        let res =
+            sqlx::query("INSERT INTO creators (username, wallet_address) VALUES ('p1', 'addr1')")
+                .execute(&mut *tx)
+                .await;
+
         assert!(res.is_err(), "Should fail due to unique constraint");
-        
+
         // 4. Recover via rollback to savepoint
         rollback_savepoint(&mut tx, "sp1").await.unwrap();
 
@@ -101,10 +107,16 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        
-        assert_eq!(count.0, 1, "Only the first insert should have been committed");
-        
+
+        assert_eq!(
+            count.0, 1,
+            "Only the first insert should have been committed"
+        );
+
         // Cleanup
-        sqlx::query("DELETE FROM creators WHERE username = 'p1'").execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM creators WHERE username = 'p1'")
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 }

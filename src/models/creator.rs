@@ -24,7 +24,11 @@ pub struct Creator {
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CreateCreatorRequest {
     /// Unique username (3–30 chars, alphanumeric/underscore/hyphen)
-    #[validate(length(min = 3, max = 30, message = "Username must be between 3 and 30 characters"))]
+    #[validate(length(
+        min = 3,
+        max = 30,
+        message = "Username must be between 3 and 30 characters"
+    ))]
     #[validate(regex(path = *USERNAME_REGEX, message = "Username may only contain letters, numbers, underscores, and hyphens"))]
     pub username: String,
 

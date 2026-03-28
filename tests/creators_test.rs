@@ -19,7 +19,7 @@ async fn test_create_creator() {
         .await;
 
     response.assert_status(StatusCode::CREATED);
-    
+
     let body = response.json::<serde_json::Value>();
     assert_eq!(body["username"], "testuser");
     assert_eq!(body["email"], "test@example.com");
@@ -34,16 +34,19 @@ async fn test_get_creator() {
     let server = TestServer::new(app).unwrap();
 
     // First create
-    server.post("/creators").json(&json!({
-        "username": "fetchme",
-        "wallet_address": "GDEF456",
-        "email": "fetch@example.com"
-    })).await;
+    server
+        .post("/creators")
+        .json(&json!({
+            "username": "fetchme",
+            "wallet_address": "GDEF456",
+            "email": "fetch@example.com"
+        }))
+        .await;
 
     // Then get
     let response = server.get("/creators/fetchme").await;
     response.assert_status(StatusCode::OK);
-    
+
     let body = response.json::<serde_json::Value>();
     assert_eq!(body["username"], "fetchme");
 

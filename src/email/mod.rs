@@ -1,4 +1,4 @@
-pub mod templates;
 pub mod sender;
+pub mod templates;
 
-pub use sender::{EmailMessage, EmailSender, start_email_worker};
+pub use sender::{start_email_worker, EmailMessage, EmailSender};

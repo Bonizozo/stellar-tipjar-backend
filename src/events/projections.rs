@@ -1,6 +1,6 @@
-use uuid::Uuid;
-use chrono::{DateTime, Utc};
 use crate::events::types::Event;
+use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 /// Read-model built by folding events for a single creator.
 #[derive(Debug, Default, PartialEq)]
@@ -16,7 +16,12 @@ impl CreatorProjection {
     /// Apply a single event, mutating the projection in place.
     pub fn apply(&mut self, event: &Event) {
         match event {
-            Event::CreatorRegistered { id, username, wallet_address, timestamp } => {
+            Event::CreatorRegistered {
+                id,
+                username,
+                wallet_address,
+                timestamp,
+            } => {
                 self.id = Some(*id);
                 self.username = username.clone();
                 self.wallet_address = wallet_address.clone();

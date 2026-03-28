@@ -47,7 +47,9 @@ mod tests {
 
     #[test]
     fn test_recommends_for_seq_scan() {
-        let plan = make_plan("Seq Scan on tips  (cost=0.00..10.00 rows=100 width=50)\n  Filter: (creator_id = $1)");
+        let plan = make_plan(
+            "Seq Scan on tips  (cost=0.00..10.00 rows=100 width=50)\n  Filter: (creator_id = $1)",
+        );
         let recs = IndexAdvisor::recommend(&plan);
         assert_eq!(recs.len(), 1);
         assert_eq!(recs[0].table, "tips");
@@ -55,7 +57,8 @@ mod tests {
 
     #[test]
     fn test_no_recommendation_for_index_scan() {
-        let plan = make_plan("Index Scan using tips_pkey on tips  (cost=0.15..8.17 rows=1 width=50)");
+        let plan =
+            make_plan("Index Scan using tips_pkey on tips  (cost=0.15..8.17 rows=1 width=50)");
         assert!(IndexAdvisor::recommend(&plan).is_empty());
     }
 }

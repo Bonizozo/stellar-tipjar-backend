@@ -62,7 +62,11 @@ impl QueryRoot {
     /// List all tips for a creator. Uses DataLoader to batch DB calls.
     async fn tips_for_creator(&self, ctx: &Context<'_>, username: String) -> Result<Vec<GqlTip>> {
         let gql_ctx = ctx.data::<GraphQLContext>()?;
-        let tips = gql_ctx.tip_loader.load_one(username).await?.unwrap_or_default();
+        let tips = gql_ctx
+            .tip_loader
+            .load_one(username)
+            .await?
+            .unwrap_or_default();
         Ok(tips.into_iter().map(GqlTip::from).collect())
     }
 

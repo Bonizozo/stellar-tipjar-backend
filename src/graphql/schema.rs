@@ -3,11 +3,11 @@ use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
 use axum::Extension;
 use std::sync::Arc;
 
-use crate::db::connection::AppState;
 use super::context::GraphQLContext;
 use super::mutations::MutationRoot;
 use super::queries::QueryRoot;
 use super::subscriptions::SubscriptionRoot;
+use crate::db::connection::AppState;
 
 pub type AppSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 

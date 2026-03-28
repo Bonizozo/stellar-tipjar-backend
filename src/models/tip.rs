@@ -18,7 +18,11 @@ pub struct Tip {
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct RecordTipRequest {
     /// Username of the creator receiving the tip
-    #[validate(length(min = 3, max = 30, message = "Username must be between 3 and 30 characters"))]
+    #[validate(length(
+        min = 3,
+        max = 30,
+        message = "Username must be between 3 and 30 characters"
+    ))]
     pub username: String,
 
     /// Amount in XLM (e.g. "10.5"), positive, max 7 decimal places

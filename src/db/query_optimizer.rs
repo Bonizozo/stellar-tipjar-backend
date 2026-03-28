@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use crate::db::query_cache::QueryCache;
+use std::sync::Arc;
 
 /// Applies simple, safe SQL rewrites before a query is executed.
 pub struct QueryOptimizer {
@@ -20,7 +20,9 @@ impl QueryOptimizer {
 
 /// Applies a small set of deterministic, safe SQL rewrites.
 fn apply_rewrites(sql: &str) -> String {
-    REWRITES.iter().fold(sql.to_string(), |acc, (from, to)| acc.replace(from, to))
+    REWRITES
+        .iter()
+        .fold(sql.to_string(), |acc, (from, to)| acc.replace(from, to))
 }
 
 /// (pattern, replacement) pairs applied in order.

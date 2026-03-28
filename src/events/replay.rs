@@ -1,5 +1,5 @@
+use crate::events::{projections::CreatorProjection, store::EventStore};
 use uuid::Uuid;
-use crate::events::{store::EventStore, projections::CreatorProjection};
 
 pub struct Replayer<'a> {
     store: &'a EventStore,
@@ -41,7 +41,11 @@ impl<'a> Replayer<'a> {
             .collect();
 
         // Prefer the pre-loaded full set if no cap was needed.
-        let events = if up_to_sequence >= all.len() as i64 { all } else { capped };
+        let events = if up_to_sequence >= all.len() as i64 {
+            all
+        } else {
+            capped
+        };
         Ok(CreatorProjection::from_events(&events))
     }
 }

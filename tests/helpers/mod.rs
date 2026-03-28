@@ -37,22 +37,20 @@ impl StellarMocks {
     /// Mock a successful transaction verification
     pub fn mock_successful_transaction(&mut self, tx_hash: &str) -> &Mock {
         let mock = self.mock_server.mock(|when, then| {
-            when.method(GET)
-                .path(format!("/transactions/{}", tx_hash));
-            then.status(200)
-                .json_body(json!({
-                    "id": tx_hash,
-                    "hash": tx_hash,
-                    "successful": true,
-                    "source_account": "GABC123",
-                    "operations": [{
-                        "type": "payment",
-                        "amount": "10.0000000",
-                        "asset_type": "native"
-                    }]
-                }));
+            when.method(GET).path(format!("/transactions/{}", tx_hash));
+            then.status(200).json_body(json!({
+                "id": tx_hash,
+                "hash": tx_hash,
+                "successful": true,
+                "source_account": "GABC123",
+                "operations": [{
+                    "type": "payment",
+                    "amount": "10.0000000",
+                    "asset_type": "native"
+                }]
+            }));
         });
-        
+
         self.transaction_mocks.insert(tx_hash.to_string(), mock);
         self.transaction_mocks.get(tx_hash).unwrap()
     }
@@ -60,16 +58,14 @@ impl StellarMocks {
     /// Mock a failed transaction verification
     pub fn mock_failed_transaction(&mut self, tx_hash: &str) -> &Mock {
         let mock = self.mock_server.mock(|when, then| {
-            when.method(GET)
-                .path(format!("/transactions/{}", tx_hash));
-            then.status(200)
-                .json_body(json!({
-                    "id": tx_hash,
-                    "hash": tx_hash,
-                    "successful": false
-                }));
+            when.method(GET).path(format!("/transactions/{}", tx_hash));
+            then.status(200).json_body(json!({
+                "id": tx_hash,
+                "hash": tx_hash,
+                "successful": false
+            }));
         });
-        
+
         self.transaction_mocks.insert(tx_hash.to_string(), mock);
         self.transaction_mocks.get(tx_hash).unwrap()
     }
@@ -77,16 +73,14 @@ impl StellarMocks {
     /// Mock a non-existent transaction
     pub fn mock_nonexistent_transaction(&mut self, tx_hash: &str) -> &Mock {
         let mock = self.mock_server.mock(|when, then| {
-            when.method(GET)
-                .path(format!("/transactions/{}", tx_hash));
-            then.status(404)
-                .json_body(json!({
-                    "type": "https://stellar.org/horizon-errors/not_found",
-                    "title": "Resource Missing",
-                    "status": 404
-                }));
+            when.method(GET).path(format!("/transactions/{}", tx_hash));
+            then.status(404).json_body(json!({
+                "type": "https://stellar.org/horizon-errors/not_found",
+                "title": "Resource Missing",
+                "status": 404
+            }));
         });
-        
+
         self.transaction_mocks.insert(tx_hash.to_string(), mock);
         self.transaction_mocks.get(tx_hash).unwrap()
     }
@@ -94,12 +88,10 @@ impl StellarMocks {
     /// Mock Stellar network timeout
     pub fn mock_network_timeout(&mut self, tx_hash: &str) -> &Mock {
         let mock = self.mock_server.mock(|when, then| {
-            when.method(GET)
-                .path(format!("/transactions/{}", tx_hash));
-            then.status(500)
-                .delay(Duration::from_secs(30)); // Simulate timeout
+            when.method(GET).path(format!("/transactions/{}", tx_hash));
+            then.status(500).delay(Duration::from_secs(30)); // Simulate timeout
         });
-        
+
         self.transaction_mocks.insert(tx_hash.to_string(), mock);
         self.transaction_mocks.get(tx_hash).unwrap()
     }
@@ -111,13 +103,12 @@ impl TestContext {
         let pool = crate::common::setup_test_db().await;
         let mock_server = MockServer::start();
         let stellar_mocks = StellarMocks::new(mock_server.clone());
-        
+
         // Create app with mocked stellar service
-        let (app, _) = crate::common::create_test_app_with_mock_stellar(
-            pool.clone(),
-            &mock_server.base_url()
-        ).await;
-        
+        let (app, _) =
+            crate::common::create_test_app_with_mock_stellar(pool.clone(), &mock_server.base_url())
+                .await;
+
         let server = TestServer::new(app).unwrap();
 
         Self {
@@ -130,7 +121,8 @@ impl TestContext {
 
     /// Create a test creator and return the response
     pub async fn create_creator(&self, username: &str, wallet: &str, email: &str) -> Value {
-        let response = self.server
+        let response = self
+            .server
             .post("/creators")
             .json(&json!({
                 "username": username,
@@ -138,7 +130,7 @@ impl TestContext {
                 "email": email
             }))
             .await;
-        
+
         response.assert_status_ok();
         response.json()
     }
@@ -147,11 +139,13 @@ impl TestContext {
     pub async fn create_creators(&self, count: usize) -> Vec<Value> {
         let mut creators = Vec::new();
         for i in 0..count {
-            let creator = self.create_creator(
-                &format!("creator_{}", i),
-                &format!("WALLET{:03}", i),
-                &format!("creator_{}@test.com", i)
-            ).await;
+            let creator = self
+                .create_creator(
+                    &format!("creator_{}", i),
+                    &format!("WALLET{:03}", i),
+                    &format!("creator_{}@test.com", i),
+                )
+                .await;
             creators.push(creator);
         }
         creators
@@ -163,7 +157,7 @@ impl TestContext {
         username: &str,
         amount: &str,
         tx_hash: &str,
-        should_succeed: bool
+        should_succeed: bool,
     ) -> axum_test::TestResponse {
         if should_succeed {
             self.stellar_mocks.mock_successful_transaction(tx_hash);
@@ -186,12 +180,12 @@ impl TestContext {
         &self,
         creator_username: &str,
         amount: &str,
-        tx_hash: &str
+        tx_hash: &str,
     ) -> Uuid {
         let tip_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO tips (id, creator_username, amount, transaction_hash, created_at) 
-             VALUES ($1, $2, $3, $4, NOW())"
+             VALUES ($1, $2, $3, $4, NOW())",
         )
         .bind(tip_id)
         .bind(creator_username)
@@ -200,16 +194,17 @@ impl TestContext {
         .execute(&self.pool)
         .await
         .unwrap();
-        
+
         tip_id
     }
 
     /// Get tips for a creator
     pub async fn get_creator_tips(&self, username: &str) -> Vec<Value> {
-        let response = self.server
+        let response = self
+            .server
             .get(&format!("/creators/{}/tips", username))
             .await;
-        
+
         response.assert_status_ok();
         response.json()
     }
@@ -285,7 +280,14 @@ impl ConcurrentTestRunner {
 
 /// Test data generators
 pub fn generate_test_wallet() -> String {
-    format!("G{}", uuid::Uuid::new_v4().to_string().replace("-", "").to_uppercase()[..55].to_string())
+    format!(
+        "G{}",
+        uuid::Uuid::new_v4()
+            .to_string()
+            .replace("-", "")
+            .to_uppercase()[..55]
+            .to_string()
+    )
 }
 
 pub fn generate_test_tx_hash() -> String {

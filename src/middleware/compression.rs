@@ -1,6 +1,6 @@
+use tower_http::compression::predicate::{NotForContentType, Predicate, SizeAbove};
 use tower_http::compression::CompressionLayer;
 use tower_http::CompressionLevel;
-use tower_http::compression::predicate::{Predicate, SizeAbove, NotForContentType};
 
 /// Returns a compression layer configured with:
 /// - Support for gzip, brotli, and deflate.
@@ -8,7 +8,7 @@ use tower_http::compression::predicate::{Predicate, SizeAbove, NotForContentType
 /// - Minimum size threshold of 1KB (1024 bytes).
 /// - Excludes image content types from compression.
 pub fn compression_layer() -> CompressionLayer<impl Predicate + Clone> {
-    let predicate = SizeAbove::new(1024)      // Only compress responses > 1KB
+    let predicate = SizeAbove::new(1024) // Only compress responses > 1KB
         .and(NotForContentType::IMAGES); // Don't compress images
 
     CompressionLayer::new()
@@ -22,20 +22,18 @@ pub fn compression_layer() -> CompressionLayer<impl Predicate + Clone> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{http::header, response::IntoResponse, routing::get, Router};
     use axum_test::TestServer;
-    use axum::{Router, response::IntoResponse, routing::get, http::header};
 
     #[tokio::test]
     async fn test_compression_logic() {
         let app = Router::new()
             .route("/large", get(|| async { "a".repeat(1025) }))
             .route("/small", get(|| async { "a".repeat(100) }))
-            .route("/image", get(|| async {
-                (
-                    [(header::CONTENT_TYPE, "image/png")],
-                    "a".repeat(2000),
-                )
-            }))
+            .route(
+                "/image",
+                get(|| async { ([(header::CONTENT_TYPE, "image/png")], "a".repeat(2000)) }),
+            )
             .layer(compression_layer());
 
         let server = TestServer::new(app).unwrap();
@@ -45,7 +43,10 @@ mod tests {
             .get("/large")
             .add_header(header::ACCEPT_ENCODING, "gzip")
             .await;
-        assert_eq!(response.header(header::CONTENT_ENCODING).to_str().unwrap(), "gzip");
+        assert_eq!(
+            response.header(header::CONTENT_ENCODING).to_str().unwrap(),
+            "gzip"
+        );
 
         // 2. Small string should NOT be compressed (threshold 1024)
         let response = server
@@ -66,6 +67,9 @@ mod tests {
             .get("/large")
             .add_header(header::ACCEPT_ENCODING, "br")
             .await;
-        assert_eq!(response.header(header::CONTENT_ENCODING).to_str().unwrap(), "br");
+        assert_eq!(
+            response.header(header::CONTENT_ENCODING).to_str().unwrap(),
+            "br"
+        );
     }
 }

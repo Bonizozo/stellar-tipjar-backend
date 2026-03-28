@@ -65,7 +65,10 @@ impl Permission {
             ),
             Role::Creator => matches!(
                 self,
-                Permission::CreateCreator | Permission::UpdateCreator | Permission::WithdrawFunds | Permission::ViewAnalytics
+                Permission::CreateCreator
+                    | Permission::UpdateCreator
+                    | Permission::WithdrawFunds
+                    | Permission::ViewAnalytics
             ),
             Role::Supporter => matches!(self, Permission::SendTip),
             Role::Guest => false,

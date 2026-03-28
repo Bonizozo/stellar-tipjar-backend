@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use super::queries::{Query, QueryResult};
+use crate::controllers::{creator_controller, tip_controller};
 use crate::db::connection::AppState;
 use crate::errors::AppResult;
-use crate::controllers::{creator_controller, tip_controller};
-use super::queries::{Query, QueryResult};
+use std::sync::Arc;
 
 /// Executes read-side queries against the (optionally separate) read pool.
 ///
@@ -20,12 +20,14 @@ impl QueryBus {
     pub async fn execute(&self, query: Query) -> AppResult<QueryResult> {
         match query {
             Query::GetCreator { username } => {
-                let creator = creator_controller::get_creator_by_username(&self.state, &username).await?;
+                let creator =
+                    creator_controller::get_creator_by_username(&self.state, &username).await?;
                 Ok(QueryResult::Creator(creator))
             }
 
             Query::ListTipsForCreator { username, params } => {
-                let page = tip_controller::get_tips_paginated(&self.state, &username, params).await?;
+                let page =
+                    tip_controller::get_tips_paginated(&self.state, &username, params).await?;
                 Ok(QueryResult::Tips(page))
             }
 

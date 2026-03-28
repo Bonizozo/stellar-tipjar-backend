@@ -21,8 +21,13 @@ impl PerformanceMonitor {
 
     pub fn track_query(&self, query: &str, duration: Duration) {
         // Simple normalization: take the first few words or the whole query string
-        let pattern = query.trim().split_whitespace().take(10).collect::<Vec<_>>().join(" ");
-        
+        let pattern = query
+            .trim()
+            .split_whitespace()
+            .take(10)
+            .collect::<Vec<_>>()
+            .join(" ");
+
         let mut stats = self.stats.lock().unwrap();
         let entry = stats.entry(pattern).or_insert(QueryStats {
             count: 0,
@@ -39,10 +44,13 @@ impl PerformanceMonitor {
 
     pub fn get_stats(&self) -> HashMap<String, (u64, f64, u64)> {
         let stats = self.stats.lock().unwrap();
-        stats.iter().map(|(k, v)| {
-            let avg = v.total_duration.as_secs_f64() / v.count as f64 * 1000.0;
-            (k.clone(), (v.count, avg, v.max_duration.as_millis() as u64))
-        }).collect()
+        stats
+            .iter()
+            .map(|(k, v)| {
+                let avg = v.total_duration.as_secs_f64() / v.count as f64 * 1000.0;
+                (k.clone(), (v.count, avg, v.max_duration.as_millis() as u64))
+            })
+            .collect()
     }
 }
 
@@ -54,13 +62,13 @@ mod tests {
     fn test_performance_tracking() {
         let monitor = PerformanceMonitor::new();
         let query = "SELECT * FROM users WHERE id = $1";
-        
+
         monitor.track_query(query, Duration::from_millis(10));
         monitor.track_query(query, Duration::from_millis(20));
         monitor.track_query("SELECT 1", Duration::from_millis(5));
 
         let stats = monitor.get_stats();
-        
+
         // Pattern normalization should make the first query have 2 hits
         let user_query_pattern = "SELECT * FROM users WHERE id = $1";
         assert_eq!(stats.get(user_query_pattern).unwrap().0, 2);

@@ -1,8 +1,8 @@
-use std::sync::Arc;
-use crate::controllers::{tip_controller, creator_controller};
+use crate::controllers::{creator_controller, tip_controller};
 use crate::db::connection::AppState;
 use crate::errors::{AppError, AppResult};
 use crate::models::tip::{RecordTipRequest, Tip};
+use std::sync::Arc;
 
 /// Service for handling tip-related business logic and notifications.
 /// Abstracts the heavy lifting from the controllers.
@@ -22,14 +22,22 @@ impl TipService {
     }
 
     /// Retrieve all tips for a given creator username.
-    pub async fn get_tips_for_creator(&self, state: &AppState, username: &str) -> AppResult<Vec<Tip>> {
+    pub async fn get_tips_for_creator(
+        &self,
+        state: &AppState,
+        username: &str,
+    ) -> AppResult<Vec<Tip>> {
         tip_controller::get_tips_for_creator(state, username).await
     }
 
     /// Process multiple tips in a single atomic database transaction.
-    /// Uses SAVEPOINTs to provide error recovery: if one tip fails (e.g. duplicate hash), 
+    /// Uses SAVEPOINTs to provide error recovery: if one tip fails (e.g. duplicate hash),
     /// it is rolled back without aborting the entire bulk operation.
-    pub async fn bulk_record_tips(&self, state: &AppState, requests: Vec<RecordTipRequest>) -> AppResult<Vec<Tip>> {
+    pub async fn bulk_record_tips(
+        &self,
+        state: &AppState,
+        requests: Vec<RecordTipRequest>,
+    ) -> AppResult<Vec<Tip>> {
         let mut tx = crate::db::transaction::begin_transaction(&state.db)
             .await
             .map_err(AppError::from)?;
@@ -49,7 +57,11 @@ impl TipService {
                         .map_err(AppError::from)?;
                 }
                 Err(e) => {
-                    tracing::error!("Bulk tip record failed for index {}: {}. Rolling back savepoint.", i, e);
+                    tracing::error!(
+                        "Bulk tip record failed for index {}: {}. Rolling back savepoint.",
+                        i,
+                        e
+                    );
                     crate::db::transaction::rollback_savepoint(&mut tx, &sp)
                         .await
                         .map_err(AppError::from)?;

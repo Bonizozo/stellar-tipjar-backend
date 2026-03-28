@@ -24,9 +24,7 @@ async fn test_admin_auth_missing_header() {
     let (app, _) = common::create_test_app(pool.clone()).await;
     let server = TestServer::new(app).unwrap();
 
-    let response = server
-        .get("/creators/search?q=test")
-        .await;
+    let response = server.get("/creators/search?q=test").await;
 
     // Actually, search is a public read route.
     response.assert_status(StatusCode::OK);

@@ -1,6 +1,6 @@
+use crate::events::types::Event;
 use sqlx::PgPool;
 use uuid::Uuid;
-use crate::events::types::Event;
 
 pub struct EventStore {
     pool: PgPool,

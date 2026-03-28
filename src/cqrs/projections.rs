@@ -1,5 +1,5 @@
-use crate::events::{Event, EventStore};
 use crate::errors::AppResult;
+use crate::events::{Event, EventStore};
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -18,7 +18,12 @@ impl CqrsProjection {
     /// Apply a single event to the read model.
     pub async fn sync_event(&self, event: &Event) -> AppResult<()> {
         match event {
-            Event::CreatorRegistered { id, username, wallet_address, timestamp } => {
+            Event::CreatorRegistered {
+                id,
+                username,
+                wallet_address,
+                timestamp,
+            } => {
                 sqlx::query(
                     "INSERT INTO creator_read_model (id, username, wallet_address, tip_count, registered_at) \
                      VALUES ($1, $2, $3, 0, $4) \
@@ -46,7 +51,9 @@ impl CqrsProjection {
 
     /// Full rebuild: replay all events from sequence 0 and reapply them.
     pub async fn rebuild(&self) -> AppResult<()> {
-        sqlx::query("TRUNCATE creator_read_model").execute(&self.read_db).await?;
+        sqlx::query("TRUNCATE creator_read_model")
+            .execute(&self.read_db)
+            .await?;
         let events = self.events.replay_from(0).await?;
         for event in &events {
             self.sync_event(event).await?;

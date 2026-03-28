@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use uuid::Uuid;
 
+use super::orchestrator::SagaOrchestrator;
+use super::step::{CompensationAction, NoOpCompensation, SagaAction, SagaContext, SagaStep};
 use crate::db::connection::AppState;
 use crate::errors::AppResult;
 use crate::models::tip::RecordTipRequest;
-use super::orchestrator::SagaOrchestrator;
-use super::step::{CompensationAction, NoOpCompensation, SagaAction, SagaContext, SagaStep};
 
 /// Context keys used between steps.
 const KEY_TIP_ID: &str = "tip_id";
@@ -37,12 +37,14 @@ struct RecordTipStep {
 #[async_trait::async_trait]
 impl SagaAction for RecordTipStep {
     async fn execute(&self, ctx: &mut SagaContext) -> AppResult<()> {
-        let tip = crate::controllers::tip_controller::record_tip(&self.state, RecordTipRequest {
-            username: self.req.username.clone(),
-            amount: self.req.amount.clone(),
-            transaction_hash: self.req.transaction_hash.clone(),
-            message: self.req.message.clone(),
-        })
+        let tip = crate::controllers::tip_controller::record_tip(
+            &self.state,
+            RecordTipRequest {
+                username: self.req.username.clone(),
+                amount: self.req.amount.clone(),
+                transaction_hash: self.req.transaction_hash.clone(),
+            },
+        )
         .await?;
         ctx.set(KEY_TIP_ID, tip.id);
         Ok(())
@@ -116,7 +118,9 @@ pub async fn run_tip_saga(state: Arc<AppState>, req: RecordTipRequest) -> AppRes
                     message: req.message.clone(),
                 },
             }),
-            compensation: Box::new(DeleteTipCompensation { pool: state.db.clone() }),
+            compensation: Box::new(DeleteTipCompensation {
+                pool: state.db.clone(),
+            }),
         },
         SagaStep {
             name: "notify",

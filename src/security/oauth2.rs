@@ -40,7 +40,10 @@ pub struct OAuth2Provider {
 
 impl OAuth2Provider {
     pub fn new(config: OAuth2Config) -> Self {
-        Self { config, client: Client::new() }
+        Self {
+            config,
+            client: Client::new(),
+        }
     }
 
     /// Build the authorization URL to redirect the user to.
@@ -58,7 +61,8 @@ impl OAuth2Provider {
 
     /// Exchange an authorization code for tokens.
     pub async fn exchange_code(&self, code: &str) -> AppResult<TokenResponse> {
-        let resp = self.client
+        let resp = self
+            .client
             .post(&self.config.token_url)
             .form(&[
                 ("grant_type", "authorization_code"),
@@ -75,12 +79,15 @@ impl OAuth2Provider {
             return Err(AppError::unauthorized("OAuth2 token exchange failed"));
         }
 
-        resp.json::<TokenResponse>().await.map_err(|_| AppError::internal())
+        resp.json::<TokenResponse>()
+            .await
+            .map_err(|_| AppError::internal())
     }
 
     /// Fetch user info from the provider using an access token.
     pub async fn get_user_info(&self, access_token: &str) -> AppResult<OAuth2UserInfo> {
-        let resp = self.client
+        let resp = self
+            .client
             .get(&self.config.userinfo_url)
             .bearer_auth(access_token)
             .send()
@@ -91,7 +98,9 @@ impl OAuth2Provider {
             return Err(AppError::unauthorized("Failed to fetch OAuth2 user info"));
         }
 
-        resp.json::<OAuth2UserInfo>().await.map_err(|_| AppError::internal())
+        resp.json::<OAuth2UserInfo>()
+            .await
+            .map_err(|_| AppError::internal())
     }
 }
 

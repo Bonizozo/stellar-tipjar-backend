@@ -1,5 +1,5 @@
-pub mod tracer;
 pub mod propagation;
+pub mod tracer;
 
-pub use tracer::init_tracer;
 pub use propagation::extract_context;
+pub use tracer::init_tracer;

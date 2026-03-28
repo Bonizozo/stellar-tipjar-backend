@@ -53,10 +53,9 @@ async fn export_creators(
                 }
                 let data = wtr.into_inner().unwrap_or_default();
                 let mut response = (StatusCode::OK, data).into_response();
-                response.headers_mut().insert(
-                    header::CONTENT_TYPE,
-                    "text/csv".parse().unwrap(),
-                );
+                response
+                    .headers_mut()
+                    .insert(header::CONTENT_TYPE, "text/csv".parse().unwrap());
                 response.headers_mut().insert(
                     header::CONTENT_DISPOSITION,
                     "attachment; filename=\"creators.csv\"".parse().unwrap(),
@@ -124,8 +123,14 @@ async fn export_creator_tips(
 
 fn render_tips_csv(tips: &[crate::models::tip::Tip], filename: &str) -> Response {
     let mut wtr = csv::Writer::from_writer(vec![]);
-    wtr.write_record(["id", "creator_username", "amount", "transaction_hash", "created_at"])
-        .unwrap();
+    wtr.write_record([
+        "id",
+        "creator_username",
+        "amount",
+        "transaction_hash",
+        "created_at",
+    ])
+    .unwrap();
     for t in tips {
         wtr.write_record([
             t.id.to_string(),
@@ -138,13 +143,14 @@ fn render_tips_csv(tips: &[crate::models::tip::Tip], filename: &str) -> Response
     }
     let data = wtr.into_inner().unwrap_or_default();
     let mut response = (StatusCode::OK, data).into_response();
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        "text/csv".parse().unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, "text/csv".parse().unwrap());
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
-        format!("attachment; filename=\"{}\"", filename).parse().unwrap(),
+        format!("attachment; filename=\"{}\"", filename)
+            .parse()
+            .unwrap(),
     );
     response
 }

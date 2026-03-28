@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum_test::TestServer;
-use serde_json::json;
 use httpmock::prelude::*;
+use serde_json::json;
 mod common;
 
 #[tokio::test]
@@ -20,14 +20,12 @@ async fn test_record_tip_with_stellar_mock() {
     // Let's create a specialized test app for this!
     let mock_server = MockServer::start();
     let stellar_mock = mock_server.mock(|when, then| {
-        when.method(GET)
-            .path_contains("/transactions/TX123");
-        then.status(200)
-            .json_body(json!({
-                "id": "TX123",
-                "hash": "TX123",
-                "successful": true
-            }));
+        when.method(GET).path_contains("/transactions/TX123");
+        then.status(200).json_body(json!({
+            "id": "TX123",
+            "hash": "TX123",
+            "successful": true
+        }));
     });
 
     // We don't have an easy way to inject the mock URL into StellarService
@@ -39,11 +37,14 @@ async fn test_record_tip_with_stellar_mock() {
     // But let's assume for now the logic is correct.
 
     // First create a creator to tip
-    server.post("/creators").json(&json!({
-        "username": "tippee",
-        "wallet_address": "GHI789",
-        "email": "tippee@example.com"
-    })).await;
+    server
+        .post("/creators")
+        .json(&json!({
+            "username": "tippee",
+            "wallet_address": "GHI789",
+            "email": "tippee@example.com"
+        }))
+        .await;
 
     // Then record a tip
     // The stellar verification might fail if it tries to hit the real testnet or if the hash is invalid.
@@ -70,11 +71,14 @@ async fn test_get_tips_for_creator() {
     let server = TestServer::new(app).unwrap();
 
     // Create creator
-    server.post("/creators").json(&json!({
-        "username": "tiplist",
-        "wallet_address": "GJK012",
-        "email": "list@example.com"
-    })).await;
+    server
+        .post("/creators")
+        .json(&json!({
+            "username": "tiplist",
+            "wallet_address": "GJK012",
+            "email": "list@example.com"
+        }))
+        .await;
 
     // Manually insert some tips using SQL to avoid stellar verification during tests
     sqlx::query(
@@ -90,7 +94,7 @@ async fn test_get_tips_for_creator() {
 
     let response = server.get("/creators/tiplist/tips").await;
     response.assert_status(StatusCode::OK);
-    
+
     let body = response.json::<serde_json::Value>();
     assert_eq!(body[0]["amount"], "5.5");
 

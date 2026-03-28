@@ -9,10 +9,10 @@ use std::collections::HashMap;
 pub trait JobHandler: Send + Sync {
     /// Handle a job execution
     async fn handle(&self, job: Job, context: &JobContext) -> JobResult<()>;
-    
+
     /// Get the job type this handler processes
     fn job_type(&self) -> JobType;
-    
+
     /// Get the retry policy for this job type
     fn retry_policy(&self) -> RetryPolicy;
 }

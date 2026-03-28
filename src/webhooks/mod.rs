@@ -1,10 +1,10 @@
 pub mod sender;
 pub mod signature;
 
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Webhook {
@@ -27,22 +27,19 @@ pub struct WebhookEvent {
 
 /// Triggers registered webhooks for a given event.
 /// Runs asynchronously in a background task to avoid blocking API responses.
-pub async fn trigger_webhooks(
-    pool: sqlx::PgPool, 
-    event_type: &str, 
-    payload: Value
-) {
+pub async fn trigger_webhooks(pool: sqlx::PgPool, event_type: &str, payload: Value) {
     let pool_clone = pool.clone();
     let event_name = event_type.to_string();
     let payload_clone = payload.clone();
 
     tokio::spawn(async move {
         let webhooks = match sqlx::query_as::<_, Webhook>(
-            "SELECT * FROM webhooks WHERE enabled = TRUE AND $1 = ANY(events)"
+            "SELECT * FROM webhooks WHERE enabled = TRUE AND $1 = ANY(events)",
         )
         .bind(&event_name)
         .fetch_all(&pool_clone)
-        .await {
+        .await
+        {
             Ok(w) => w,
             Err(e) => {
                 tracing::error!("Failed to fetch webhooks for event {}: {}", event_name, e);
@@ -59,7 +56,7 @@ pub async fn trigger_webhooks(
                 payload: payload_clone.clone(),
                 timestamp: Utc::now(),
             };
-            
+
             let url = webhook.url.clone();
             let secret = webhook.secret.clone();
             let event_value = serde_json::to_value(event).unwrap();

@@ -1,10 +1,4 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::post,
-    Json, Router,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Json, Router};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -38,11 +32,10 @@ async fn register(
     State(state): State<Arc<AppState>>,
     ValidatedJson(body): ValidatedJson<RegisterRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let password_hash = auth_service::hash_password(&body.password)
-        .map_err(|e| {
-            tracing::error!(error = %e, "Password hashing failed");
-            AppError::internal()
-        })?;
+    let password_hash = auth_service::hash_password(&body.password).map_err(|e| {
+        tracing::error!(error = %e, "Password hashing failed");
+        AppError::internal()
+    })?;
 
     let creator = sqlx::query_as::<_, Creator>(
         r#"
@@ -110,10 +103,11 @@ async fn login(
         }
     };
 
-    let valid = auth_service::verify_password(&body.password, &creator.password_hash).map_err(|e| {
-        tracing::error!(error = %e, "Password verification error");
-        AppError::internal()
-    })?;
+    let valid =
+        auth_service::verify_password(&body.password, &creator.password_hash).map_err(|e| {
+            tracing::error!(error = %e, "Password verification error");
+            AppError::internal()
+        })?;
     if !valid {
         return Err(AppError::unauthorized("Invalid credentials"));
     }
@@ -137,7 +131,9 @@ async fn login(
         (status = 401, description = "Invalid or expired refresh token")
     )
 )]
-async fn refresh(ValidatedJson(body): ValidatedJson<RefreshRequest>) -> Result<impl IntoResponse, AppError> {
+async fn refresh(
+    ValidatedJson(body): ValidatedJson<RefreshRequest>,
+) -> Result<impl IntoResponse, AppError> {
     let claims = auth_service::validate_token(&body.refresh_token, "refresh")
         .map_err(|_| AppError::unauthorized("Invalid or expired refresh token"))?;
 

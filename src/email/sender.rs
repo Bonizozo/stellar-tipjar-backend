@@ -1,12 +1,12 @@
+use crate::email::templates::TERA;
 use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    transport::smtp::authentication::Credentials,
+    transport::smtp::authentication::Credentials, AsyncSmtpTransport, AsyncTransport, Message,
+    Tokio1Executor,
 };
-use tokio::sync::mpsc;
 use std::sync::Arc;
 use std::time::Duration;
-use crate::email::templates::TERA;
 use tera::Context;
+use tokio::sync::mpsc;
 
 #[derive(Debug, Clone)]
 pub struct EmailMessage {
@@ -28,13 +28,19 @@ impl EmailSender {
     }
 
     pub async fn send(&self, msg: EmailMessage) -> anyhow::Result<()> {
-        self.tx.send(msg).await.map_err(|e| anyhow::anyhow!("Failed to queue email: {}", e))
+        self.tx
+            .send(msg)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to queue email: {}", e))
     }
 }
 
 pub async fn start_email_worker(mut rx: mpsc::Receiver<EmailMessage>) {
     let host = std::env::var("SMTP_HOST").unwrap_or_else(|_| "localhost".into());
-    let port = std::env::var("SMTP_PORT").unwrap_or_else(|_| "1025".into()).parse().unwrap_or(1025);
+    let port = std::env::var("SMTP_PORT")
+        .unwrap_or_else(|_| "1025".into())
+        .parse()
+        .unwrap_or(1025);
     let user = std::env::var("SMTP_USER").ok();
     let pass = std::env::var("SMTP_PASS").ok();
     let from = std::env::var("SMTP_FROM").unwrap_or_else(|_| "no-reply@stellar-tipjar.com".into());
@@ -85,12 +91,23 @@ pub async fn start_email_worker(mut rx: mpsc::Receiver<EmailMessage>) {
                     break;
                 }
                 Err(e) => {
-                    tracing::error!("Failed to send email to {} (attempt {}/{}): {}", msg.to, attempts, max_attempts, e);
+                    tracing::error!(
+                        "Failed to send email to {} (attempt {}/{}): {}",
+                        msg.to,
+                        attempts,
+                        max_attempts,
+                        e
+                    );
                     if attempts >= max_attempts {
-                        tracing::error!("Giving up on email to {} after {} attempts", msg.to, max_attempts);
+                        tracing::error!(
+                            "Giving up on email to {} after {} attempts",
+                            msg.to,
+                            max_attempts
+                        );
                         break;
                     }
-                    tokio::time::sleep(Duration::from_secs(2u64.pow(attempts))).await; // Exponential backoff
+                    tokio::time::sleep(Duration::from_secs(2u64.pow(attempts))).await;
+                    // Exponential backoff
                 }
             }
         }
@@ -119,7 +136,7 @@ mod tests {
 
         sender.send(msg).await.unwrap();
         let received = rx.recv().await.unwrap();
-        
+
         assert_eq!(received.to, "test@example.com");
         assert_eq!(received.subject, "Test");
         assert_eq!(received.template_name, "tip_received.html");

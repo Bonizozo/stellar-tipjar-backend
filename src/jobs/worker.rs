@@ -2,8 +2,8 @@
 
 use crate::jobs::{JobError, JobResult, WorkerConfig, WorkerId};
 use std::sync::Arc;
-use tokio::sync::broadcast;
 use std::time::Duration;
+use tokio::sync::broadcast;
 
 /// Individual job worker that processes jobs from the queue
 pub struct JobWorker {
@@ -34,7 +34,7 @@ impl JobWorkerPool {
     pub fn new(config: WorkerConfig) -> Self {
         let (shutdown_tx, _) = broadcast::channel(1);
         let workers = Vec::new();
-        
+
         Self {
             workers,
             shutdown_tx,

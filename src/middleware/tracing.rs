@@ -1,5 +1,7 @@
 use axum::{extract::Request, middleware::Next, response::Response};
-use opentelemetry_semantic_conventions::trace::{HTTP_REQUEST_METHOD, HTTP_ROUTE, HTTP_RESPONSE_STATUS_CODE};
+use opentelemetry_semantic_conventions::trace::{
+    HTTP_REQUEST_METHOD, HTTP_RESPONSE_STATUS_CODE, HTTP_ROUTE,
+};
 use tracing::Instrument;
 
 /// Axum middleware that opens a root OTel-aware span for every HTTP request,

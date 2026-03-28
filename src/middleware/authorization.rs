@@ -17,11 +17,7 @@ use crate::security::permissions::Permission;
 ///     require_permission(s, req, next, Permission::DeleteCreator)
 /// }))
 /// ```
-pub async fn require_permission(
-    permission: Permission,
-    req: Request,
-    next: Next,
-) -> Response {
+pub async fn require_permission(permission: Permission, req: Request, next: Next) -> Response {
     // Claims are injected by the upstream `require_auth` middleware.
     let claims = req.extensions().get::<Claims>().cloned();
 

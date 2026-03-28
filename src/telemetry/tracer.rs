@@ -11,8 +11,8 @@ use tracing_subscriber::layer::Layer;
 pub fn init_tracer() -> Option<impl Layer<tracing_subscriber::Registry> + Send + Sync + 'static> {
     let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok()?;
 
-    let service_name = std::env::var("OTEL_SERVICE_NAME")
-        .unwrap_or_else(|_| "stellar-tipjar-backend".to_string());
+    let service_name =
+        std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "stellar-tipjar-backend".to_string());
 
     let exporter = opentelemetry_otlp::new_exporter()
         .tonic()

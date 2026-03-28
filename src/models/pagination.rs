@@ -5,8 +5,12 @@ const DEFAULT_PAGE: i64 = 1;
 const DEFAULT_LIMIT: i64 = 20;
 const MAX_LIMIT: i64 = 100;
 
-fn default_page() -> i64 { DEFAULT_PAGE }
-fn default_limit() -> i64 { DEFAULT_LIMIT }
+fn default_page() -> i64 {
+    DEFAULT_PAGE
+}
+fn default_limit() -> i64 {
+    DEFAULT_LIMIT
+}
 
 /// Query parameters for offset-based pagination.
 #[derive(Debug, Deserialize, IntoParams)]

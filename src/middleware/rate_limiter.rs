@@ -1,9 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use tower_governor::{
-    governor::GovernorConfigBuilder,
-    key_extractor::PeerIpKeyExtractor,
-    GovernorLayer,
+    governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor, GovernorLayer,
 };
 // FIXED: This comes from governor, not tower_governor
 use governor::middleware::StateInformationMiddleware;

@@ -80,8 +80,7 @@ mod tests {
             max_delay: Duration::from_millis(10),
         };
 
-        let result: Result<&str, String> =
-            with_retry(&config, || async { Ok("ok") }).await;
+        let result: Result<&str, String> = with_retry(&config, || async { Ok("ok") }).await;
         assert_eq!(result.unwrap(), "ok");
     }
 

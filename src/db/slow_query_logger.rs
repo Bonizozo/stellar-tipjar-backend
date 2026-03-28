@@ -10,7 +10,9 @@ pub struct SlowQueryLogger {
 
 impl SlowQueryLogger {
     pub fn new() -> Self {
-        Self { threshold: Duration::from_millis(SLOW_QUERY_THRESHOLD_MS as u64) }
+        Self {
+            threshold: Duration::from_millis(SLOW_QUERY_THRESHOLD_MS as u64),
+        }
     }
 
     pub fn with_threshold(threshold: Duration) -> Self {

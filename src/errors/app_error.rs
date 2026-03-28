@@ -205,6 +205,3 @@ mod tests {
         assert_eq!(json["error"]["message"], "Internal server error");
     }
 }
-
-
-

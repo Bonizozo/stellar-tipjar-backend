@@ -27,7 +27,9 @@ impl StellarError {
             Self::TransactionNotFound { .. } => {
                 "Transaction not found or unsuccessful on the Stellar network".to_string()
             }
-            Self::InvalidTransaction { reason } => format!("Invalid Stellar transaction: {}", reason),
+            Self::InvalidTransaction { reason } => {
+                format!("Invalid Stellar transaction: {}", reason)
+            }
             Self::NetworkUnavailable => {
                 "Unable to verify transaction on the Stellar network".to_string()
             }
@@ -45,4 +47,3 @@ impl StellarError {
         }
     }
 }
-

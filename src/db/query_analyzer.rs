@@ -21,7 +21,11 @@ impl QueryPlan {
             })
             .unwrap_or(0.0);
 
-        QueryPlan { raw, has_seq_scan, estimated_cost }
+        QueryPlan {
+            raw,
+            has_seq_scan,
+            estimated_cost,
+        }
     }
 }
 

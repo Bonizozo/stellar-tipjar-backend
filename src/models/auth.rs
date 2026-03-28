@@ -5,7 +5,11 @@ use validator::Validate;
 /// Register a new creator account with a password.
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct RegisterRequest {
-    #[validate(length(min = 3, max = 30, message = "Username must be between 3 and 30 characters"))]
+    #[validate(length(
+        min = 3,
+        max = 30,
+        message = "Username must be between 3 and 30 characters"
+    ))]
     pub username: String,
 
     #[validate(custom(function = "crate::validation::stellar::validate_stellar_address"))]

@@ -1,11 +1,11 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
 // Mock benchmark functions (these would need actual implementation)
 fn benchmark_creator_creation(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     c.bench_function("creator_creation", |b| {
         b.to_async(&rt).iter(|| async {
             // Mock creator creation benchmark
@@ -17,7 +17,7 @@ fn benchmark_creator_creation(c: &mut Criterion) {
 
 fn benchmark_tip_recording(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     c.bench_function("tip_recording", |b| {
         b.to_async(&rt).iter(|| async {
             // Mock tip recording benchmark
@@ -29,9 +29,9 @@ fn benchmark_tip_recording(c: &mut Criterion) {
 
 fn benchmark_concurrent_operations(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     let mut group = c.benchmark_group("concurrent_operations");
-    
+
     for concurrency in [1, 5, 10, 20].iter() {
         group.bench_with_input(
             BenchmarkId::new("concurrent_tips", concurrency),
@@ -39,32 +39,32 @@ fn benchmark_concurrent_operations(c: &mut Criterion) {
             |b, &concurrency| {
                 b.to_async(&rt).iter(|| async move {
                     let mut handles = Vec::new();
-                    
+
                     for _ in 0..concurrency {
                         handles.push(tokio::spawn(async {
                             // Mock concurrent operation
                             tokio::time::sleep(Duration::from_millis(1)).await;
                         }));
                     }
-                    
+
                     for handle in handles {
                         handle.await.unwrap();
                     }
-                    
+
                     black_box(())
                 })
             },
         );
     }
-    
+
     group.finish();
 }
 
 fn benchmark_database_operations(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     let mut group = c.benchmark_group("database_operations");
-    
+
     group.bench_function("single_insert", |b| {
         b.to_async(&rt).iter(|| async {
             // Mock database insert
@@ -72,7 +72,7 @@ fn benchmark_database_operations(c: &mut Criterion) {
             black_box(())
         })
     });
-    
+
     group.bench_function("batch_insert", |b| {
         b.to_async(&rt).iter(|| async {
             // Mock batch insert
@@ -80,7 +80,7 @@ fn benchmark_database_operations(c: &mut Criterion) {
             black_box(())
         })
     });
-    
+
     group.bench_function("complex_query", |b| {
         b.to_async(&rt).iter(|| async {
             // Mock complex query
@@ -88,7 +88,7 @@ fn benchmark_database_operations(c: &mut Criterion) {
             black_box(())
         })
     });
-    
+
     group.finish();
 }
 

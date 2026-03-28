@@ -16,7 +16,10 @@ pub struct WindowMetrics {
 
 impl TimeWindow {
     pub fn new(duration: Duration) -> Self {
-        Self { duration, events: VecDeque::new() }
+        Self {
+            duration,
+            events: VecDeque::new(),
+        }
     }
 
     pub fn push(&mut self, amount_stroops: u64) {

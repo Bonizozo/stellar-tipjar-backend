@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::errors::{AppError, AppResult, StellarError};
 use super::circuit_breaker::CircuitBreaker;
 use super::retry::{with_retry, RetryConfig};
+use crate::errors::{AppError, AppResult, StellarError};
 
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
@@ -49,10 +49,7 @@ impl StellarService {
     ///
     /// Uses retry with exponential backoff for transient network errors and a
     /// circuit breaker to avoid hammering a failing Horizon server.
-    pub async fn verify_transaction(
-        &self,
-        transaction_hash: &str,
-    ) -> AppResult<bool> {
+    pub async fn verify_transaction(&self, transaction_hash: &str) -> AppResult<bool> {
         if !self.circuit_breaker.allow_request() {
             tracing::warn!(
                 "Circuit breaker open; skipping verification for {}",
@@ -82,14 +79,11 @@ impl StellarService {
                     .map_err(|_| AppError::Stellar(StellarError::NetworkUnavailable))?;
 
                 if resp.status().is_success() {
-                    let tx: HorizonTransactionResponse = resp
-                        .json()
-                        .await
-                        .map_err(|_| {
-                            AppError::Stellar(StellarError::InvalidTransaction {
-                                reason: "Malformed Horizon response".to_string(),
-                            })
-                        })?;
+                    let tx: HorizonTransactionResponse = resp.json().await.map_err(|_| {
+                        AppError::Stellar(StellarError::InvalidTransaction {
+                            reason: "Malformed Horizon response".to_string(),
+                        })
+                    })?;
                     Ok(tx.successful)
                 } else if resp.status().as_u16() == 404 {
                     Ok(false)

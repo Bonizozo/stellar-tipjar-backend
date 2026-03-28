@@ -23,13 +23,12 @@ where
     type Rejection = AppError;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let Json(value) = Json::<T>::from_request(req, state)
-            .await
-            .map_err(|e: JsonRejection| {
-                ValidationError::InvalidJson {
+        let Json(value) =
+            Json::<T>::from_request(req, state)
+                .await
+                .map_err(|e: JsonRejection| ValidationError::InvalidJson {
                     reason: e.to_string(),
-                }
-            })?;
+                })?;
 
         value.validate().map_err(|errors| {
             // Flatten validator errors into a simple field -> [messages] map.

@@ -12,9 +12,13 @@ pub fn validate_stellar_address(address: &str) -> Result<(), ValidationError> {
         e.message = Some("Stellar address must start with 'G'".into());
         return Err(e);
     }
-    if !address.chars().all(|c| c.is_ascii_alphanumeric() && c.is_ascii_uppercase()) {
+    if !address
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() && c.is_ascii_uppercase())
+    {
         let mut e = ValidationError::new("invalid_stellar_address");
-        e.message = Some("Stellar address must contain only uppercase alphanumeric characters".into());
+        e.message =
+            Some("Stellar address must contain only uppercase alphanumeric characters".into());
         return Err(e);
     }
     Ok(())

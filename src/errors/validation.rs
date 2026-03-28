@@ -3,7 +3,9 @@ pub enum ValidationError {
     #[error("invalid JSON payload")]
     InvalidJson { reason: String },
     #[error("validation failed")]
-    InvalidFields { fields: serde_json::Map<String, serde_json::Value> },
+    InvalidFields {
+        fields: serde_json::Map<String, serde_json::Value>,
+    },
     #[error("invalid request")]
     InvalidRequest { message: String },
 }
@@ -33,4 +35,3 @@ impl ValidationError {
         }
     }
 }
-

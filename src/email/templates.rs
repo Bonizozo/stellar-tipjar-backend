@@ -1,6 +1,6 @@
-use tera::{Context, Tera};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
+use tera::{Context, Tera};
 
 lazy_static! {
     pub static ref TERA: Tera = {
@@ -16,12 +16,15 @@ lazy_static! {
     };
 }
 
-pub fn render_template(template_name: &str, variables: &HashMap<&str, String>) -> anyhow::Result<String> {
+pub fn render_template(
+    template_name: &str,
+    variables: &HashMap<&str, String>,
+) -> anyhow::Result<String> {
     let mut context = Context::new();
     for (k, v) in variables {
         context.insert(*k, v);
     }
-    
+
     match TERA.render(template_name, &context) {
         Ok(s) => Ok(s),
         Err(e) => {

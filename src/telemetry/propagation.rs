@@ -1,7 +1,7 @@
 use axum::http::HeaderMap;
-use opentelemetry::Context;
-use opentelemetry::propagation::Extractor;
 use opentelemetry::global;
+use opentelemetry::propagation::Extractor;
+use opentelemetry::Context;
 
 struct HeaderExtractor<'a>(&'a HeaderMap);
 

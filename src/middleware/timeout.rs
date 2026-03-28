@@ -30,7 +30,7 @@ pub fn on_timeout() -> (StatusCode, &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{Router, routing::get};
+    use axum::{routing::get, Router};
     use axum_test::TestServer;
     use std::time::Duration;
     use tower::ServiceBuilder;

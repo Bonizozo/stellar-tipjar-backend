@@ -64,17 +64,21 @@ impl IntegrationTestSuite {
         println!("{}", "-".repeat(50));
 
         let category_start = Instant::now();
-        
+
         // Simulate running tests in this category
         for i in 0..category.test_count() {
             let test_start = Instant::now();
-            
+
             // Simulate test execution time
             std::thread::sleep(Duration::from_millis(10 + (i as u64 * 5)));
-            
+
             let test_duration = test_start.elapsed();
-            let test_name = format!("{}_{:02}", category.name().replace(" ", "_").to_lowercase(), i + 1);
-            
+            let test_name = format!(
+                "{}_{:02}",
+                category.name().replace(" ", "_").to_lowercase(),
+                i + 1
+            );
+
             // Simulate occasional test failure for demonstration
             let passed = !(matches!(category, TestCategory::EdgeCases) && i == 7);
             let error = if !passed {
@@ -93,14 +97,23 @@ impl IntegrationTestSuite {
             if passed {
                 println!("  ✅ {} - {:?}", test_name, test_duration);
             } else {
-                println!("  ❌ {} - {:?} ({})", test_name, test_duration, error.as_ref().unwrap());
+                println!(
+                    "  ❌ {} - {:?} ({})",
+                    test_name,
+                    test_duration,
+                    error.as_ref().unwrap()
+                );
             }
 
             self.add_result(result);
         }
 
         let category_duration = category_start.elapsed();
-        println!("✅ {} completed in {:?}", category.name(), category_duration);
+        println!(
+            "✅ {} completed in {:?}",
+            category.name(),
+            category_duration
+        );
     }
 
     fn print_summary(&self) {
@@ -115,7 +128,7 @@ impl IntegrationTestSuite {
         println!("Failed: {}", failed);
         println!("Success Rate: {:.1}%", success_rate);
         println!("Total Duration: {:?}", self.total_duration);
-        
+
         if self.results.len() > 0 {
             let avg_duration = self.total_duration / self.results.len() as u32;
             println!("Average Test Duration: {:?}", avg_duration);
@@ -125,7 +138,14 @@ impl IntegrationTestSuite {
             println!("\n❌ Failed Tests:");
             for result in &self.results {
                 if !result.passed {
-                    println!("  - {}: {}", result.name, result.error.as_ref().unwrap_or(&"Unknown error".to_string()));
+                    println!(
+                        "  - {}: {}",
+                        result.name,
+                        result
+                            .error
+                            .as_ref()
+                            .unwrap_or(&"Unknown error".to_string())
+                    );
                 }
             }
         }
@@ -140,21 +160,21 @@ impl IntegrationTestSuite {
         println!("  - GET /creators/:username/tips ✅");
         println!("  - POST /tips ✅");
         println!("  - GET /creators/search ✅");
-        
+
         println!("\nError Scenarios Covered: 95%");
         println!("  - Invalid input validation ✅");
         println!("  - Duplicate constraints ✅");
         println!("  - Stellar API failures ✅");
         println!("  - Network timeouts ✅");
         println!("  - Malformed requests ✅");
-        
+
         println!("\nEdge Cases Covered: 90%");
         println!("  - Boundary values ✅");
         println!("  - Special characters ✅");
         println!("  - Concurrent operations ✅");
         println!("  - Large payloads ✅");
         println!("  - Precision limits ✅");
-        
+
         println!("\nPerformance Benchmarks: 100%");
         println!("  - Response time limits ✅");
         println!("  - Concurrent load handling ✅");
@@ -172,7 +192,7 @@ impl IntegrationTestSuite {
         println!("Database Queries: Optimized ✅");
         println!("Memory Usage: Within limits ✅");
         println!("Error Handling: < 50ms ✅");
-        
+
         println!("\nLoad Testing Results:");
         println!("  - 100 concurrent users: ✅ Passed");
         println!("  - 1000 operations/minute: ✅ Passed");
@@ -206,11 +226,11 @@ fn run_comprehensive_integration_test_suite() {
     suite.print_performance_benchmarks();
 
     println!("\n🎉 Integration Test Suite Completed!");
-    
+
     // Verify success criteria
     let passed = suite.results.iter().filter(|r| r.passed).count();
     let success_rate = (passed as f64 / suite.results.len() as f64) * 100.0;
-    
+
     assert!(
         success_rate >= 95.0,
         "Test suite success rate {:.1}% below threshold of 95%",
@@ -221,13 +241,13 @@ fn run_comprehensive_integration_test_suite() {
 #[test]
 fn test_individual_components() {
     println!("🔧 Testing Individual Components");
-    
+
     // Test helper functions
     assert!(test_stellar_mock_setup());
     assert!(test_database_isolation());
     assert!(test_performance_measurement());
     assert!(test_concurrent_runner());
-    
+
     println!("✅ All component tests passed");
 }
 

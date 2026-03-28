@@ -1,8 +1,8 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::errors::{AppError, AppResult};
 use super::step::{CompensationAction, SagaAction, SagaContext, SagaStep, StepState};
+use crate::errors::{AppError, AppResult};
 
 pub struct SagaOrchestrator {
     pub pool: PgPool,
@@ -27,13 +27,15 @@ impl SagaOrchestrator {
         for (i, step) in steps.iter().enumerate() {
             match step.action.execute(&mut ctx).await {
                 Ok(()) => {
-                    self.log_step(saga_id, i, step.name, StepState::Completed, None).await?;
+                    self.log_step(saga_id, i, step.name, StepState::Completed, None)
+                        .await?;
                     self.update_saga_step(saga_id, i).await?;
                 }
                 Err(e) => {
                     let msg = e.to_string();
                     tracing::error!(saga_id = %saga_id, step = step.name, error = %msg, "Saga step failed");
-                    self.log_step(saga_id, i, step.name, StepState::Failed, Some(&msg)).await?;
+                    self.log_step(saga_id, i, step.name, StepState::Failed, Some(&msg))
+                        .await?;
                     self.compensate(saga_id, &steps[..i], &ctx).await;
                     self.update_saga_state(saga_id, "compensated").await?;
                     return Err(AppError::internal());
@@ -51,7 +53,9 @@ impl SagaOrchestrator {
             match step.compensation.compensate(ctx).await {
                 Ok(()) => {
                     tracing::info!(saga_id = %saga_id, step = step.name, "Compensation succeeded");
-                    let _ = self.log_step(saga_id, i, step.name, StepState::Compensated, None).await;
+                    let _ = self
+                        .log_step(saga_id, i, step.name, StepState::Compensated, None)
+                        .await;
                 }
                 Err(e) => {
                     // Compensation failure requires manual intervention — log and continue.
@@ -85,13 +89,11 @@ impl SagaOrchestrator {
     }
 
     async fn update_saga_state(&self, saga_id: Uuid, state: &str) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE saga_instances SET state = $2, updated_at = NOW() WHERE id = $1",
-        )
-        .bind(saga_id)
-        .bind(state)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE saga_instances SET state = $2, updated_at = NOW() WHERE id = $1")
+            .bind(saga_id)
+            .bind(state)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

@@ -1,5 +1,5 @@
-use async_graphql::{Context, Result, SimpleObject, Subscription};
 use async_graphql::futures_util::Stream;
+use async_graphql::{Context, Result, SimpleObject, Subscription};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 

@@ -1,12 +1,12 @@
-use std::sync::Arc;
+use super::commands::{Command, CommandResult};
+use crate::controllers::{creator_controller, tip_controller};
 use crate::db::connection::AppState;
 use crate::errors::AppResult;
+use crate::events::{Event, EventStore};
 use crate::models::creator::CreateCreatorRequest;
 use crate::models::tip::RecordTipRequest;
-use crate::controllers::{creator_controller, tip_controller};
-use crate::events::{Event, EventStore};
 use chrono::Utc;
-use super::commands::{Command, CommandResult};
+use std::sync::Arc;
 
 /// Executes write-side commands, persists to the write DB, and appends domain events.
 pub struct CommandBus {
@@ -21,10 +21,18 @@ impl CommandBus {
 
     pub async fn execute(&self, cmd: Command) -> AppResult<CommandResult> {
         match cmd {
-            Command::RegisterCreator { username, wallet_address, email } => {
+            Command::RegisterCreator {
+                username,
+                wallet_address,
+                email,
+            } => {
                 let creator = creator_controller::create_creator(
                     &self.state,
-                    CreateCreatorRequest { username, wallet_address, email },
+                    CreateCreatorRequest {
+                        username,
+                        wallet_address,
+                        email,
+                    },
                 )
                 .await?;
 
@@ -39,16 +47,25 @@ impl CommandBus {
                 Ok(CommandResult::CreatorRegistered { id: creator.id })
             }
 
-            Command::RecordTip { creator_username, amount, transaction_hash } => {
+            Command::RecordTip {
+                creator_username,
+                amount,
+                transaction_hash,
+            } => {
                 let tip = tip_controller::record_tip(
                     &self.state,
-                    RecordTipRequest { username: creator_username, amount, transaction_hash, message: None },
+                    RecordTipRequest {
+                        username: creator_username,
+                        amount,
+                        transaction_hash,
+                    },
                 )
                 .await?;
 
                 // Resolve creator_id for the event (best-effort; skip on miss).
                 if let Ok(Some(creator)) =
-                    creator_controller::get_creator_by_username(&self.state, &tip.creator_username).await
+                    creator_controller::get_creator_by_username(&self.state, &tip.creator_username)
+                        .await
                 {
                     let event = Event::TipReceived {
                         id: tip.id,

@@ -11,15 +11,21 @@ pub struct SagaContext {
 
 impl SagaContext {
     pub fn new(saga_id: Uuid) -> Self {
-        Self { saga_id, data: HashMap::new() }
+        Self {
+            saga_id,
+            data: HashMap::new(),
+        }
     }
 
     pub fn set(&mut self, key: impl Into<String>, value: impl serde::Serialize) {
-        self.data.insert(key.into(), serde_json::to_value(value).unwrap_or_default());
+        self.data
+            .insert(key.into(), serde_json::to_value(value).unwrap_or_default());
     }
 
     pub fn get<T: serde::de::DeserializeOwned>(&self, key: &str) -> Option<T> {
-        self.data.get(key).and_then(|v| serde_json::from_value(v.clone()).ok())
+        self.data
+            .get(key)
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
     }
 }
 

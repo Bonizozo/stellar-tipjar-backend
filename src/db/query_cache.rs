@@ -15,7 +15,9 @@ pub struct QueryCache {
 
 impl QueryCache {
     pub fn new() -> Self {
-        Self { inner: RwLock::new(HashMap::new()) }
+        Self {
+            inner: RwLock::new(HashMap::new()),
+        }
     }
 
     /// Register or touch a query. Returns the stored SQL.

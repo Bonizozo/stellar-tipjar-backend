@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use async_graphql::dataloader::DataLoader;
-use crate::db::connection::AppState;
 use super::dataloaders::{CreatorLoader, TipLoader};
+use crate::db::connection::AppState;
+use async_graphql::dataloader::DataLoader;
+use std::sync::Arc;
 
 pub struct GraphQLContext {
     pub state: Arc<AppState>,
@@ -12,13 +12,21 @@ pub struct GraphQLContext {
 impl GraphQLContext {
     pub fn new(state: Arc<AppState>) -> Self {
         let creator_loader = DataLoader::new(
-            CreatorLoader { pool: state.db.clone() },
+            CreatorLoader {
+                pool: state.db.clone(),
+            },
             tokio::spawn,
         );
         let tip_loader = DataLoader::new(
-            TipLoader { pool: state.db.clone() },
+            TipLoader {
+                pool: state.db.clone(),
+            },
             tokio::spawn,
         );
-        Self { state, creator_loader, tip_loader }
+        Self {
+            state,
+            creator_loader,
+            tip_loader,
+        }
     }
 }

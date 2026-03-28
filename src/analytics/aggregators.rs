@@ -1,10 +1,14 @@
-use sqlx::PgPool;
 use chrono::{DateTime, Utc};
+use sqlx::PgPool;
 
 use crate::errors::AppResult;
 
 /// Upserts per-creator aggregate stats into `creator_stats`.
-pub async fn update_creator_stats(pool: &PgPool, creator_username: &str, amount_stroops: u64) -> AppResult<()> {
+pub async fn update_creator_stats(
+    pool: &PgPool,
+    creator_username: &str,
+    amount_stroops: u64,
+) -> AppResult<()> {
     sqlx::query(
         r#"
         INSERT INTO creator_stats (creator_username, tip_count, total_amount_stroops, avg_amount_stroops, last_tip_at, updated_at)

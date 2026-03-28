@@ -1,8 +1,8 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::errors::{AppError, AppResult};
 use super::permissions::{Permission, Role};
+use crate::errors::{AppError, AppResult};
 
 pub struct RBACSystem {
     pub pool: PgPool,
@@ -26,12 +26,11 @@ impl RBACSystem {
     }
 
     pub async fn get_role(&self, user_id: Uuid) -> AppResult<Role> {
-        let role_str: Option<String> = sqlx::query_scalar(
-            "SELECT role FROM user_roles WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let role_str: Option<String> =
+            sqlx::query_scalar("SELECT role FROM user_roles WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.pool)
+                .await?;
 
         let role = role_str
             .as_deref()
@@ -46,7 +45,11 @@ impl RBACSystem {
         Ok(permission.allowed_for(&role))
     }
 
-    pub async fn require_permission(&self, user_id: Uuid, permission: &Permission) -> AppResult<()> {
+    pub async fn require_permission(
+        &self,
+        user_id: Uuid,
+        permission: &Permission,
+    ) -> AppResult<()> {
         if !self.has_permission(user_id, permission).await? {
             return Err(AppError::forbidden("Insufficient permissions"));
         }

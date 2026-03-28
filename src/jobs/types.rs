@@ -163,25 +163,25 @@ pub type JobResult<T> = Result<T, JobError>;
 pub enum JobError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
-    
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
-    
+
     #[error("Job handler not found for type: {job_type:?}")]
     HandlerNotFound { job_type: JobType },
-    
+
     #[error("Job execution failed: {message}")]
     ExecutionFailed { message: String },
-    
+
     #[error("External service unavailable: {service}")]
     ServiceUnavailable { service: String },
-    
+
     #[error("Job timeout after {duration_ms}ms")]
     Timeout { duration_ms: u64 },
-    
+
     #[error("Worker shutdown requested")]
     Shutdown,
-    
+
     #[error("Invalid job state transition from {from:?} to {to:?}")]
     InvalidStateTransition { from: JobStatus, to: JobStatus },
 }

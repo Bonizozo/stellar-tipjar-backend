@@ -90,12 +90,11 @@ pub async fn get_admin_username_by_key_hash(
     pool: &PgPool,
     key_hash: &str,
 ) -> AppResult<Option<String>> {
-    let username = sqlx::query_scalar::<_, String>(
-        "SELECT username FROM admin_users WHERE api_key_hash = $1",
-    )
-    .bind(key_hash)
-    .fetch_optional(pool)
-    .await?;
+    let username =
+        sqlx::query_scalar::<_, String>("SELECT username FROM admin_users WHERE api_key_hash = $1")
+            .bind(key_hash)
+            .fetch_optional(pool)
+            .await?;
 
     Ok(username)
 }

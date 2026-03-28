@@ -1,10 +1,6 @@
-use axum::{
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
-use std::time::Instant;
 use crate::metrics::collectors::{HTTP_REQUESTS_TOTAL, HTTP_REQUEST_DURATION_SECONDS};
+use axum::{extract::Request, middleware::Next, response::Response};
+use std::time::Instant;
 
 pub async fn track_metrics(req: Request, next: Next) -> Response {
     let start = Instant::now();

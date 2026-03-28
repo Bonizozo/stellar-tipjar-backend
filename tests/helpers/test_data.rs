@@ -95,7 +95,10 @@ pub fn generate_stellar_address() -> String {
 
 /// Generate transaction hash
 pub fn generate_transaction_hash() -> String {
-    format!("TX{}", Uuid::new_v4().to_string().replace("-", "").to_uppercase())
+    format!(
+        "TX{}",
+        Uuid::new_v4().to_string().replace("-", "").to_uppercase()
+    )
 }
 
 /// Generate multiple creators for bulk testing
