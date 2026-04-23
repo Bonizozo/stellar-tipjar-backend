@@ -1,15 +1,14 @@
 use axum::Router;
-use axum::{http::Method, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 mod analytics;
 mod cache;
+mod config;
 mod controllers;
 mod cqrs;
 mod db;
@@ -50,11 +49,13 @@ async fn main() -> anyhow::Result<()> {
 
     logging::init();
 
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let stellar_rpc_url = std::env::var("STELLAR_RPC_URL")
-        .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string());
-    let stellar_network =
-        std::env::var("STELLAR_NETWORK").unwrap_or_else(|_| "testnet".to_string());
+    // --- Secrets Resolution ---
+    // Loads from Vault (if VAULT_ADDR + VAULT_TOKEN are set) with env-var fallback.
+    let secrets = config::secrets::SecretsManager::new().load().await?;
+    let database_url = secrets.database_url;
+    let stellar_rpc_url = secrets.stellar_rpc_url;
+    let stellar_network = secrets.stellar_network;
+
 
     let pool = PgPoolOptions::new()
         .max_connections(20)
@@ -101,10 +102,7 @@ async fn main() -> anyhow::Result<()> {
     // Start background job processing system
     let (_job_queue, _job_scheduler) = jobs::start(Arc::clone(&state), jobs::JobConfig::default());
 
-    let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_origin(Any)
-        .allow_headers(Any);
+    let cors = middleware::cors::cors_layer();
 
     // Build rate limiters (Your FIXED version - no tuples!)
     let general_limiter_v1 = middleware::rate_limiter::general_limiter();
@@ -169,6 +167,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(v2)
         .layer(axum::Extension(gql_schema))
         .layer(cors)
+        .layer(axum::middleware::map_response(middleware::cors::security_headers))
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(
             middleware::tracing::trace_request,

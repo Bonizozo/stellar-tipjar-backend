@@ -1,8 +1,14 @@
 use chrono::{DateTime, Utc};
+use lazy_static::lazy_static;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 use validator::Validate;
+
+lazy_static! {
+    static ref USERNAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap();
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Tip {
@@ -23,6 +29,7 @@ pub struct RecordTipRequest {
         max = 30,
         message = "Username must be between 3 and 30 characters"
     ))]
+    #[validate(regex(path = *USERNAME_REGEX, message = "Username may only contain letters, numbers, underscores, and hyphens"))]
     pub username: String,
 
     /// Amount in XLM (e.g. "10.5"), positive, max 7 decimal places

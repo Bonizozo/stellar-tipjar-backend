@@ -6,6 +6,7 @@ use crate::db::connection::AppState;
 use crate::errors::{AppError, StellarError};
 use crate::models::pagination::PaginationParams;
 use crate::models::tip::{RecordTipRequest, TipFilters, TipResponse, TipSortParams};
+use crate::services::validation_service::{TipValidationService, ValidationRules};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -29,6 +30,9 @@ pub async fn record_tip(
     State(state): State<Arc<AppState>>,
     crate::validation::ValidatedJson(body): crate::validation::ValidatedJson<RecordTipRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    let validator = TipValidationService::new(ValidationRules::default());
+    validator.validate(&state.db, &body).await?;
+
     match state
         .stellar
         .verify_transaction(&body.transaction_hash)

@@ -3,6 +3,7 @@ pub mod auth;
 pub mod authorization;
 pub mod cache;
 pub mod compression;
+pub mod cors;
 pub mod deprecation;
 pub mod metrics;
 pub mod rate_limiter;

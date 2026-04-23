@@ -44,6 +44,7 @@ hmac = "0.12"
 hex = "0.4"
 base64 = "0.22"
 urlencoding = "2"
+rust_decimal = "1"
 utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "7", features = ["axum"] }
 async-graphql = { version = "7", features = ["uuid", "chrono", "dataloader"] }
