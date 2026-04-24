@@ -8,6 +8,7 @@ pub mod leaderboard_controller;
 pub mod notification_controller;
 pub mod refund_controller;
 pub mod scheduler_controller;
+pub mod scheduled_tip_controller;
 pub mod tip_controller;
 pub mod campaign_controller;
 pub mod verification_controller;
