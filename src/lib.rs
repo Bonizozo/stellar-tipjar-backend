@@ -48,12 +48,15 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     let write_routes = Router::new()
         .merge(routes::tips::router())
         .merge(routes::creators::write_router())
+        .merge(routes::verification::router())
+        .merge(routes::goals::router())
         .layer(write_limiter);
 
     // Read endpoints use the general limit.
     let read_routes = Router::new()
         .merge(routes::creators::read_router())
         .merge(routes::health::router())
+        .merge(routes::leaderboard::router())
         .layer(general_limiter);
 
     Router::new()

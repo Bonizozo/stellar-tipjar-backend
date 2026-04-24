@@ -116,10 +116,13 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1",
             Router::new()
                 .merge(routes::admin::router(Arc::clone(&state)))
+                .merge(routes::verification::admin_router(Arc::clone(&state)))
                 .merge(
                     Router::new()
                         .merge(routes::tips::router())
                         .merge(routes::creators::write_router())
+                        .merge(routes::verification::router())
+                        .merge(routes::goals::router())
                         .layer(write_limiter_v1),
                 )
                 .merge(
@@ -127,6 +130,7 @@ async fn main() -> anyhow::Result<()> {
                         .merge(routes::creators::read_router())
                         .merge(routes::health::router())
                         .merge(routes::notifications::router())
+                        .merge(routes::leaderboard::router())
                         .layer(general_limiter_v1),
                 ),
         )
@@ -138,10 +142,13 @@ async fn main() -> anyhow::Result<()> {
         "/api/v2",
         Router::new()
             .merge(routes::admin::router(Arc::clone(&state)))
+            .merge(routes::verification::admin_router(Arc::clone(&state)))
             .merge(
                 Router::new()
                     .merge(routes::tips::router())
                     .merge(routes::creators::write_router())
+                    .merge(routes::verification::router())
+                    .merge(routes::goals::router())
                     .layer(write_limiter_v2),
             )
             .merge(
@@ -149,6 +156,7 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::creators::read_router())
                     .merge(routes::health::router())
                     .merge(routes::notifications::router())
+                    .merge(routes::leaderboard::router())
                     .layer(general_limiter_v2),
             ),
     );

@@ -141,6 +141,21 @@ pub async fn record_tip_in_tx(
         });
     }
 
+    // Update tip goals progress and fire milestone notifications
+    {
+        let db = state.db.clone();
+        let username = tip.creator_username.clone();
+        let amount = tip.amount.clone();
+        tokio::spawn(async move {
+            if let Err(e) =
+                crate::controllers::goal_controller::apply_tip_to_goals(&db, &username, &amount)
+                    .await
+            {
+                tracing::warn!("Failed to update goal progress: {e}");
+            }
+        });
+    }
+
     Ok(tip)
 }
 
