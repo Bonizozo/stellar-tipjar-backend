@@ -6,7 +6,7 @@ use crate::models::tip::Tip;
 
 pub async fn get_all_creators(pool: &PgPool) -> AppResult<Vec<Creator>> {
     let creators = sqlx::query_as::<_, Creator>(
-        "SELECT id, username, wallet_address, created_at FROM creators ORDER BY created_at ASC",
+        "SELECT id, username, wallet_address, email, password_hash, totp_secret, totp_enabled, backup_code_hashes, created_at FROM creators ORDER BY created_at ASC",
     )
     .fetch_all(pool)
     .await?;

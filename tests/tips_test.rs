@@ -2,6 +2,7 @@ use axum::http::StatusCode;
 use axum_test::TestServer;
 use httpmock::prelude::*;
 use serde_json::json;
+use uuid::Uuid;
 mod common;
 
 #[tokio::test]
@@ -117,7 +118,7 @@ async fn test_get_creator_tips_paginated() {
             "INSERT INTO tips (id, creator_username, amount, transaction_hash, created_at) \
              VALUES ($1, $2, $3, $4, NOW())",
         )
-        .bind(uuid::Uuid::new_v4())
+        .bind(Uuid::new_v4())
         .bind("paguser")
         .bind(format!("{}.0", i))
         .bind(format!("HASH{i}"))
@@ -147,6 +148,92 @@ async fn test_get_creator_tips_paginated() {
     assert_eq!(body["data"].as_array().unwrap().len(), 1);
     assert_eq!(body["has_next"], false);
     assert_eq!(body["has_prev"], true);
+
+    common::cleanup_test_db(&pool).await;
+}
+
+#[tokio::test]
+async fn test_matching_campaign_applies_funds_and_creates_notification() {
+    let pool = common::setup_test_db().await;
+    let mock_server = MockServer::start();
+    let (app, _) = common::create_test_app_with_mock_stellar(
+        pool.clone(),
+        &mock_server.url(""),
+    )
+    .await;
+    let server = TestServer::new(app).unwrap();
+
+    mock_server.mock(|when, then| {
+        when.method(GET).path_contains("/transactions/TXMATCH1");
+        then.status(200).json_body(json!({
+            "id": "TXMATCH1",
+            "hash": "TXMATCH1",
+            "successful": true
+        }));
+    });
+
+    server
+        .post("/creators")
+        .json(&json!({
+            "username": "matchcreator",
+            "wallet_address": "GMATCH001",
+            "email": "match@example.com"
+        }))
+        .await;
+
+    let campaign_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO campaigns (id, sponsor_name, creator_username, match_ratio, per_tip_cap, total_budget, remaining_budget, active, starts_at, ends_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, NOW() - INTERVAL '1 day', NOW() + INTERVAL '1 day')",
+    )
+    .bind(campaign_id)
+    .bind("SponsorCo")
+    .bind("matchcreator")
+    .bind("1.0")
+    .bind("10.0")
+    .bind("10.0")
+    .bind("10.0")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let response = server
+        .post("/tips")
+        .json(&json!({
+            "username": "matchcreator",
+            "amount": "5.0",
+            "transaction_hash": "TXMATCH1"
+        }))
+        .await;
+
+    response.assert_status(StatusCode::CREATED);
+
+    let matched_amount: String = sqlx::query_scalar(
+        "SELECT matched_amount FROM campaign_matches WHERE tip_id = (SELECT id FROM tips WHERE transaction_hash = $1)"
+    )
+    .bind("TXMATCH1")
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(matched_amount, "5.0");
+
+    let remaining_budget: String = sqlx::query_scalar(
+        "SELECT remaining_budget FROM campaigns WHERE id = $1"
+    )
+    .bind(campaign_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(remaining_budget, "5.0");
+
+    let notification_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM notifications WHERE creator_username = $1 AND \"type\" = 'campaign_matched'"
+    )
+    .bind("matchcreator")
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(notification_count, 1);
 
     common::cleanup_test_db(&pool).await;
 }

@@ -11,7 +11,7 @@ impl TenantAwareQuery {
         tenant: &TenantContext,
     ) -> Result<Vec<Creator>, AppError> {
         sqlx::query_as::<_, Creator>(
-            "SELECT * FROM creators WHERE tenant_id = $1"
+            "SELECT id, username, wallet_address, email, password_hash, totp_secret, totp_enabled, backup_code_hashes, created_at FROM creators WHERE tenant_id = $1"
         )
         .bind(tenant.tenant_id)
         .fetch_all(pool)
@@ -25,7 +25,7 @@ impl TenantAwareQuery {
         username: &str,
     ) -> Result<Option<Creator>, AppError> {
         sqlx::query_as::<_, Creator>(
-            "SELECT * FROM creators WHERE tenant_id = $1 AND username = $2"
+            "SELECT id, username, wallet_address, email, password_hash, totp_secret, totp_enabled, backup_code_hashes, created_at FROM creators WHERE tenant_id = $1 AND username = $2"
         )
         .bind(tenant.tenant_id)
         .bind(username)

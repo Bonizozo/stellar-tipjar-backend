@@ -26,7 +26,7 @@ impl WarmableDataSource<Creator> for CreatorWarmSource {
     async fn fetch_popular(&self, limit: i64) -> Result<Vec<Creator>> {
         let creators = sqlx::query_as::<_, Creator>(
             r#"
-            SELECT id, username, wallet_address, email, created_at
+            SELECT id, username, wallet_address, email, password_hash, totp_secret, totp_enabled, backup_code_hashes, created_at
             FROM creators
             ORDER BY created_at DESC
             LIMIT $1

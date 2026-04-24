@@ -17,6 +17,17 @@ pub struct Creator {
     pub username: String,
     pub wallet_address: String,
     pub email: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing)]
+    pub password_hash: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
+    pub totp_secret: Option<String>,
+    pub totp_enabled: bool,
+    #[serde(default)]
+    #[serde(skip_serializing)]
+    pub backup_code_hashes: Vec<String>,
     pub created_at: DateTime<Utc>,
 }
 

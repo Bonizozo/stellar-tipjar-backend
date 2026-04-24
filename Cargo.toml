@@ -46,12 +46,16 @@ base64 = "0.22"
 urlencoding = "2"
 rust_decimal = "1"
 utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
+oath = "1.1"
+rand = "0.8"
+data-encoding = "2"
 utoipa-swagger-ui = { version = "7", features = ["axum"] }
 async-graphql = { version = "7", features = ["uuid", "chrono", "dataloader"] }
 async-graphql-axum = "7"
 tokio-stream = { version = "0.1", features = ["sync"] }
 async-trait = "0.1"
 tokio-cron-scheduler = "0.10"
+lapin = "2"
 
 # OpenTelemetry distributed tracing
 opentelemetry = { version = "0.22", features = ["trace"] }
