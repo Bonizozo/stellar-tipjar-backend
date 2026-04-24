@@ -2,7 +2,7 @@ use std::time::Instant;
 use uuid::Uuid;
 
 use crate::cache::{keys, redis_client};
-use crate::controllers::campaign_controller;
+use crate::controllers::{campaign_controller, team_controller};
 use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
 use crate::db::transaction;
@@ -10,6 +10,7 @@ use crate::errors::{AppError, AppResult};
 use crate::metrics::collectors::DB_QUERY_DURATION_SECONDS; // Kept from your branch
 use crate::models::pagination::{PaginatedResponse, PaginationParams};
 use crate::models::tip::{RecordTipRequest, Tip, TipFilters, TipSortParams};
+use crate::moderation::ContentType;
 
 #[tracing::instrument(skip(state), fields(username = %req.username, amount = %req.amount))]
 pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Tip> {
@@ -131,6 +132,9 @@ pub async fn record_tip_in_tx(
         .bind(&tip.creator_username)
         .execute(&mut **tx)
         .await?;
+
+    // Apply team splits if the recipient belongs to a team.
+    team_controller::record_tip_splits(&state, tip.id, &tip.creator_username, &tip.amount, &mut *tx).await?;
 
     // Broadcast to WebSocket (Main branch feature)
     let event = crate::ws::TipEvent {

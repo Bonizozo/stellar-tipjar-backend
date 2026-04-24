@@ -4,6 +4,7 @@ use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
 use std::time::Duration;
 use stellar_tipjar_backend::db::connection::AppState;
+use stellar_tipjar_backend::moderation::ModerationService;
 use stellar_tipjar_backend::services::stellar_service::StellarService;
 use stellar_tipjar_backend::{cache, create_app, db, email};
 
@@ -45,6 +46,7 @@ pub async fn create_test_app(pool: PgPool) -> (Router, String) {
 
     let stellar = StellarService::new(stellar_rpc_url, stellar_network);
     let performance = Arc::new(db::performance::PerformanceMonitor::new());
+    let moderation = Arc::new(ModerationService::new(pool.clone()));
 
     // Mock redis (or just let it fail/disable)
     let redis = None;
@@ -57,6 +59,7 @@ pub async fn create_test_app(pool: PgPool) -> (Router, String) {
         db: pool,
         stellar,
         performance,
+        moderation,
         redis,
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
     });
@@ -73,6 +76,7 @@ pub async fn create_test_app_with_mock_stellar(
     // Use the mock server URL for stellar service
     let stellar = StellarService::new(mock_stellar_url.to_string(), stellar_network);
     let performance = Arc::new(db::performance::PerformanceMonitor::new());
+    let moderation = Arc::new(ModerationService::new(pool.clone()));
 
     // Mock redis (or just let it fail/disable)
     let redis = None;
@@ -85,6 +89,7 @@ pub async fn create_test_app_with_mock_stellar(
         db: pool,
         stellar,
         performance,
+        moderation,
         redis,
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
     });

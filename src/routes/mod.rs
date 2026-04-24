@@ -6,5 +6,6 @@ pub mod goals;
 pub mod health;
 pub mod leaderboard;
 pub mod notifications;
+pub mod teams;
 pub mod tips;
 pub mod verification;

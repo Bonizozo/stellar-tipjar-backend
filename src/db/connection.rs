@@ -4,10 +4,8 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use super::performance::PerformanceMonitor;
-use crate::email::sender::EmailSender;
-use crate::services::creator_service::CreatorService;
+use crate::moderation::ModerationService;
 use crate::services::stellar_service::StellarService;
-use crate::services::tip_service::TipService;
 use crate::ws::TipEvent;
 
 #[derive(Clone)]
