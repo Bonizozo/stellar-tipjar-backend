@@ -1,0 +1,14 @@
+DROP TRIGGER IF EXISTS tips_search_vector_trigger ON tips;
+DROP FUNCTION IF EXISTS tips_search_vector_update();
+DROP TRIGGER IF EXISTS creators_search_vector_trigger ON creators;
+DROP FUNCTION IF EXISTS creators_search_vector_update();
+DROP INDEX IF EXISTS idx_creators_verified;
+ALTER TABLE creators DROP COLUMN IF EXISTS verified;
+DROP INDEX IF EXISTS idx_tips_creator_created;
+DROP INDEX IF EXISTS idx_tips_created_at_amount;
+DROP INDEX IF EXISTS idx_tips_search_vector;
+ALTER TABLE tips DROP COLUMN IF EXISTS search_vector;
+DROP INDEX IF EXISTS idx_creators_display_name_trgm;
+DROP INDEX IF EXISTS idx_creators_username_trgm;
+DROP INDEX IF EXISTS idx_creators_search_vector;
+ALTER TABLE creators DROP COLUMN IF EXISTS search_vector;
