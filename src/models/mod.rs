@@ -1,6 +1,9 @@
 pub mod admin;
 pub mod auth;
 pub mod creator;
+pub mod goal;
+pub mod leaderboard;
 pub mod notification;
 pub mod pagination;
 pub mod tip;
+pub mod verification;
