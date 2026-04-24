@@ -2,6 +2,7 @@ use std::time::Instant;
 use uuid::Uuid;
 
 use crate::cache::{keys, redis_client};
+use crate::controllers::campaign_controller;
 use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
 use crate::db::transaction;
@@ -35,12 +36,41 @@ pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Ti
 
     let start = Instant::now();
     // Pass state into the internal helper to support WebSocket broadcasting
-    let tip = record_tip_in_tx(state, &mut tx, &req).await?;
+    let (tip, match_result) = record_tip_in_tx(state, &mut tx, &req).await?;
     tx.commit().await?;
     let duration = start.elapsed();
 
     // Record your Prometheus metric
     DB_QUERY_DURATION_SECONDS.observe(duration.as_secs_f64());
+
+    if let Some(match_info) = match_result {
+        let db = state.db.clone();
+        let username = tip.creator_username.clone();
+        let tip_id = tip.id;
+        tokio::spawn(async move {
+            use crate::controllers::notification_controller;
+            if let Ok(prefs) = notification_controller::get_preferences(&db, &username).await {
+                if prefs.notify_on_tip {
+                    let payload = serde_json::json!({
+                        "tip_id": tip_id,
+                        "matched_amount": match_info.matched_amount,
+                        "campaign_id": match_info.campaign_id,
+                        "sponsor_name": match_info.sponsor_name,
+                    });
+                    if let Err(e) = notification_controller::create_notification(
+                        &db,
+                        &username,
+                        "campaign_matched",
+                        payload,
+                    )
+                    .await
+                    {
+                        tracing::warn!("Failed to persist campaign match notification: {e}");
+                    }
+                }
+            }
+        });
+    }
 
     QueryLogger::log_query("INSERT tips + tip_logs (transaction)", duration);
     state.performance.track_query("tip_atomic_record", duration);
@@ -74,7 +104,7 @@ pub async fn record_tip_in_tx(
     state: &AppState, // Added state parameter to fix scope issue in Main
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     req: &RecordTipRequest,
-) -> AppResult<Tip> {
+) -> AppResult<(Tip, Option<crate::models::campaign::CampaignMatchResult>)> {
     let query_tip = r#"
         INSERT INTO tips (id, creator_username, amount, transaction_hash, message, created_at)
         VALUES ($1, $2, $3, $4, $5, NOW())
@@ -141,6 +171,15 @@ pub async fn record_tip_in_tx(
         });
     }
 
+    // Attempt to apply a matching campaign to this tip.
+    let match_result = campaign_controller::apply_tip_matching_campaign(
+        &mut *tx,
+        &tip.creator_username,
+        tip.id,
+        &tip.amount,
+    )
+    .await?;
+
     // Update tip goals progress and fire milestone notifications
     {
         let db = state.db.clone();
@@ -156,7 +195,7 @@ pub async fn record_tip_in_tx(
         });
     }
 
-    Ok(tip)
+    Ok((tip, match_result))
 }
 
 /// Fetch all tips for a creator without pagination (kept for internal use).

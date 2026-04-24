@@ -30,10 +30,12 @@ pub async fn setup_test_db() -> PgPool {
 
 pub async fn cleanup_test_db(pool: &PgPool) {
     // Clean up in correct order due to foreign key constraints
-    sqlx::query("TRUNCATE tips, creators, jobs CASCADE")
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "TRUNCATE campaign_matches, campaigns, notifications, notification_preferences, tips, creators, jobs CASCADE",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 pub async fn create_test_app(pool: PgPool) -> (Router, String) {
