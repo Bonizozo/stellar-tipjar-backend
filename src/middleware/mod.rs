@@ -12,3 +12,4 @@ pub mod signature;
 pub mod timeout;
 pub mod tracing;
 pub mod tenant;
+pub mod version;

@@ -124,6 +124,7 @@ async fn main() -> anyhow::Result<()> {
                         .merge(routes::creators::write_router())
                         .merge(routes::verification::router())
                         .merge(routes::goals::router())
+                        .merge(routes::v1::router())
                         .layer(write_limiter_v1),
                 )
                 .merge(
@@ -136,7 +137,7 @@ async fn main() -> anyhow::Result<()> {
                 ),
         )
         .layer(axum::middleware::from_fn(
-            middleware::deprecation::deprecation_notice,
+            middleware::version::version_headers,
         ));
 
     let v2 = Router::new().nest(
@@ -150,6 +151,7 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::creators::write_router())
                     .merge(routes::verification::router())
                     .merge(routes::goals::router())
+                    .merge(routes::v2::router())
                     .layer(write_limiter_v2),
             )
             .merge(
@@ -160,7 +162,10 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::leaderboard::router())
                     .layer(general_limiter_v2),
             ),
-    );
+    )
+    .layer(axum::middleware::from_fn(
+        middleware::version::version_headers,
+    ));
 
     let x_request_id = axum::http::HeaderName::from_static("x-request-id");
 

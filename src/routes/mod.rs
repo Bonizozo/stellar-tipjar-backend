@@ -7,4 +7,6 @@ pub mod health;
 pub mod leaderboard;
 pub mod notifications;
 pub mod tips;
+pub mod v1;
+pub mod v2;
 pub mod verification;
