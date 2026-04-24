@@ -3,6 +3,7 @@ pub mod cache;
 pub mod chaos;
 pub mod controllers;
 pub mod cqrs;
+pub mod crypto;
 pub mod db;
 pub mod docs;
 pub mod email;

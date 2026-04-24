@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod api_key;
 pub mod auth;
 pub mod creator;
 pub mod goal;
