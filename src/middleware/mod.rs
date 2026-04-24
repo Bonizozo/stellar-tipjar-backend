@@ -1,4 +1,5 @@
 pub mod admin_auth;
+pub mod api_key_auth;
 pub mod auth;
 pub mod authorization;
 pub mod cache;
@@ -8,6 +9,8 @@ pub mod deprecation;
 pub mod metrics;
 pub mod rate_limiter;
 pub mod request_id;
+pub mod signature;
 pub mod timeout;
 pub mod tracing;
 pub mod tenant;
+pub mod version;

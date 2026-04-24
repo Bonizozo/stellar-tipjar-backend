@@ -11,6 +11,7 @@ mod cache;
 mod config;
 mod controllers;
 mod cqrs;
+mod crypto;
 mod db;
 mod docs;
 mod email;
@@ -30,10 +31,10 @@ mod security;
 mod services;
 mod shutdown;
 mod telemetry;
+mod tenancy;
 mod validation;
 mod webhooks;
 mod ws;
-mod tenancy;
 
 use crate::metrics::metrics_handler;
 use crate::middleware::metrics::track_metrics;
@@ -116,7 +117,11 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1",
             Router::new()
                 .merge(routes::admin::router(Arc::clone(&state)))
+                .merge(routes::api_keys::router(Arc::clone(&state)))
                 .merge(routes::verification::admin_router(Arc::clone(&state)))
+                .merge(routes::feature_flags::router(Arc::clone(&state)))
+                .merge(routes::usage_analytics::router(Arc::clone(&state)))
+                .merge(routes::refunds::admin_router(Arc::clone(&state)))
                 .merge(
                     Router::new()
                         .merge(routes::auth::router())
@@ -125,6 +130,7 @@ async fn main() -> anyhow::Result<()> {
                         .merge(routes::creators::write_router())
                         .merge(routes::verification::router())
                         .merge(routes::goals::router())
+                        .merge(routes::v1::router())
                         .layer(write_limiter_v1),
                 )
                 .merge(
@@ -137,14 +143,18 @@ async fn main() -> anyhow::Result<()> {
                 ),
         )
         .layer(axum::middleware::from_fn(
-            middleware::deprecation::deprecation_notice,
+            middleware::version::version_headers,
         ));
 
     let v2 = Router::new().nest(
         "/api/v2",
         Router::new()
             .merge(routes::admin::router(Arc::clone(&state)))
+            .merge(routes::api_keys::router(Arc::clone(&state)))
             .merge(routes::verification::admin_router(Arc::clone(&state)))
+            .merge(routes::feature_flags::router(Arc::clone(&state)))
+            .merge(routes::usage_analytics::router(Arc::clone(&state)))
+            .merge(routes::refunds::admin_router(Arc::clone(&state)))
             .merge(
                 Router::new()
                     .merge(routes::auth::router())
@@ -153,6 +163,7 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::creators::write_router())
                     .merge(routes::verification::router())
                     .merge(routes::goals::router())
+                    .merge(routes::v2::router())
                     .layer(write_limiter_v2),
             )
             .merge(
@@ -163,7 +174,10 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::leaderboard::router())
                     .layer(general_limiter_v2),
             ),
-    );
+    )
+    .layer(axum::middleware::from_fn(
+        middleware::version::version_headers,
+    ));
 
     let x_request_id = axum::http::HeaderName::from_static("x-request-id");
 
@@ -201,6 +215,10 @@ async fn main() -> anyhow::Result<()> {
         .layer(middleware::timeout::timeout_layer_from_env())
         .layer(axum::middleware::from_fn(
             middleware::rate_limiter::whitelist_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state),
+            middleware::usage_tracker::track_api_usage,
         ))
         .with_state(state);
 

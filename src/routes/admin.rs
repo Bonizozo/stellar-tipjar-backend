@@ -35,8 +35,13 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Moderation endpoints
         .route("/admin/moderation/queue", get(moderation_queue))
         .route("/admin/moderation/stats", get(moderation_stats))
+        .route("/admin/moderation/flag", post(moderation_flag))
         .route("/admin/moderation/:id/approve", post(moderation_approve))
         .route("/admin/moderation/:id/reject", post(moderation_reject))
+        .route("/admin/moderation/:id/dismiss", post(moderation_dismiss))
+        .route("/admin/moderation/:id/warn", post(moderation_warn))
+        .route("/admin/moderation/:id/ban", post(moderation_ban))
+        .route("/admin/moderation/:id/history", get(moderation_history))
         .route_layer(middleware::from_fn_with_state(state, require_admin))
 }
 
@@ -173,26 +178,7 @@ async fn moderation_approve(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let reviewer = resolve_admin_from_headers(&state, &headers).await;
-    match state.moderation.queue().approve(id, &reviewer).await {
-        Ok(true) => (
-            StatusCode::OK,
-            Json(serde_json::json!({ "message": "Item approved" })),
-        )
-            .into_response(),
-        Ok(false) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "Item not found or already reviewed" })),
-        )
-            .into_response(),
-        Err(e) => {
-            tracing::error!("Failed to approve moderation item: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "Failed to approve item" })),
-            )
-                .into_response()
-        }
-    }
+    dispatch_moderation_action(state.moderation.queue().approve(id, &reviewer).await, "approve").into_response()
 }
 
 async fn moderation_reject(
@@ -201,24 +187,106 @@ async fn moderation_reject(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let reviewer = resolve_admin_from_headers(&state, &headers).await;
-    match state.moderation.queue().reject(id, &reviewer).await {
+    dispatch_moderation_action(state.moderation.queue().reject(id, &reviewer).await, "reject").into_response()
+}
+
+#[derive(serde::Deserialize)]
+struct ModerationActionBody {
+    note: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ModerationFlagBody {
+    content_type: String,
+    content_id: uuid::Uuid,
+    content_text: String,
+    reason: String,
+}
+
+async fn moderation_flag(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<ModerationFlagBody>,
+) -> impl IntoResponse {
+    let flagged_by = resolve_admin_from_headers(&state, &headers).await;
+    match state
+        .moderation
+        .flag(&body.content_type, body.content_id, &body.content_text, &body.reason, &flagged_by)
+        .await
+    {
+        Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({ "queue_item_id": id }))).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to flag content: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Failed to flag content" }))).into_response()
+        }
+    }
+}
+
+async fn moderation_dismiss(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    body: Option<Json<ModerationActionBody>>,
+) -> impl IntoResponse {
+    let reviewer = resolve_admin_from_headers(&state, &headers).await;
+    let note = body.as_ref().and_then(|b| b.note.as_deref());
+    dispatch_moderation_action(state.moderation.queue().dismiss(id, &reviewer, note).await, "dismiss").into_response()
+}
+
+async fn moderation_warn(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    body: Option<Json<ModerationActionBody>>,
+) -> impl IntoResponse {
+    let reviewer = resolve_admin_from_headers(&state, &headers).await;
+    let note = body.as_ref().and_then(|b| b.note.as_deref());
+    dispatch_moderation_action(state.moderation.queue().warn(id, &reviewer, note).await, "warn").into_response()
+}
+
+async fn moderation_ban(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    body: Option<Json<ModerationActionBody>>,
+) -> impl IntoResponse {
+    let reviewer = resolve_admin_from_headers(&state, &headers).await;
+    let note = body.as_ref().and_then(|b| b.note.as_deref());
+    dispatch_moderation_action(state.moderation.queue().ban(id, &reviewer, note).await, "ban").into_response()
+}
+
+async fn moderation_history(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    match state.moderation.queue().history(id).await {
+        Ok(entries) => (StatusCode::OK, Json(serde_json::json!(entries))).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to get moderation history: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Failed to retrieve history" }))).into_response()
+        }
+    }
+}
+
+fn dispatch_moderation_action(
+    result: anyhow::Result<bool>,
+    action: &str,
+) -> impl IntoResponse {
+    match result {
         Ok(true) => (
             StatusCode::OK,
-            Json(serde_json::json!({ "message": "Item rejected" })),
-        )
-            .into_response(),
+            Json(serde_json::json!({ "message": format!("Action '{}' applied", action) })),
+        ).into_response(),
         Ok(false) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "Item not found or already reviewed" })),
-        )
-            .into_response(),
+        ).into_response(),
         Err(e) => {
-            tracing::error!("Failed to reject moderation item: {}", e);
+            tracing::error!("Moderation action '{}' failed: {}", action, e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "Failed to reject item" })),
-            )
-                .into_response()
+                Json(serde_json::json!({ "error": format!("Failed to apply action '{}'" , action) })),
+            ).into_response()
         }
     }
 }

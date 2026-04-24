@@ -8,7 +8,7 @@ pub mod review_queue;
 pub mod rules;
 
 pub use ai_detector::AiDetector;
-pub use review_queue::ReviewQueue;
+pub use review_queue::{ModerationFlag, ModerationHistoryEntry, ModerationQueueItem, ReviewQueue};
 pub use rules::RulesEngine;
 
 use serde::{Deserialize, Serialize};
@@ -142,6 +142,20 @@ impl ModerationService {
         }
 
         result
+    }
+
+    /// Manually flag content for review (called from user-facing routes).
+    pub async fn flag(
+        &self,
+        content_type: &str,
+        content_id: Uuid,
+        content_text: &str,
+        reason: &str,
+        flagged_by: &str,
+    ) -> anyhow::Result<Uuid> {
+        self.queue
+            .flag(content_type, content_id, content_text, reason, flagged_by)
+            .await
     }
 
     /// Expose the review queue so admin handlers can call it directly.
