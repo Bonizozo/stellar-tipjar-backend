@@ -119,6 +119,7 @@ async fn main() -> anyhow::Result<()> {
                 .merge(routes::verification::admin_router(Arc::clone(&state)))
                 .merge(
                     Router::new()
+                        .merge(routes::auth::router())
                         .merge(routes::tips::router())
                         .merge(routes::creators::write_router())
                         .merge(routes::verification::router())
@@ -145,6 +146,7 @@ async fn main() -> anyhow::Result<()> {
             .merge(routes::verification::admin_router(Arc::clone(&state)))
             .merge(
                 Router::new()
+                    .merge(routes::auth::router())
                     .merge(routes::tips::router())
                     .merge(routes::creators::write_router())
                     .merge(routes::verification::router())

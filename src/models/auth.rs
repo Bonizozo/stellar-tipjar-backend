@@ -27,6 +27,45 @@ pub struct LoginRequest {
 
     #[validate(length(min = 1, message = "Password is required"))]
     pub password: String,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub totp_code: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup_code: Option<String>,
+}
+
+/// Setup a new TOTP secret for the authenticated creator.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TwoFactorSetupResponse {
+    pub secret: String,
+    pub otpauth_url: String,
+}
+
+/// Verify a TOTP code to finish enrollment and receive backup codes.
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct VerifyTwoFactorRequest {
+    #[validate(length(min = 6, max = 6, message = "TOTP code must be 6 digits"))]
+    pub totp_code: String,
+}
+
+/// Backup code payload returned after verifying 2FA enrollment.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct VerifyTwoFactorResponse {
+    pub backup_codes: Vec<String>,
+}
+
+/// Recover access with username, password, and a single backup code.
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct RecoverTwoFactorRequest {
+    #[validate(length(min = 1, message = "Username is required"))]
+    pub username: String,
+
+    #[validate(length(min = 1, message = "Password is required"))]
+    pub password: String,
+
+    #[validate(length(min = 1, message = "Backup code is required"))]
+    pub backup_code: String,
 }
 
 /// Returned on successful login or register.

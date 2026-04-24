@@ -46,6 +46,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 
     // Write endpoints get a stricter per-IP limit.
     let write_routes = Router::new()
+        .merge(routes::auth::router())
         .merge(routes::tips::router())
         .merge(routes::creators::write_router())
         .merge(routes::verification::router())
