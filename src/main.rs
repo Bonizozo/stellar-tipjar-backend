@@ -100,6 +100,9 @@ async fn main() -> anyhow::Result<()> {
     // Start the real-time analytics pipeline as a background task.
     analytics::stream_processor::spawn(Arc::clone(&state));
 
+    // Start subscription renewal processor
+    services::subscription_service::spawn(Arc::clone(&state));
+
     // Start background job processing system
     let (_job_queue, _job_scheduler) = jobs::start(Arc::clone(&state), jobs::JobConfig::default());
 
@@ -124,6 +127,7 @@ async fn main() -> anyhow::Result<()> {
                         .merge(routes::creators::write_router())
                         .merge(routes::verification::router())
                         .merge(routes::goals::router())
+                        .merge(routes::subscriptions::router())
                         .merge(routes::v1::router())
                         .layer(write_limiter_v1),
                 )
@@ -151,6 +155,7 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::creators::write_router())
                     .merge(routes::verification::router())
                     .merge(routes::goals::router())
+                    .merge(routes::subscriptions::router())
                     .merge(routes::v2::router())
                     .layer(write_limiter_v2),
             )
