@@ -117,6 +117,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1",
             Router::new()
                 .merge(routes::admin::router(Arc::clone(&state)))
+                .merge(routes::api_keys::router(Arc::clone(&state)))
                 .merge(routes::verification::admin_router(Arc::clone(&state)))
                 .merge(
                     Router::new()
@@ -144,6 +145,7 @@ async fn main() -> anyhow::Result<()> {
         "/api/v2",
         Router::new()
             .merge(routes::admin::router(Arc::clone(&state)))
+            .merge(routes::api_keys::router(Arc::clone(&state)))
             .merge(routes::verification::admin_router(Arc::clone(&state)))
             .merge(
                 Router::new()
