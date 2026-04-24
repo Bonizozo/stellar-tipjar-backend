@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS moderation_queue;
+ALTER TABLE tips DROP COLUMN IF EXISTS message;

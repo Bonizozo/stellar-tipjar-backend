@@ -31,10 +31,10 @@ mod security;
 mod services;
 mod shutdown;
 mod telemetry;
+mod tenancy;
 mod validation;
 mod webhooks;
 mod ws;
-mod tenancy;
 
 use crate::metrics::metrics_handler;
 use crate::middleware::metrics::track_metrics;
@@ -100,8 +100,8 @@ async fn main() -> anyhow::Result<()> {
     // Start the real-time analytics pipeline as a background task.
     analytics::stream_processor::spawn(Arc::clone(&state));
 
-    // Start subscription renewal processor
-    services::subscription_service::spawn(Arc::clone(&state));
+    // Start scheduled tip processor
+    services::scheduled_tip_service::spawn(Arc::clone(&state));
 
     // Start background job processing system
     let (_job_queue, _job_scheduler) = jobs::start(Arc::clone(&state), jobs::JobConfig::default());
@@ -120,14 +120,20 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1",
             Router::new()
                 .merge(routes::admin::router(Arc::clone(&state)))
+                .merge(routes::api_keys::router(Arc::clone(&state)))
                 .merge(routes::verification::admin_router(Arc::clone(&state)))
+                .merge(routes::feature_flags::router(Arc::clone(&state)))
+                .merge(routes::usage_analytics::router(Arc::clone(&state)))
+                .merge(routes::refunds::admin_router(Arc::clone(&state)))
                 .merge(
                     Router::new()
+                        .merge(routes::auth::router())
+                        .merge(routes::teams::router())
                         .merge(routes::tips::router())
                         .merge(routes::creators::write_router())
                         .merge(routes::verification::router())
                         .merge(routes::goals::router())
-                        .merge(routes::subscriptions::router())
+                        .merge(routes::scheduled_tips::router())
                         .merge(routes::v1::router())
                         .layer(write_limiter_v1),
                 )
@@ -148,14 +154,20 @@ async fn main() -> anyhow::Result<()> {
         "/api/v2",
         Router::new()
             .merge(routes::admin::router(Arc::clone(&state)))
+            .merge(routes::api_keys::router(Arc::clone(&state)))
             .merge(routes::verification::admin_router(Arc::clone(&state)))
+            .merge(routes::feature_flags::router(Arc::clone(&state)))
+            .merge(routes::usage_analytics::router(Arc::clone(&state)))
+            .merge(routes::refunds::admin_router(Arc::clone(&state)))
             .merge(
                 Router::new()
+                    .merge(routes::auth::router())
+                    .merge(routes::teams::router())
                     .merge(routes::tips::router())
                     .merge(routes::creators::write_router())
                     .merge(routes::verification::router())
                     .merge(routes::goals::router())
-                    .merge(routes::subscriptions::router())
+                    .merge(routes::scheduled_tips::router())
                     .merge(routes::v2::router())
                     .layer(write_limiter_v2),
             )
@@ -208,6 +220,10 @@ async fn main() -> anyhow::Result<()> {
         .layer(middleware::timeout::timeout_layer_from_env())
         .layer(axum::middleware::from_fn(
             middleware::rate_limiter::whitelist_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state),
+            middleware::usage_tracker::track_api_usage,
         ))
         .with_state(state);
 

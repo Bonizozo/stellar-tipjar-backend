@@ -47,10 +47,13 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 
     // Write endpoints get a stricter per-IP limit.
     let write_routes = Router::new()
+        .merge(routes::auth::router())
+        .merge(routes::teams::router())
         .merge(routes::tips::router())
         .merge(routes::creators::write_router())
         .merge(routes::verification::router())
         .merge(routes::goals::router())
+        .merge(routes::refunds::public_router())
         .layer(write_limiter);
 
     // Read endpoints use the general limit.
@@ -62,6 +65,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 
     Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .merge(routes::feature_flags::router(Arc::clone(&state)))
+        .merge(routes::usage_analytics::router(Arc::clone(&state)))
+        .merge(routes::refunds::admin_router(Arc::clone(&state)))
         .merge(write_routes)
         .merge(read_routes)
         .layer(cors)
@@ -70,6 +76,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .layer(middleware::timeout::timeout_layer_from_env())
         .layer(axum::middleware::from_fn(
             middleware::rate_limiter::whitelist_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state),
+            middleware::usage_tracker::track_api_usage,
         ))
         .with_state(state)
 }
