@@ -1,5 +1,7 @@
 use crate::controllers::{creator_controller, tip_controller};
 use crate::db::connection::AppState;
+use crate::db::retry::with_db_retry;
+use crate::db::transaction::with_transaction;
 use crate::errors::{AppError, AppResult};
 use crate::models::tip::{RecordTipRequest, Tip};
 use std::sync::Arc;
@@ -38,38 +40,43 @@ impl TipService {
         state: &AppState,
         requests: Vec<RecordTipRequest>,
     ) -> AppResult<Vec<Tip>> {
-        let mut tx = crate::db::transaction::begin_transaction(&state.db)
-            .await
-            .map_err(AppError::from)?;
-        let mut results = Vec::new();
-
-        for (i, req) in requests.into_iter().enumerate() {
-            let sp = format!("tip_record_{}", i);
-            crate::db::transaction::create_savepoint(&mut tx, &sp)
+        let pool = state.db.clone();
+        with_db_retry(&pool, 3, |pool| {
+            let requests = requests.clone();
+            let state = state.clone();
+            Box::pin(async move {
+                with_transaction(pool, |tx| {
+                    Box::pin(async move {
+                        let mut results = Vec::new();
+                        for (i, req) in requests.into_iter().enumerate() {
+                            let sp = format!("tip_record_{}", i);
+                            crate::db::transaction::create_savepoint(tx, &sp)
+                                .await
+                                .map_err(AppError::from)?;
+                            match tip_controller::record_tip_in_tx(&state, tx, &req).await {
+                                Ok(tip) => {
+                                    results.push(tip);
+                                    crate::db::transaction::release_savepoint(tx, &sp)
+                                        .await
+                                        .map_err(AppError::from)?;
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Bulk tip record failed for index {}: {}. Rolling back savepoint.",
+                                        i, e
+                                    );
+                                    crate::db::transaction::rollback_savepoint(tx, &sp)
+                                        .await
+                                        .map_err(AppError::from)?;
+                                }
+                            }
+                        }
+                        Ok(results)
+                    })
+                })
                 .await
-                .map_err(AppError::from)?;
-
-            match tip_controller::record_tip_in_tx(&mut tx, &req).await {
-                Ok(tip) => {
-                    results.push(tip);
-                    crate::db::transaction::release_savepoint(&mut tx, &sp)
-                        .await
-                        .map_err(AppError::from)?;
-                }
-                Err(e) => {
-                    tracing::error!(
-                        "Bulk tip record failed for index {}: {}. Rolling back savepoint.",
-                        i,
-                        e
-                    );
-                    crate::db::transaction::rollback_savepoint(&mut tx, &sp)
-                        .await
-                        .map_err(AppError::from)?;
-                }
-            }
-        }
-
-        tx.commit().await?;
-        Ok(results)
+            })
+        })
+        .await
     }
 }

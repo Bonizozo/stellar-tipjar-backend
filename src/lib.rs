@@ -1,5 +1,6 @@
 pub mod analytics;
 pub mod cache;
+pub mod chaos;
 pub mod controllers;
 pub mod cqrs;
 pub mod db;

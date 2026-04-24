@@ -1,10 +1,60 @@
 use anyhow::Result;
-use sqlx::{Postgres, Transaction};
+use sqlx::{PgPool, Postgres, Transaction};
+use std::future::Future;
 
 /// A helper to begin a new database transaction.
 /// Rolls back automatically on drop if not committed.
 pub async fn begin_transaction(pool: &sqlx::PgPool) -> Result<Transaction<'_, Postgres>> {
     pool.begin().await.map_err(Into::into)
+}
+
+/// Runs `f` inside a transaction, committing on `Ok` and rolling back on `Err`.
+pub async fn with_transaction<F, T, E>(pool: &PgPool, f: F) -> std::result::Result<T, E>
+where
+    F: for<'a> FnOnce(
+        &'a mut Transaction<'_, Postgres>,
+    ) -> std::pin::Pin<Box<dyn Future<Output = std::result::Result<T, E>> + Send + 'a>>,
+    E: From<sqlx::Error>,
+{
+    let mut tx = pool.begin().await.map_err(E::from)?;
+    match f(&mut tx).await {
+        Ok(result) => {
+            tx.commit().await.map_err(E::from)?;
+            Ok(result)
+        }
+        Err(e) => {
+            let _ = tx.rollback().await;
+            Err(e)
+        }
+    }
+}
+
+/// Like `with_transaction` but sets `SERIALIZABLE` isolation before running `f`.
+pub async fn with_serializable_transaction<F, T, E>(
+    pool: &PgPool,
+    f: F,
+) -> std::result::Result<T, E>
+where
+    F: for<'a> FnOnce(
+        &'a mut Transaction<'_, Postgres>,
+    ) -> std::pin::Pin<Box<dyn Future<Output = std::result::Result<T, E>> + Send + 'a>>,
+    E: From<sqlx::Error>,
+{
+    let mut tx = pool.begin().await.map_err(E::from)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .map_err(E::from)?;
+    match f(&mut tx).await {
+        Ok(result) => {
+            tx.commit().await.map_err(E::from)?;
+            Ok(result)
+        }
+        Err(e) => {
+            let _ = tx.rollback().await;
+            Err(e)
+        }
+    }
 }
 
 /// Creates a new savepoint within an existing transaction to provide

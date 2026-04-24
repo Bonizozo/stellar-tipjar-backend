@@ -21,7 +21,7 @@ pub struct Tip {
 }
 
 /// Request body for recording a tip
-#[derive(Debug, Deserialize, Validate, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
 pub struct RecordTipRequest {
     /// Username of the creator receiving the tip
     #[validate(length(

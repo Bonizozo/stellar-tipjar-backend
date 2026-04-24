@@ -32,7 +32,7 @@ redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 reqwest = { version = "0.12", features = ["json"] }
 thiserror = "1"
 anyhow = "1"
-validator = { version = "0.18", features = ["derive", "email"] }
+validator = { version = "0.18", features = ["derive"] }
 bcrypt = "0.15"
 jsonwebtoken = "9"
 regex = "1"
@@ -67,4 +67,4 @@ tower = "0.4"
 httpmock = "0.7"
 proptest = "1.4"
 criterion = "0.5"
-tarpaulin = "0.27"
+# tarpaulin = "0.27"  # not a library crate; use `cargo tarpaulin` CLI instead
