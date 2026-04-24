@@ -6,5 +6,6 @@ pub mod goal;
 pub mod leaderboard;
 pub mod notification;
 pub mod pagination;
+pub mod scheduled_tip;
 pub mod tip;
 pub mod verification;
