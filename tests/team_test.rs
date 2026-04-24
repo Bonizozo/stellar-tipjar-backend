@@ -26,6 +26,8 @@ fn make_state(pool: PgPool) -> Arc<AppState> {
         moderation,
         redis: None,
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
+        cache: None,
+        invalidator: None,
     })
 }
 

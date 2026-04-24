@@ -87,14 +87,33 @@ async fn main() -> anyhow::Result<()> {
 
     let moderation = Arc::new(moderation::ModerationService::new(pool.clone()));
 
+    // Initialize multi-layer cache and invalidator
+    let cache = Arc::new(cache::MultiLayerCache::with_defaults());
+    let invalidator = Arc::new(cache::CacheInvalidator::new(Arc::clone(&cache), None));
+
     let state = Arc::new(AppState {
-        db: pool,
+        db: pool.clone(),
         stellar,
         performance,
         redis,
         broadcast_tx,
         moderation,
+        cache: Some(Arc::clone(&cache)),
+        invalidator: Some(Arc::clone(&invalidator)),
     });
+
+    // Start cache warming background task
+    {
+        let warm_source = Arc::new(cache::CreatorWarmSource { pool: pool.clone() });
+        let warmer = Arc::new(cache::CacheWarmer::new(
+            Arc::clone(&cache),
+            warm_source,
+            std::time::Duration::from_secs(300),
+        ));
+        tokio::spawn(async move {
+            warmer.warm_on_schedule(std::time::Duration::from_secs(300), 100).await;
+        });
+    }
 
     // Start the real-time analytics pipeline as a background task.
     analytics::stream_processor::spawn(Arc::clone(&state));
@@ -117,24 +136,32 @@ async fn main() -> anyhow::Result<()> {
             Router::new()
                 .merge(routes::admin::router(Arc::clone(&state)))
                 .merge(routes::verification::admin_router(Arc::clone(&state)))
-                .merge(
-                    Router::new()
-                        .merge(routes::auth::router())
-                        .merge(routes::teams::router())
-                        .merge(routes::tips::router())
-                        .merge(routes::creators::write_router())
-                        .merge(routes::verification::router())
-                        .merge(routes::goals::router())
-                        .layer(write_limiter_v1),
-                )
-                .merge(
-                    Router::new()
-                        .merge(routes::creators::read_router())
-                        .merge(routes::health::router())
-                        .merge(routes::notifications::router())
-                        .merge(routes::leaderboard::router())
-                        .layer(general_limiter_v1),
-                ),
+            .merge(
+                Router::new()
+                    .merge(routes::auth::router())
+                    .merge(routes::teams::router())
+                    .merge(routes::tips::router())
+                    .merge(routes::creators::write_router())
+                    .merge(routes::verification::router())
+                    .merge(routes::goals::router())
+                    .layer(axum::middleware::from_fn_with_state(
+                        Arc::clone(&state),
+                        middleware::cache::intelligent_cache,
+                    ))
+                    .layer(write_limiter_v1),
+            )
+            .merge(
+                Router::new()
+                    .merge(routes::creators::read_router())
+                    .merge(routes::health::router())
+                    .merge(routes::notifications::router())
+                    .merge(routes::leaderboard::router())
+                    .layer(axum::middleware::from_fn_with_state(
+                        Arc::clone(&state),
+                        middleware::cache::intelligent_cache,
+                    ))
+                    .layer(general_limiter_v1),
+            ),
         )
         .layer(axum::middleware::from_fn(
             middleware::deprecation::deprecation_notice,
@@ -153,6 +180,10 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::creators::write_router())
                     .merge(routes::verification::router())
                     .merge(routes::goals::router())
+                    .layer(axum::middleware::from_fn_with_state(
+                        Arc::clone(&state),
+                        middleware::cache::intelligent_cache,
+                    ))
                     .layer(write_limiter_v2),
             )
             .merge(
@@ -161,6 +192,10 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::health::router())
                     .merge(routes::notifications::router())
                     .merge(routes::leaderboard::router())
+                    .layer(axum::middleware::from_fn_with_state(
+                        Arc::clone(&state),
+                        middleware::cache::intelligent_cache,
+                    ))
                     .layer(general_limiter_v2),
             ),
     );

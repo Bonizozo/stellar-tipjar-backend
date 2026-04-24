@@ -6,12 +6,14 @@ pub mod policies;
 pub mod redis_client;
 pub mod warming;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use axum::http::StatusCode;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub use redis::aio::ConnectionManager;
 
@@ -20,6 +22,30 @@ pub use self::invalidation::{CacheInvalidator, InvalidationEvent, InvalidationPu
 pub use self::layers::{DatabaseCache, LocalCache, RedisCache};
 pub use self::policies::{CacheEntry, EvictionPolicy, EvictionStrategy};
 pub use self::warming::{CacheWarmer, CreatorWarmSource, WarmableDataSource};
+
+/// Serializable cached HTTP response for middleware-level caching.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedHttpResponse {
+    pub status: u16,
+    pub headers: HashMap<String, Vec<String>>,
+    pub body: Vec<u8>,
+    pub cached_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl CachedHttpResponse {
+    pub fn new(status: StatusCode, headers: HashMap<String, Vec<String>>, body: Vec<u8>) -> Self {
+        Self {
+            status: status.as_u16(),
+            headers,
+            body,
+            cached_at: chrono::Utc::now(),
+        }
+    }
+
+    pub fn status(&self) -> StatusCode {
+        StatusCode::from_u16(self.status).unwrap_or(StatusCode::OK)
+    }
+}
 
 #[derive(Clone)]
 pub struct MultiLayerCache {
@@ -90,6 +116,21 @@ impl MultiLayerCache {
     pub async fn invalidate_l1_pattern(&self, pattern: &str) -> Result<()> {
         let _ = self.l1.delete_pattern(pattern).await?;
         Ok(())
+    }
+
+    /// Get a cached HTTP response (shortcut for middleware usage).
+    pub async fn get_http_response(&self, key: &str) -> Result<Option<CachedHttpResponse>> {
+        self.get::<CachedHttpResponse>(key).await
+    }
+
+    /// Store an HTTP response in all layers.
+    pub async fn set_http_response(
+        &self,
+        key: &str,
+        response: &CachedHttpResponse,
+        ttl: Duration,
+    ) -> Result<()> {
+        self.set(key, response, ttl).await
     }
 }
 

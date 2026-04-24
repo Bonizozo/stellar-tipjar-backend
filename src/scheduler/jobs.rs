@@ -1,6 +1,9 @@
 use sqlx::PgPool;
 use chrono::{Utc, Duration};
+use std::env;
 use tracing::{info, warn};
+
+use crate::models::creator::Creator;
 
 /// Generate daily tip summary
 pub async fn generate_daily_summary(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -102,26 +105,40 @@ pub async fn cleanup_old_data(pool: &PgPool) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-/// Warm cache with frequently accessed data
+/// Warm cache with frequently accessed data using the multi-layer cache.
 pub async fn warm_cache(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    // Fetch top creators
-    let top_creators = sqlx::query!(
-        r#"
-        SELECT c.id, c.username, COUNT(t.id) as tip_count
-        FROM creators c
-        LEFT JOIN tips t ON c.id = t.creator_id
-        GROUP BY c.id, c.username
-        ORDER BY tip_count DESC
-        LIMIT 100
-        "#
-    )
-    .fetch_all(pool)
-    .await?;
+    let cache = std::sync::Arc::new(crate::cache::MultiLayerCache::with_defaults());
+    let warm_source = std::sync::Arc::new(crate::cache::CreatorWarmSource { pool: pool.clone() });
+    let warmer = crate::cache::CacheWarmer::new(
+        std::sync::Arc::clone(&cache),
+        warm_source,
+        std::time::Duration::from_secs(300),
+    );
 
-    info!("Warmed cache with {} top creators", top_creators.len());
+    let count = warmer.warm_popular(100).await?;
+    info!("Warmed cache with {} top creators", count);
 
-    // TODO: Store in Redis cache
-    
+    // Warm leaderboard snapshots
+    let board_types = ["top_creators", "top_tippers", "trending"];
+    let periods = ["daily", "weekly", "monthly", "all_time"];
+    let cache_ttl = std::time::Duration::from_secs(300);
+
+    for board_type in &board_types {
+        for period in &periods {
+            let response = crate::controllers::leaderboard_controller::get_leaderboard(
+                pool,
+                period,
+                board_type,
+                50,
+            )
+            .await;
+            if let Ok(result) = response {
+                let key = crate::cache::keys::leaderboard(board_type, period, 50);
+                let _ = cache.set(&key, &result, cache_ttl).await;
+            }
+        }
+    }
+
     Ok(())
 }
 

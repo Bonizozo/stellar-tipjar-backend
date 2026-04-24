@@ -54,11 +54,15 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .merge(routes::goals::router())
         .layer(write_limiter);
 
-    // Read endpoints use the general limit.
+    // Read endpoints use the general limit and intelligent response caching.
     let read_routes = Router::new()
         .merge(routes::creators::read_router())
         .merge(routes::health::router())
         .merge(routes::leaderboard::router())
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state),
+            middleware::cache::intelligent_cache,
+        ))
         .layer(general_limiter);
 
     Router::new()

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use super::performance::PerformanceMonitor;
+use crate::cache::{CacheInvalidator, MultiLayerCache};
 use crate::moderation::ModerationService;
 use crate::services::stellar_service::StellarService;
 use crate::ws::TipEvent;
@@ -16,4 +17,6 @@ pub struct AppState {
     pub redis: Option<ConnectionManager>,
     pub broadcast_tx: broadcast::Sender<TipEvent>,
     pub moderation: Arc<ModerationService>,
+    pub cache: Option<Arc<MultiLayerCache>>,
+    pub invalidator: Option<Arc<CacheInvalidator>>,
 }

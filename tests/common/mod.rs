@@ -62,6 +62,8 @@ pub async fn create_test_app(pool: PgPool) -> (Router, String) {
         moderation,
         redis,
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
+        cache: None,
+        invalidator: None,
     });
 
     (create_app(state), "mock_token".into())
@@ -92,6 +94,8 @@ pub async fn create_test_app_with_mock_stellar(
         moderation,
         redis,
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
+        cache: None,
+        invalidator: None,
     });
 
     (create_app(state), "mock_token".into())
