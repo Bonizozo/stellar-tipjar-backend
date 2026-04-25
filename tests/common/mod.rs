@@ -64,6 +64,7 @@ pub async fn create_test_app(pool: PgPool) -> (Router, String) {
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
         cache: None,
         invalidator: None,
+        db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
     });
 
     (create_app(state), "mock_token".into())
@@ -96,6 +97,7 @@ pub async fn create_test_app_with_mock_stellar(
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
         cache: None,
         invalidator: None,
+        db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
     });
 
     (create_app(state), "mock_token".into())

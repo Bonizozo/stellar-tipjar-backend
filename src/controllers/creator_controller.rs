@@ -8,6 +8,7 @@ use crate::errors::{AppError, AppResult, ValidationError};
 use crate::moderation::ContentType;
 use crate::models::creator::{CreateCreatorRequest, Creator};
 use crate::search::SearchQuery;
+use sqlx::PgPool;
 
 #[tracing::instrument(skip(state), fields(username = %req.username))]
 pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppResult<Creator> {
@@ -159,7 +160,7 @@ pub async fn search_creators(pool: &PgPool, query: &SearchQuery) -> AppResult<Ve
     )
     .bind(&term)
     .bind(limit)
-    .fetch_all(&state.db) // FIXED: Bind to state.db
+    .fetch_all(pool)
     .await?;
 
     Ok(creators)

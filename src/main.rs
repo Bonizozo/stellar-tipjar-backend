@@ -110,6 +110,8 @@ async fn main() -> anyhow::Result<()> {
             5,
             std::time::Duration::from_secs(60),
         )),
+        cache: Some(Arc::clone(&cache)),
+        invalidator: Some(Arc::clone(&invalidator)),
     });
 
     // Start cache warming background task
