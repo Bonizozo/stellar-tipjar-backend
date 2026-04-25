@@ -39,6 +39,9 @@ impl SchedulerManager {
         // Analytics aggregation - runs hourly
         self.add_analytics_job(db_pool.clone()).await?;
 
+        // Scheduled database backup - runs daily at 2 AM
+        self.add_backup_job(db_pool.clone()).await?;
+
         self.scheduler.start().await?;
         info!("Scheduler started successfully");
         
@@ -183,6 +186,68 @@ impl SchedulerManager {
     pub async fn shutdown(&self) -> Result<(), Box<dyn std::error::Error>> {
         info!("Shutting down scheduler");
         self.scheduler.shutdown().await?;
+        Ok(())
+    }
+
+    async fn add_backup_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        let monitor = self.monitor.clone();
+
+        let job = Job::new_async("0 0 2 * * *", move |_uuid, _l| {
+            let pool = db_pool.clone();
+            let mon = monitor.clone();
+            Box::pin(async move {
+                info!("Running scheduled backup job");
+                mon.record_start("scheduled_backup").await;
+
+                // Record backup initiation
+                let _ = crate::controllers::export_controller::record_backup(
+                    &pool,
+                    "scheduled",
+                    "initiated",
+                    None,
+                    None,
+                    None,
+                )
+                .await;
+
+                let output = std::process::Command::new("./scripts/backup.sh").output();
+                match output {
+                    Ok(out) if out.status.success() => {
+                        info!("Scheduled backup completed successfully");
+                        let _ = crate::controllers::export_controller::record_backup(
+                            &pool,
+                            "scheduled",
+                            "completed",
+                            None,
+                            None,
+                            None,
+                        )
+                        .await;
+                        mon.record_success("scheduled_backup").await;
+                    }
+                    Ok(out) => {
+                        let err = String::from_utf8_lossy(&out.stderr).to_string();
+                        error!("Scheduled backup failed: {}", err);
+                        let _ = crate::controllers::export_controller::record_backup(
+                            &pool,
+                            "scheduled",
+                            "failed",
+                            None,
+                            None,
+                            None,
+                        )
+                        .await;
+                        mon.record_failure("scheduled_backup", &err).await;
+                    }
+                    Err(e) => {
+                        error!("Failed to run backup script: {}", e);
+                        mon.record_failure("scheduled_backup", &e.to_string()).await;
+                    }
+                }
+            })
+        })?;
+
+        self.scheduler.add(job).await?;
         Ok(())
     }
 }

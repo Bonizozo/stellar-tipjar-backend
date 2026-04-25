@@ -99,6 +99,30 @@ pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Ti
     })?;
     crate::webhooks::trigger_webhooks(state.db.clone(), "tip.recorded", payload).await;
 
+    // Audit log: tip recorded
+    {
+        let db = state.db.clone();
+        let creator = tip.creator_username.clone();
+        let tip_id = tip.id.to_string();
+        let amount = tip.amount.clone();
+        tokio::spawn(async move {
+            let _ = crate::controllers::audit_log_controller::log(
+                &db,
+                "tip.recorded",
+                None,
+                "tip",
+                Some(&tip_id),
+                "create",
+                None,
+                Some(serde_json::json!({ "creator": creator, "amount": amount })),
+                serde_json::json!({}),
+                None,
+                None,
+            )
+            .await;
+        });
+    }
+
     Ok(tip)
 }
 
@@ -229,7 +253,7 @@ pub async fn get_tips_for_creator(state: &AppState, username: &str) -> AppResult
     // Populate cache
     if let Some(conn) = state.redis.as_ref() {
         let mut conn = conn.clone();
-        let cache_key = keys::creator_tips(username);
+        let cache_key = format!("creator:{}:tips:all", username);
         let _ = redis_client::set(&mut conn, &cache_key, &tips, redis_client::TTL_TIPS).await;
     }
 

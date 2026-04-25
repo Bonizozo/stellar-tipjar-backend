@@ -8,6 +8,7 @@ use tokio::sync::broadcast;
 use super::performance::PerformanceMonitor;
 use crate::cache::{CacheInvalidator, MultiLayerCache};
 use crate::moderation::ModerationService;
+use crate::services::circuit_breaker::CircuitBreaker;
 use crate::services::stellar_service::StellarService;
 use crate::ws::TipEvent;
 
@@ -21,6 +22,10 @@ pub struct AppState {
     pub moderation: Arc<crate::moderation::ModerationService>,
     /// Circuit breaker protecting the database connection path.
     pub db_circuit_breaker: Arc<CircuitBreaker>,
+    /// Multi-layer cache (L1 in-memory, L2 Redis, L3 DB).
+    pub cache: Option<Arc<MultiLayerCache>>,
+    /// Cache invalidator for pattern-based invalidation.
+    pub invalidator: Option<Arc<CacheInvalidator>>,
 }
 
 /// Connect to Postgres with exponential-backoff retry and circuit-breaker protection.

@@ -28,6 +28,7 @@ fn make_state(pool: PgPool) -> Arc<AppState> {
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
         cache: None,
         invalidator: None,
+        db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
     })
 }
 

@@ -110,6 +110,8 @@ async fn main() -> anyhow::Result<()> {
             5,
             std::time::Duration::from_secs(60),
         )),
+        cache: Some(Arc::clone(&cache)),
+        invalidator: Some(Arc::clone(&invalidator)),
     });
 
     // Start cache warming background task
@@ -162,6 +164,8 @@ async fn main() -> anyhow::Result<()> {
                 .merge(routes::feature_flags::router(Arc::clone(&state)))
                 .merge(routes::usage_analytics::router(Arc::clone(&state)))
                 .merge(routes::refunds::admin_router(Arc::clone(&state)))
+                .merge(routes::audit_logs::router(Arc::clone(&state)))
+                .merge(routes::export::router(Arc::clone(&state)))
                 .merge(
                     Router::new()
                         .merge(routes::auth::router())
@@ -181,6 +185,7 @@ async fn main() -> anyhow::Result<()> {
                         .merge(routes::notifications::router())
                         .merge(routes::leaderboard::router())
                         .merge(routes::stats::router())
+                        .merge(routes::analytics::router())
                         .layer(general_limiter_v1),
                 ),
         )
@@ -197,6 +202,8 @@ async fn main() -> anyhow::Result<()> {
             .merge(routes::feature_flags::router(Arc::clone(&state)))
             .merge(routes::usage_analytics::router(Arc::clone(&state)))
             .merge(routes::refunds::admin_router(Arc::clone(&state)))
+            .merge(routes::audit_logs::router(Arc::clone(&state)))
+            .merge(routes::export::router(Arc::clone(&state)))
             .merge(
                 Router::new()
                     .merge(routes::auth::router())
@@ -216,6 +223,7 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::notifications::router())
                     .merge(routes::leaderboard::router())
                     .merge(routes::stats::router())
+                    .merge(routes::analytics::router())
                     .layer(general_limiter_v2),
             ),
     )
