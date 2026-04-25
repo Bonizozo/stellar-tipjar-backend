@@ -1,6 +1,6 @@
 use axum::Router;
-use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
@@ -61,12 +61,16 @@ async fn main() -> anyhow::Result<()> {
     let stellar_network = secrets.stellar_network;
 
 
-    let pool = PgPoolOptions::new()
-        .max_connections(20)
-        .min_connections(5)
-        .acquire_timeout(Duration::from_secs(3))
-        .connect(&database_url)
-        .await?;
+    let pool = db::connection::connect_with_retry(
+        &database_url,
+        20,   // max_connections
+        5,    // min_connections
+        Duration::from_secs(3),
+        5,    // max_retries
+        5,    // circuit breaker threshold
+        60,   // circuit breaker recovery secs
+    )
+    .await?;
 
     sqlx::migrate!("./migrations").run(&pool).await?;
 
@@ -102,8 +106,10 @@ async fn main() -> anyhow::Result<()> {
         redis,
         broadcast_tx,
         moderation,
-        cache: Some(Arc::clone(&cache)),
-        invalidator: Some(Arc::clone(&invalidator)),
+        db_circuit_breaker: Arc::new(services::circuit_breaker::CircuitBreaker::new(
+            5,
+            std::time::Duration::from_secs(60),
+        )),
     });
 
     // Start cache warming background task
@@ -127,6 +133,15 @@ async fn main() -> anyhow::Result<()> {
 
     // Start background job processing system
     let (_job_queue, _job_scheduler) = jobs::start(Arc::clone(&state), jobs::JobConfig::default());
+
+    // --- Currency service ---
+    let currency_svc = Arc::new(currency::CurrencyService::new());
+    // Refresh exchange rates every hour in the background.
+    currency::spawn_refresh_task(
+        (*currency_svc).clone(),
+        state.redis.clone(),
+        Duration::from_secs(3600),
+    );
 
     let cors = middleware::cors::cors_layer();
 
@@ -223,6 +238,10 @@ async fn main() -> anyhow::Result<()> {
         .merge(v1)
         .merge(v2)
         .layer(axum::Extension(gql_schema))
+        // Inject CurrencyService for currency routes.
+        .layer(axum::Extension(currency_svc))
+        // Inject Redis connection into request extensions for distributed throttling.
+        .layer(axum::Extension(state.redis.clone()))
         .layer(cors)
         .layer(axum::middleware::map_response(middleware::cors::security_headers))
         .layer(TraceLayer::new_for_http())
@@ -242,6 +261,10 @@ async fn main() -> anyhow::Result<()> {
         ))
         .layer(axum::middleware::from_fn(middleware::cache::cache_control))
         .layer(middleware::timeout::timeout_layer_from_env())
+        // Redis distributed throttle (shared across instances, fail-open when Redis unavailable).
+        .layer(axum::middleware::from_fn(
+            middleware::rate_limiter::redis_throttle_middleware,
+        ))
         .layer(axum::middleware::from_fn(
             middleware::rate_limiter::whitelist_middleware,
         ))
