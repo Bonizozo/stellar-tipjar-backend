@@ -7,5 +7,6 @@ pub mod query_cache;
 pub mod query_logger;
 pub mod query_optimizer;
 pub mod retry;
+pub mod sharding;
 pub mod slow_query_logger;
 pub mod transaction;
