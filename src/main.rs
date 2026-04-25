@@ -136,6 +136,9 @@ async fn main() -> anyhow::Result<()> {
     // Start background job processing system
     let (_job_queue, _job_scheduler) = jobs::start(Arc::clone(&state), jobs::JobConfig::default());
 
+    // Start Stellar transaction monitoring (#175)
+    let monitor = services::monitoring_service::spawn(Arc::clone(&state));
+
     // --- Currency service ---
     let currency_svc = Arc::new(currency::CurrencyService::new());
     // Refresh exchange rates every hour in the background.
@@ -243,6 +246,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/metrics", axum::routing::get(metrics_handler))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .merge(routes::monitoring::router(Arc::clone(&state), Arc::clone(&monitor)))
         .merge(v1)
         .merge(v2)
         .layer(axum::Extension(gql_schema))
@@ -287,10 +291,22 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("Server listening on {}", addr);
 
+    // Graceful shutdown (#177): complete in-flight requests, then stop.
+    let shutdown_timeout = shutdown::shutdown_timeout();
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
+    .with_graceful_shutdown(async move {
+        shutdown::shutdown_signal().await;
+        tracing::info!(
+            timeout_secs = shutdown_timeout.as_secs(),
+            "Waiting for in-flight requests to complete…"
+        );
+        tokio::time::sleep(shutdown_timeout).await;
+        monitor.stop().await;
+        tracing::info!("Graceful shutdown complete");
+    })
     .await?;
 
     Ok(())
