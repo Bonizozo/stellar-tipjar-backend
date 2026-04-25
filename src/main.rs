@@ -165,6 +165,7 @@ async fn main() -> anyhow::Result<()> {
                 .merge(routes::usage_analytics::router(Arc::clone(&state)))
                 .merge(routes::refunds::admin_router(Arc::clone(&state)))
                 .merge(routes::audit_logs::router(Arc::clone(&state)))
+                .merge(routes::export::router(Arc::clone(&state)))
                 .merge(
                     Router::new()
                         .merge(routes::auth::router())
@@ -202,6 +203,7 @@ async fn main() -> anyhow::Result<()> {
             .merge(routes::usage_analytics::router(Arc::clone(&state)))
             .merge(routes::refunds::admin_router(Arc::clone(&state)))
             .merge(routes::audit_logs::router(Arc::clone(&state)))
+            .merge(routes::export::router(Arc::clone(&state)))
             .merge(
                 Router::new()
                     .merge(routes::auth::router())

@@ -3,7 +3,7 @@ use axum::{
     http::{header, StatusCode},
     middleware,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::Deserialize;
@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use crate::controllers::export_controller;
 use crate::db::connection::AppState;
+use crate::errors::AppError;
 use crate::middleware::admin_auth::require_admin;
 
 #[derive(Debug, Deserialize)]
@@ -23,11 +24,24 @@ fn default_format() -> String {
     "json".to_string()
 }
 
+#[derive(Debug, Deserialize)]
+pub struct BackupListQuery {
+    #[serde(default = "default_backup_limit")]
+    pub limit: i64,
+}
+
+fn default_backup_limit() -> i64 {
+    20
+}
+
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/export/creators", get(export_creators))
         .route("/export/tips", get(export_all_tips))
         .route("/export/creators/:username/tips", get(export_creator_tips))
+        .route("/export/creators/:username/data", get(export_creator_data))
+        .route("/backups", get(list_backups))
+        .route("/backups/trigger", post(trigger_backup))
         .route_layer(middleware::from_fn_with_state(state, require_admin))
 }
 
@@ -117,6 +131,130 @@ async fn export_creator_tips(
                 Json(serde_json::json!({ "error": "Failed to export tips" })),
             )
                 .into_response()
+        }
+    }
+}
+
+/// Export full creator data package (profile + tips + analytics) as JSON or CSV
+async fn export_creator_data(
+    State(state): State<Arc<AppState>>,
+    Path(username): Path<String>,
+    Query(params): Query<ExportFormat>,
+) -> Response {
+    match export_controller::get_creator_data_package(&state.db, &username).await {
+        Ok(package) => match params.format.to_lowercase().as_str() {
+            "csv" => {
+                // CSV: export tips with analytics summary header
+                let mut wtr = csv::Writer::from_writer(vec![]);
+                wtr.write_record([
+                    "id",
+                    "amount",
+                    "transaction_hash",
+                    "message",
+                    "created_at",
+                ])
+                .unwrap();
+                for t in &package.tips {
+                    wtr.write_record([
+                        t.id.as_str(),
+                        t.amount.as_str(),
+                        t.transaction_hash.as_str(),
+                        t.message.as_deref().unwrap_or(""),
+                        t.created_at.as_str(),
+                    ])
+                    .unwrap();
+                }
+                let data = wtr.into_inner().unwrap_or_default();
+                let filename = format!("{}_data.csv", username);
+                let mut response = (StatusCode::OK, data).into_response();
+                response
+                    .headers_mut()
+                    .insert(header::CONTENT_TYPE, "text/csv".parse().unwrap());
+                response.headers_mut().insert(
+                    header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{}\"", filename)
+                        .parse()
+                        .unwrap(),
+                );
+                response
+            }
+            _ => (StatusCode::OK, Json(package)).into_response(),
+        },
+        Err(e) => {
+            tracing::error!("Failed to export data for {}: {}", username, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Failed to export creator data" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// List recent backup records
+async fn list_backups(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<BackupListQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let records = export_controller::list_backups(&state.db, params.limit).await?;
+    Ok((StatusCode::OK, Json(records)))
+}
+
+/// Trigger a manual backup (records the attempt and runs backup script)
+async fn trigger_backup(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // Record backup attempt
+    let _ = export_controller::record_backup(
+        &state.db,
+        "manual",
+        "initiated",
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    // Run backup script
+    let output = std::process::Command::new("./scripts/backup.sh").output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let _ = export_controller::record_backup(
+                &state.db,
+                "manual",
+                "completed",
+                None,
+                None,
+                None,
+            )
+            .await;
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "status": "completed" })),
+            )
+        }
+        Ok(out) => {
+            let err = String::from_utf8_lossy(&out.stderr).to_string();
+            tracing::error!("Backup script failed: {}", err);
+            let _ = export_controller::record_backup(
+                &state.db,
+                "manual",
+                "failed",
+                None,
+                None,
+                None,
+            )
+            .await;
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "status": "failed", "error": err })),
+            )
+        }
+        Err(e) => {
+            tracing::error!("Failed to run backup script: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "status": "failed", "error": e.to_string() })),
+            )
         }
     }
 }
