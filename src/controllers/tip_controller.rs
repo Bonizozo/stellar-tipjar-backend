@@ -76,11 +76,13 @@ pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Ti
     QueryLogger::log_query("INSERT tips + tip_logs (transaction)", duration);
     state.performance.track_query("tip_atomic_record", duration);
 
-    // Cache invalidation (using our state.redis fix)
-    if let Some(conn) = state.redis.as_ref() {
-        let mut conn = conn.clone();
-        let tips_key = keys::creator_tips(&tip.creator_username);
-        let _ = redis_client::del(&mut conn, &[tips_key.as_str()]).await;
+    // Centralized cache invalidation for tips and leaderboards
+    if let Some(ref inv) = state.invalidator {
+        let tips_pattern = keys::creator_tips_pattern(&tip.creator_username);
+        let _ = inv.invalidate_pattern(&tips_pattern).await;
+        let _ = inv.invalidate_pattern("leaderboard:*").await;
+        let _ = inv.invalidate_pattern(&keys::http_response_pattern("/tips")).await;
+        let _ = inv.invalidate_pattern(&keys::http_response_pattern("/creators/")).await;
     }
 
     // Main branch added Webhooks

@@ -95,8 +95,12 @@ async fn main() -> anyhow::Result<()> {
 
     let moderation = Arc::new(moderation::ModerationService::new(pool.clone()));
 
+    // Initialize multi-layer cache and invalidator
+    let cache = Arc::new(cache::MultiLayerCache::with_defaults());
+    let invalidator = Arc::new(cache::CacheInvalidator::new(Arc::clone(&cache), None));
+
     let state = Arc::new(AppState {
-        db: pool,
+        db: pool.clone(),
         stellar,
         performance,
         redis,
@@ -107,6 +111,19 @@ async fn main() -> anyhow::Result<()> {
             std::time::Duration::from_secs(60),
         )),
     });
+
+    // Start cache warming background task
+    {
+        let warm_source = Arc::new(cache::CreatorWarmSource { pool: pool.clone() });
+        let warmer = Arc::new(cache::CacheWarmer::new(
+            Arc::clone(&cache),
+            warm_source,
+            std::time::Duration::from_secs(300),
+        ));
+        tokio::spawn(async move {
+            warmer.warm_on_schedule(std::time::Duration::from_secs(300), 100).await;
+        });
+    }
 
     // Start the real-time analytics pipeline as a background task.
     analytics::stream_processor::spawn(Arc::clone(&state));

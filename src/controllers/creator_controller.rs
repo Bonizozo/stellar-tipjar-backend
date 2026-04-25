@@ -42,7 +42,7 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppR
     state.performance.track_query(query, duration);
     tracing::info!(duration_ms = duration.as_millis(), "Creator created");
 
-    // Cache the new creator
+    // Cache the new creator and invalidate any stale search results.
     if let Some(conn) = state.redis.as_ref() {
         let mut conn = conn.clone();
         let _ = redis_client::set(
@@ -52,6 +52,12 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppR
             redis_client::TTL_CREATOR,
         )
         .await;
+    }
+
+    // Centralized invalidation for search and creator list caches
+    if let Some(ref inv) = state.invalidator {
+        let _ = inv.invalidate_pattern("search:creators:*").await;
+        let _ = inv.invalidate_pattern(&keys::http_response_pattern("/creators/")).await;
     }
 
     // Main branch added Webhook notification
@@ -81,6 +87,13 @@ pub async fn get_creator_by_username(
         FROM creators
         WHERE username = $1
         "#;
+
+    if let Some(conn) = state.redis.as_ref() {
+        let mut conn = conn.clone();
+        if let Some(cached) = redis_client::get::<Creator>(&mut conn, &keys::creator(username)).await {
+            return Ok(Some(cached));
+        }
+    }
 
     let start = Instant::now();
     let creator = sqlx::query_as::<_, Creator>(query)

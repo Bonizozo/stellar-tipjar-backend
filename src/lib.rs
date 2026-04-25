@@ -66,7 +66,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .merge(routes::refunds::public_router())
         .layer(write_limiter);
 
-    // Read endpoints use the general limit.
+    // Read endpoints use the general limit and intelligent response caching.
     let read_routes = Router::new()
         .merge(routes::creators::read_router())
         .merge(routes::health::router())

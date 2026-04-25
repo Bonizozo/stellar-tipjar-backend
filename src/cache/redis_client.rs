@@ -43,6 +43,19 @@ pub async fn del(conn: &mut ConnectionManager, keys: &[&str]) {
     }
 }
 
+/// Delete keys matching a pattern. Swallows errors.
+pub async fn del_pattern(conn: &mut ConnectionManager, pattern: &str) {
+    match redis::cmd("KEYS").arg(pattern).query_async::<_, Vec<String>>(conn).await {
+        Ok(keys) if !keys.is_empty() => {
+            if let Err(e) = conn.del(keys).await {
+                tracing::warn!("Redis DEL pattern failed for '{}' : {}", pattern, e);
+            }
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!("Redis KEYS failed for pattern '{}': {}", pattern, e),
+    }
+}
+
 /// Build a Redis ConnectionManager from a URL. Returns None if Redis is unavailable
 /// so the app can start without Redis (graceful degradation).
 pub async fn connect(url: &str) -> Option<ConnectionManager> {

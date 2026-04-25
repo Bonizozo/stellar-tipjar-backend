@@ -6,6 +6,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 
 use super::performance::PerformanceMonitor;
+use crate::cache::{CacheInvalidator, MultiLayerCache};
 use crate::moderation::ModerationService;
 use crate::services::stellar_service::StellarService;
 use crate::ws::TipEvent;

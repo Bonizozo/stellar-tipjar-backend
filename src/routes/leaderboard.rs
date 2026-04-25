@@ -36,22 +36,6 @@ async fn get_leaderboard(
         ));
     }
 
-    // Try cache first
-    let cache_key = format!(
-        "leaderboard:{}:{}:{}",
-        board_type,
-        query.validated_period(),
-        query.validated_limit()
-    );
-    if let Some(conn) = state.redis.as_ref() {
-        let mut conn = conn.clone();
-        if let Some(cached) =
-            crate::cache::redis_client::get::<serde_json::Value>(&mut conn, &cache_key).await
-        {
-            return Ok((StatusCode::OK, Json(cached)).into_response());
-        }
-    }
-
     let result = leaderboard_controller::get_leaderboard(
         &state.db,
         query.validated_period(),
@@ -59,18 +43,6 @@ async fn get_leaderboard(
         query.validated_limit(),
     )
     .await?;
-
-    // Cache for 5 minutes
-    if let Some(conn) = state.redis.as_ref() {
-        let mut conn = conn.clone();
-        crate::cache::redis_client::set(
-            &mut conn,
-            &cache_key,
-            &result,
-            300,
-        )
-        .await;
-    }
 
     Ok((StatusCode::OK, Json(serde_json::json!(result))).into_response())
 }
@@ -81,5 +53,12 @@ async fn refresh_leaderboard(
     Path(_board_type): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     leaderboard_controller::refresh_leaderboards(&state.db).await?;
+
+    // Invalidate cached leaderboard HTTP responses and entity cache entries
+    if let Some(ref inv) = state.invalidator {
+        let _ = inv.invalidate_pattern("leaderboard:*").await;
+        let _ = inv.invalidate_pattern(&crate::cache::keys::http_response_pattern("/leaderboard/")).await;
+    }
+
     Ok((StatusCode::OK, Json(serde_json::json!({ "status": "refreshed" }))).into_response())
 }
