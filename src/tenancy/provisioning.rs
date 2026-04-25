@@ -1,35 +1,8 @@
-use crate::errors::app_error::AppError;
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use crate::errors::AppError;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TenantProvisionRequest {
-    pub name: String,
-    pub organization_id: String,
-    pub tier: TenantTier,
-    pub config: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum TenantTier {
-    Free,
-    Professional,
-    Enterprise,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProvisionedTenant {
-    pub id: Uuid,
-    pub name: String,
-    pub organization_id: String,
-    pub tier: String,
-    pub status: String,
-    pub created_at: DateTime<Utc>,
-    pub provisioned_at: DateTime<Utc>,
-}
-
+#[derive(Debug, Clone)]
 pub struct TenantProvisioner {
     pool: PgPool,
 }
@@ -41,69 +14,68 @@ impl TenantProvisioner {
 
     pub async fn provision_tenant(
         &self,
-        req: TenantProvisionRequest,
-    ) -> Result<ProvisionedTenant, AppError> {
-        let tenant_id = Uuid::new_v4();
-        let now = Utc::now();
+        tenant_id: Uuid,
+        tenant_name: &str,
+        max_creators: i32,
+        max_tips_per_day: i32,
+    ) -> Result<(), AppError> {
+        let mut tx = self.pool.begin().await?;
 
         sqlx::query(
-            r#"
-            INSERT INTO tenants (id, name, organization_id, tier, status, config, created_at, provisioned_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            "#,
+            "INSERT INTO tenants (id, name, max_creators, max_tips_per_day, created_at) 
+             VALUES ($1, $2, $3, $4, NOW())",
         )
         .bind(tenant_id)
-        .bind(&req.name)
-        .bind(&req.organization_id)
-        .bind(format!("{:?}", req.tier))
-        .bind("active")
-        .bind(req.config)
-        .bind(now)
-        .bind(now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database_error(e.to_string()))?;
+        .bind(tenant_name)
+        .bind(max_creators)
+        .bind(max_tips_per_day)
+        .execute(&mut *tx)
+        .await?;
 
-        Ok(ProvisionedTenant {
-            id: tenant_id,
-            name: req.name,
-            organization_id: req.organization_id,
-            tier: format!("{:?}", req.tier),
-            status: "active".to_string(),
-            created_at: now,
-            provisioned_at: now,
-        })
-    }
-
-    pub async fn get_tenant(&self, tenant_id: Uuid) -> Result<ProvisionedTenant, AppError> {
-        sqlx::query_as::<_, ProvisionedTenant>(
-            "SELECT id, name, organization_id, tier, status, created_at, provisioned_at FROM tenants WHERE id = $1"
+        sqlx::query(
+            "INSERT INTO tenant_configs (tenant_id, features, custom_domain, created_at) 
+             VALUES ($1, $2, NULL, NOW())",
         )
         .bind(tenant_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|_| AppError::not_found("Tenant not found".to_string()))
-    }
+        .bind("[]")
+        .execute(&mut *tx)
+        .await?;
 
-    pub async fn list_tenants_by_org(
-        &self,
-        org_id: &str,
-    ) -> Result<Vec<ProvisionedTenant>, AppError> {
-        sqlx::query_as::<_, ProvisionedTenant>(
-            "SELECT id, name, organization_id, tier, status, created_at, provisioned_at FROM tenants WHERE organization_id = $1 ORDER BY created_at DESC"
-        )
-        .bind(org_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database_error(e.to_string()))
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn deprovision_tenant(&self, tenant_id: Uuid) -> Result<(), AppError> {
-        sqlx::query("UPDATE tenants SET status = 'inactive' WHERE id = $1")
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("DELETE FROM tenant_configs WHERE tenant_id = $1")
             .bind(tenant_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database_error(e.to_string()))?;
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query("DELETE FROM tenants WHERE id = $1")
+            .bind(tenant_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn update_tenant_quotas(
+        &self,
+        tenant_id: Uuid,
+        max_creators: i32,
+        max_tips_per_day: i32,
+    ) -> Result<(), AppError> {
+        sqlx::query(
+            "UPDATE tenants SET max_creators = $1, max_tips_per_day = $2 WHERE id = $3",
+        )
+        .bind(max_creators)
+        .bind(max_tips_per_day)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }
