@@ -8,6 +8,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 mod analytics;
 mod cache;
+mod mocking;
 mod cdn;
 mod chaos;
 mod config;
