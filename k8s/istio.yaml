@@ -1,6 +1,5 @@
 ---
-# DestinationRule: defines the stable and canary subsets based on the
-# `version` label set in deployment.yaml.
+# DestinationRule: defines blue and green subsets based on the `slot` label.
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
@@ -12,22 +11,22 @@ spec:
       http:
         http1MaxPendingRequests: 100
         http2MaxRequests: 1000
-    # Circuit breaker: eject unhealthy instances for 30 s after 5 consecutive 5xx.
     outlierDetection:
       consecutive5xxErrors: 5
       interval: 10s
       baseEjectionTime: 30s
       maxEjectionPercent: 50
   subsets:
-    - name: stable
+    - name: blue
       labels:
-        version: stable
-    - name: canary
+        slot: blue
+    - name: green
       labels:
-        version: canary
+        slot: green
 ---
-# VirtualService: routes 95 % of traffic to stable, 5 % to canary.
-# Adjust weights at deploy time (e.g. via `kubectl patch`) to shift traffic.
+# VirtualService: routes all traffic to the live slot.
+# Switch traffic by patching the `route` destination subset (blue ↔ green).
+# Use `kubectl patch` or the blue_green_deploy.sh script to switch.
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
@@ -36,22 +35,27 @@ spec:
   hosts:
     - stellar-tipjar-backend
   http:
+    # Allow direct slot targeting via header for smoke testing.
     - match:
-        # Route requests with the canary header directly to the canary subset,
-        # enabling targeted testing without touching the weight split.
         - headers:
-            x-canary:
-              exact: "true"
+            x-deployment-slot:
+              exact: "blue"
       route:
         - destination:
             host: stellar-tipjar-backend
-            subset: canary
+            subset: blue
+    - match:
+        - headers:
+            x-deployment-slot:
+              exact: "green"
+      route:
+        - destination:
+            host: stellar-tipjar-backend
+            subset: green
+    # Default: all traffic goes to the live slot (blue by default).
+    # Update the subset name here when switching slots.
     - route:
         - destination:
             host: stellar-tipjar-backend
-            subset: stable
-          weight: 95
-        - destination:
-            host: stellar-tipjar-backend
-            subset: canary
-          weight: 5
+            subset: blue
+          weight: 100

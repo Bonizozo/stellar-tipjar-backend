@@ -75,6 +75,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     // Read endpoints use the general limit and intelligent response caching.
     let read_routes = Router::new()
         .merge(routes::creators::read_router())
+        .merge(routes::deployment::router())
         .merge(routes::health::router())
         .merge(routes::leaderboard::router())
         .merge(routes::stats::router())
