@@ -12,6 +12,7 @@ pub mod ip_block;
 pub mod leaderboard;
 pub mod notification;
 pub mod pagination;
+pub mod portfolio;
 pub mod refund;
 pub mod scheduled_tip;
 pub mod stats;

@@ -202,6 +202,7 @@ async fn main() -> anyhow::Result<()> {
                         .merge(routes::leaderboard::router())
                         .merge(routes::stats::router())
                         .merge(routes::analytics::router())
+                        .merge(routes::portfolio::router())
                         .layer(general_limiter_v1),
                 ),
         )
@@ -240,6 +241,7 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::leaderboard::router())
                     .merge(routes::stats::router())
                     .merge(routes::analytics::router())
+                    .merge(routes::portfolio::router())
                     .layer(general_limiter_v2),
             ),
     )

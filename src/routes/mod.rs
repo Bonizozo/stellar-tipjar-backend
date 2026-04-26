@@ -17,6 +17,7 @@ pub mod leaderboard;
 pub mod mesh;
 pub mod monitoring;
 pub mod notifications;
+pub mod portfolio;
 pub mod profiling;
 pub mod refunds;
 pub mod scheduled_tips;
