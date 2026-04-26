@@ -15,6 +15,7 @@ pub mod ip_blocking;
 pub mod leaderboard;
 pub mod monitoring;
 pub mod notifications;
+pub mod profiling;
 pub mod refunds;
 pub mod scheduled_tips;
 pub mod stats;

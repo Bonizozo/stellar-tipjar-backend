@@ -4,6 +4,7 @@ use super::experiments::ChaosExperiment;
 use super::injectors::{
     DatabaseFailureInjector, LatencyInjector, NetworkPartitionInjector, ServiceCrashInjector,
 };
+use super::resource_exhaustion::ResourceExhaustionInjector;
 
 /// Pre-built scenarios that cover the most common failure modes.
 pub struct ChaosScenarios;
@@ -52,6 +53,12 @@ impl ChaosScenarios {
             .with_injector(Box::new(DatabaseFailureInjector::new(0.2)))
     }
 
+    /// Simulates connection pool exhaustion (max 2 concurrent connections).
+    pub fn resource_exhaustion() -> ChaosExperiment {
+        ChaosExperiment::new("Resource Exhaustion", Duration::from_secs(15))
+            .with_injector(Box::new(ResourceExhaustionInjector::new(2)))
+    }
+
     /// Returns all standard scenarios for a full resilience suite.
     pub fn all() -> Vec<ChaosExperiment> {
         vec![
@@ -61,6 +68,7 @@ impl ChaosScenarios {
             Self::high_database_latency(),
             Self::tip_service_crash(),
             Self::degraded_mode(),
+            Self::resource_exhaustion(),
         ]
     }
 }

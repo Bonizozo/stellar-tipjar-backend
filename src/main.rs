@@ -9,31 +9,39 @@ use utoipa_swagger_ui::SwaggerUi;
 mod analytics;
 mod cache;
 mod cdn;
+mod chaos;
 mod config;
 mod controllers;
 mod cqrs;
 mod crypto;
 mod db;
+mod deployment;
 mod docs;
 mod email;
 mod errors;
 mod events;
 mod graphql;
+mod indexer;
 mod jobs;
 mod logging;
 mod metrics;
 mod middleware;
+mod ml;
 mod moderation;
 mod models;
 mod queue;
 mod routes;
 mod saga;
+mod scheduler;
 mod search;
 mod security;
+mod service_mesh;
 mod services;
+mod sharding;
 mod shutdown;
 mod telemetry;
 mod tenancy;
+mod upload;
 mod validation;
 mod webhooks;
 mod webrtc;
@@ -247,6 +255,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/metrics", axum::routing::get(metrics_handler))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .merge(routes::monitoring::router(Arc::clone(&state), Arc::clone(&monitor)))
+        .merge(routes::profiling::router(Arc::clone(&state)))
         .merge(v1)
         .merge(v2)
         .layer(axum::Extension(gql_schema))
