@@ -1,8 +1,8 @@
 use chrono::Utc;
 use data_encoding::BASE32_NOPAD;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
-use oath::HashType;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use totp_lite::{totp_custom, Sha1};
 
 use crate::errors::{AppError, AppResult};
 use crate::models::auth::{AuthResponse, Claims};
@@ -122,10 +122,10 @@ pub fn validate_totp_code(secret: &str, code: &str) -> AppResult<bool> {
 
     let now = Utc::now().timestamp() as i64;
 
-    for offset in -1..=1 {
-        let timestamp = now.saturating_add(offset as i64 * 30).max(0) as u64;
-        let expected = oath::totp_raw_custom(&secret_bytes, 6, 30, 0, &HashType::SHA1, timestamp);
-        if code == format!("{:06}", expected) {
+    for offset in -1i64..=1 {
+        let step = (now.saturating_add(offset * 30).max(0) as u64) / 30;
+        let expected = totp_custom::<Sha1>(step, 6, &secret_bytes, 30);
+        if code == expected {
             return Ok(true);
         }
     }
@@ -177,8 +177,8 @@ mod tests {
         let secret = generate_totp_secret().expect("generate secret");
         let secret_bytes = BASE32_NOPAD.decode(secret.as_bytes()).expect("decode secret");
         let timestamp = Utc::now().timestamp() as u64;
-        let code = oath::totp_raw_custom(&secret_bytes, 6, 30, 0, &HashType::SHA1, timestamp);
-        let code = format!("{:06}", code);
+        let step = timestamp / 30;
+        let code = totp_custom::<Sha1>(step, 6, &secret_bytes, 30);
 
         assert!(validate_totp_code(&secret, &code).expect("validate code"));
     }

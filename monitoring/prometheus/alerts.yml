@@ -1,0 +1,51 @@
+groups:
+  - name: tipjar_alerts
+    rules:
+      - alert: HighHttpErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(http_requests_total[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP 5xx error rate (> 5%)"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: SlowHttpRequests
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, path))
+          > 1.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 latency > 1s on {{ $labels.path }}"
+          description: "p95 latency is {{ $value }}s."
+
+      - alert: BlockchainIndexerLagging
+        expr: blockchain_indexer_lag_ledgers > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Blockchain indexer is lagging"
+          description: "Indexer is {{ $value }} ledgers behind the network tip."
+
+      - alert: BlockchainIndexerDown
+        expr: blockchain_indexer_lag_ledgers > 500
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Blockchain indexer appears stalled"
+          description: "Indexer is {{ $value }} ledgers behind — possible listener failure."
+
+      - alert: HighInFlightRequests
+        expr: http_requests_in_flight > 200
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High number of in-flight HTTP requests"
+          description: "{{ $value }} requests currently in flight."

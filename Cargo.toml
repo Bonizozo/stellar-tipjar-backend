@@ -46,7 +46,7 @@ base64 = "0.22"
 urlencoding = "2"
 rust_decimal = "1"
 utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
-oath = "1.1"
+totp-lite = "2"
 rand = "0.8"
 data-encoding = "2"
 utoipa-swagger-ui = { version = "7", features = ["axum"] }

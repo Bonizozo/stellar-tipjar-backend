@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: "Stellar Tipjar"
+    orgId: 1
+    folder: "Stellar Tipjar"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards

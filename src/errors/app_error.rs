@@ -47,6 +47,16 @@ impl AppError {
         Self::Internal
     }
 
+    pub fn internal_with_message(msg: impl Into<String>) -> Self {
+        tracing::error!(message = %msg.into(), "Internal error");
+        Self::Internal
+    }
+
+    pub fn database_error(msg: impl Into<String>) -> Self {
+        tracing::error!(message = %msg.into(), "Database error");
+        Self::Database(DatabaseError::QueryFailed)
+    }
+
     pub fn unauthorized(message: impl Into<String>) -> Self {
         Self::Unauthorized {
             message: message.into(),

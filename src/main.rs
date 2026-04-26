@@ -48,7 +48,7 @@ mod webhooks;
 mod webrtc;
 mod ws;
 
-use crate::metrics::metrics_handler;
+use crate::metrics::{metrics_handler, metrics_summary_handler};
 use crate::middleware::metrics::track_metrics;
 use db::connection::AppState;
 use docs::ApiDoc;
@@ -254,6 +254,7 @@ async fn main() -> anyhow::Result<()> {
             axum::routing::post(graphql_handler).get(graphql_ws_handler),
         )
         .route("/metrics", axum::routing::get(metrics_handler))
+        .route("/metrics/summary", axum::routing::get(metrics_summary_handler))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .merge(routes::monitoring::router(Arc::clone(&state), Arc::clone(&monitor)))
         .merge(routes::profiling::router(Arc::clone(&state)))

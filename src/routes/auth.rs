@@ -3,7 +3,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::db::connection::AppState;
-use crate::errors::AppError;
+use crate::errors::{AppError, AppResult};
 use crate::middleware;
 use crate::models::auth::{
     AuthResponse, LoginRequest, RefreshRequest, RegisterRequest, Claims,
@@ -40,7 +40,7 @@ pub fn router() -> Router<Arc<AppState>> {
         (status = 500, description = "Internal server error")
     )
 )]
-async fn register(
+pub async fn register(
     State(state): State<Arc<AppState>>,
     ValidatedJson(body): ValidatedJson<RegisterRequest>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -95,7 +95,7 @@ async fn register(
         (status = 500, description = "Internal server error")
     )
 )]
-async fn login(
+pub async fn login(
     State(state): State<Arc<AppState>>,
     ValidatedJson(body): ValidatedJson<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -180,7 +180,7 @@ async fn login(
         (status = 401, description = "Invalid or expired refresh token")
     )
 )]
-async fn refresh(
+pub async fn refresh(
     ValidatedJson(body): ValidatedJson<RefreshRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let claims = auth_service::validate_token(&body.refresh_token, "refresh")
@@ -203,7 +203,7 @@ async fn refresh(
         (status = 401, description = "Unauthorized")
     )
 )]
-async fn setup_2fa(
+pub async fn setup_2fa(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -268,7 +268,7 @@ async fn setup_2fa(
         (status = 409, description = "2FA already enabled")
     )
 )]
-async fn verify_2fa(
+pub async fn verify_2fa(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     ValidatedJson(body): ValidatedJson<VerifyTwoFactorRequest>,
@@ -328,7 +328,7 @@ async fn verify_2fa(
         (status = 401, description = "Invalid credentials or backup code")
     )
 )]
-async fn recover(
+pub async fn recover(
     State(state): State<Arc<AppState>>,
     ValidatedJson(body): ValidatedJson<RecoverTwoFactorRequest>,
 ) -> Result<impl IntoResponse, AppError> {

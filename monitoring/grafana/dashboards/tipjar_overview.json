@@ -1,0 +1,124 @@
+{
+  "title": "Stellar Tipjar — System Overview",
+  "uid": "stellar-tipjar-overview",
+  "schemaVersion": 38,
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request Rate (req/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[1m])) by (method)",
+          "legendFormat": "{{ method }}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "p95 Latency (s)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "HTTP 5xx Error Rate",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m]))",
+          "legendFormat": "error rate"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "In-Flight Requests",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 8, "w": 6, "h": 8 },
+      "targets": [
+        {
+          "expr": "http_requests_in_flight",
+          "legendFormat": "in-flight"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Tips Created (total)",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 8, "w": 6, "h": 8 },
+      "targets": [
+        {
+          "expr": "tips_created_total",
+          "legendFormat": "tips"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Tip Amount Distribution (XLM)",
+      "type": "histogram",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(tips_amount_xlm_bucket[5m])) by (le)",
+          "legendFormat": "{{ le }}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Blockchain Indexer Lag (ledgers)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "blockchain_indexer_lag_ledgers",
+          "legendFormat": "lag"
+        }
+      ],
+      "thresholds": {
+        "steps": [
+          { "color": "green", "value": null },
+          { "color": "yellow", "value": 50 },
+          { "color": "red", "value": 500 }
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "title": "Blockchain Events Processed (rate)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(blockchain_events_processed_total[1m])) by (event_type)",
+          "legendFormat": "{{ event_type }}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Cache Hit Rate",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(cache_hits_total[5m])) by (layer) / (sum(rate(cache_hits_total[5m])) by (layer) + sum(rate(cache_misses_total[5m])) by (layer))",
+          "legendFormat": "{{ layer }}"
+        }
+      ]
+    }
+  ]
+}
