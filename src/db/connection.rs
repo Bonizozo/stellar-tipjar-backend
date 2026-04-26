@@ -6,6 +6,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 
 use super::performance::PerformanceMonitor;
+use super::replica::ReplicaManager;
 use crate::cache::{CacheInvalidator, MultiLayerCache};
 use crate::moderation::ModerationService;
 use crate::services::circuit_breaker::CircuitBreaker;
@@ -20,12 +21,23 @@ pub struct AppState {
     pub redis: Option<ConnectionManager>,
     pub broadcast_tx: broadcast::Sender<TipEvent>,
     pub moderation: Arc<crate::moderation::ModerationService>,
-    /// Circuit breaker protecting the database connection path.
     pub db_circuit_breaker: Arc<CircuitBreaker>,
-    /// Multi-layer cache (L1 in-memory, L2 Redis, L3 DB).
     pub cache: Option<Arc<MultiLayerCache>>,
-    /// Cache invalidator for pattern-based invalidation.
     pub invalidator: Option<Arc<CacheInvalidator>>,
+    /// Read replica manager — None when no replicas are configured.
+    pub replicas: Option<Arc<ReplicaManager>>,
+}
+
+impl AppState {
+    /// Returns a read pool (replica if available, primary as fallback).
+    pub async fn read_pool(&self) -> PgPool {
+        if let Some(ref mgr) = self.replicas {
+            if let Some(pool) = mgr.get_replica().await {
+                return pool;
+            }
+        }
+        self.db.clone()
+    }
 }
 
 /// Connect to Postgres with exponential-backoff retry and circuit-breaker protection.

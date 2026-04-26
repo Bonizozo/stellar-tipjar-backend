@@ -105,6 +105,41 @@ async fn main() -> anyhow::Result<()> {
 
     let moderation = Arc::new(moderation::ModerationService::new(pool.clone()));
 
+    // Initialize read replicas from DATABASE_REPLICA_URL_1, _2, ... env vars.
+    let replica_manager = {
+        let mgr = db::replica::ReplicaManager::new(
+            std::env::var("REPLICA_MAX_LAG_BYTES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(50 * 1024 * 1024), // 50 MB default
+        );
+        let mut idx = 1u32;
+        loop {
+            let key = format!("DATABASE_REPLICA_URL_{}", idx);
+            match std::env::var(&key) {
+                Ok(url) => {
+                    match db::connection::connect_with_retry(&url, 10, 2, Duration::from_secs(3), 3, 3, 30).await {
+                        Ok(replica_pool) => {
+                            tracing::info!(replica = idx, "Read replica connected");
+                            mgr.add_replica(url, replica_pool).await;
+                        }
+                        Err(e) => tracing::warn!(replica = idx, error = %e, "Failed to connect replica"),
+                    }
+                    idx += 1;
+                }
+                Err(_) => break,
+            }
+        }
+        let stats = mgr.stats().await;
+        if stats.total > 0 {
+            tracing::info!(total = stats.total, "Read replicas initialized");
+            Some(Arc::new(mgr))
+        } else {
+            tracing::info!("No read replicas configured");
+            None
+        }
+    };
+
     // Initialize multi-layer cache and invalidator
     let cache = Arc::new(cache::MultiLayerCache::with_defaults());
     let invalidator = Arc::new(cache::CacheInvalidator::new(Arc::clone(&cache), None));
@@ -122,7 +157,17 @@ async fn main() -> anyhow::Result<()> {
         )),
         cache: Some(Arc::clone(&cache)),
         invalidator: Some(Arc::clone(&invalidator)),
+        replicas: replica_manager.clone(),
     });
+
+    // Start replica lag monitoring background task.
+    if let Some(ref mgr) = replica_manager {
+        let mgr = Arc::clone(mgr);
+        let primary = pool.clone();
+        tokio::spawn(async move {
+            mgr.as_ref().clone().monitor_loop(primary, Duration::from_secs(10)).await;
+        });
+    }
 
     // Start cache warming background task
     {
