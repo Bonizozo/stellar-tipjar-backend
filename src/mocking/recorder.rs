@@ -4,6 +4,8 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use super::registry::{MockRequest, MockResponse};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordedInteraction {
     pub id: String,
@@ -30,11 +32,13 @@ impl MockRecorder {
     }
 
     pub fn enable(&self) {
-        self.enabled.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.enabled
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn disable(&self) {
-        self.enabled.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.enabled
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -70,6 +74,39 @@ impl MockRecorder {
 
     pub async fn clear(&self) {
         self.interactions.write().await.clear();
+    }
+
+    pub async fn export_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(&self.get_all().await)
+    }
+
+    pub async fn import_json(&self, payload: &str) -> Result<usize, serde_json::Error> {
+        let imported: Vec<RecordedInteraction> = serde_json::from_str(payload)?;
+        let count = imported.len();
+        self.interactions.write().await.extend(imported);
+        Ok(count)
+    }
+
+    /// Convert recorded interactions to registerable mock entries for replay.
+    pub async fn as_mock_entries(&self) -> Vec<(MockRequest, MockResponse)> {
+        self.get_all()
+            .await
+            .into_iter()
+            .map(|r| {
+                (
+                    MockRequest {
+                        method: r.method,
+                        path: r.path,
+                        body_contains: r.request_body,
+                    },
+                    MockResponse {
+                        status: r.response_status,
+                        body: r.response_body,
+                        headers: Default::default(),
+                    },
+                )
+            })
+            .collect()
     }
 }
 

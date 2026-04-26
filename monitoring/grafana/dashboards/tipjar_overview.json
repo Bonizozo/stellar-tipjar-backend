@@ -12,8 +12,8 @@
       "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total[1m])) by (method)",
-          "legendFormat": "{{ method }}"
+          "expr": "tipjar:http_requests:rate_5m",
+          "legendFormat": "req/s"
         }
       ]
     },
@@ -24,7 +24,7 @@
       "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "expr": "tipjar:http_latency_p95_seconds:5m",
           "legendFormat": "p95"
         }
       ]
@@ -36,7 +36,7 @@
       "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m]))",
+          "expr": "tipjar:http_error_ratio:rate_5m",
           "legendFormat": "error rate"
         }
       ]
@@ -115,8 +115,8 @@
       "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 },
       "targets": [
         {
-          "expr": "sum(rate(cache_hits_total[5m])) by (layer) / (sum(rate(cache_hits_total[5m])) by (layer) + sum(rate(cache_misses_total[5m])) by (layer))",
-          "legendFormat": "{{ layer }}"
+          "expr": "tipjar:cache_hit_ratio:rate_5m",
+          "legendFormat": "cache hit ratio"
         }
       ]
     }

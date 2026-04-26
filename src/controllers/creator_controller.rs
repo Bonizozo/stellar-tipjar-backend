@@ -5,8 +5,9 @@ use crate::cache::{keys, redis_client};
 use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
 use crate::errors::{AppError, AppResult, ValidationError};
-use crate::moderation::ContentType;
+use crate::metrics::collectors::CREATORS_REGISTERED_TOTAL;
 use crate::models::creator::{CreateCreatorRequest, Creator};
+use crate::moderation::ContentType;
 use crate::search::SearchQuery;
 use sqlx::PgPool;
 
@@ -42,6 +43,7 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppR
     QueryLogger::log_query(query, duration);
     state.performance.track_query(query, duration);
     tracing::info!(duration_ms = duration.as_millis(), "Creator created");
+    CREATORS_REGISTERED_TOTAL.inc();
 
     // Cache the new creator and invalidate any stale search results.
     if let Some(conn) = state.redis.as_ref() {
@@ -58,7 +60,9 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppR
     // Centralized invalidation for search and creator list caches
     if let Some(ref inv) = state.invalidator {
         let _ = inv.invalidate_pattern("search:creators:*").await;
-        let _ = inv.invalidate_pattern(&keys::http_response_pattern("/creators/")).await;
+        let _ = inv
+            .invalidate_pattern(&keys::http_response_pattern("/creators/"))
+            .await;
     }
 
     // Main branch added Webhook notification
@@ -114,7 +118,9 @@ pub async fn get_creator_by_username(
 
     if let Some(conn) = state.redis.as_ref() {
         let mut conn = conn.clone();
-        if let Some(cached) = redis_client::get::<Creator>(&mut conn, &keys::creator(username)).await {
+        if let Some(cached) =
+            redis_client::get::<Creator>(&mut conn, &keys::creator(username)).await
+        {
             return Ok(Some(cached));
         }
     }

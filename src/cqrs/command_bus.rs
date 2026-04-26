@@ -1,84 +1,56 @@
 use super::commands::{Command, CommandResult};
-use crate::controllers::{creator_controller, tip_controller};
 use crate::db::connection::AppState;
 use crate::errors::AppResult;
-use crate::events::{Event, EventStore};
-use crate::models::creator::CreateCreatorRequest;
-use crate::models::tip::RecordTipRequest;
-use chrono::Utc;
 use std::sync::Arc;
+
+use super::handlers::{CommandHandler, RecordTipHandler, RegisterCreatorHandler};
+use super::synchronizer::CqrsSynchronizer;
+use crate::events::EventStore;
 
 /// Executes write-side commands, persists to the write DB, and appends domain events.
 pub struct CommandBus {
-    state: Arc<AppState>,
-    events: Arc<EventStore>,
+    handlers: Vec<Arc<dyn CommandHandler>>,
+    synchronizer: Option<Arc<CqrsSynchronizer>>,
 }
 
 impl CommandBus {
     pub fn new(state: Arc<AppState>, events: Arc<EventStore>) -> Self {
-        Self { state, events }
+        let handlers: Vec<Arc<dyn CommandHandler>> = vec![
+            Arc::new(RegisterCreatorHandler::new(
+                Arc::clone(&state),
+                Arc::clone(&events),
+            )),
+            Arc::new(RecordTipHandler::new(
+                Arc::clone(&state),
+                Arc::clone(&events),
+            )),
+        ];
+        Self {
+            handlers,
+            synchronizer: None,
+        }
+    }
+
+    pub fn with_synchronizer(mut self, synchronizer: Arc<CqrsSynchronizer>) -> Self {
+        self.synchronizer = Some(synchronizer);
+        self
     }
 
     pub async fn execute(&self, cmd: Command) -> AppResult<CommandResult> {
-        match cmd {
-            Command::RegisterCreator {
-                username,
-                wallet_address,
-                email,
-            } => {
-                let creator = creator_controller::create_creator(
-                    &self.state,
-                    CreateCreatorRequest {
-                        username,
-                        wallet_address,
-                        email,
-                    },
-                )
-                .await?;
-
-                let event = Event::CreatorRegistered {
-                    id: creator.id,
-                    username: creator.username.clone(),
-                    wallet_address: creator.wallet_address.clone(),
-                    timestamp: Utc::now(),
-                };
-                let _ = self.events.append(&event).await;
-
-                Ok(CommandResult::CreatorRegistered { id: creator.id })
-            }
-
-            Command::RecordTip {
-                creator_username,
-                amount,
-                transaction_hash,
-            } => {
-                let tip = tip_controller::record_tip(
-                    &self.state,
-                    RecordTipRequest {
-                        username: creator_username,
-                        amount,
-                        transaction_hash,
-                    },
-                )
-                .await?;
-
-                // Resolve creator_id for the event (best-effort; skip on miss).
-                if let Ok(Some(creator)) =
-                    creator_controller::get_creator_by_username(&self.state, &tip.creator_username)
-                        .await
-                {
-                    let event = Event::TipReceived {
-                        id: tip.id,
-                        creator_id: creator.id,
-                        amount: tip.amount.clone(),
-                        transaction_hash: tip.transaction_hash.clone(),
-                        timestamp: Utc::now(),
-                    };
-                    let _ = self.events.append(&event).await;
+        if let Some(handler) = self.handlers.iter().find(|handler| handler.handles(&cmd)) {
+            let handled = handler.handle(cmd).await?;
+            if let Some(result) = handled {
+                if let Some(sync) = &self.synchronizer {
+                    let _ = sync
+                        .sync_with_retry(3, std::time::Duration::from_millis(100))
+                        .await;
                 }
-
-                Ok(CommandResult::TipRecorded { id: tip.id })
+                return Ok(result);
             }
         }
+
+        Err(crate::errors::AppError::internal_with_message(
+            "No command handler registered",
+        ))
     }
 }

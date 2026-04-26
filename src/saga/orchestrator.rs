@@ -1,7 +1,7 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use super::step::{CompensationAction, SagaAction, SagaContext, SagaStep, StepState};
+use super::step::{SagaContext, SagaStep, StepState};
 use crate::errors::{AppError, AppResult};
 
 pub struct SagaOrchestrator {
@@ -25,21 +25,56 @@ impl SagaOrchestrator {
         self.persist_saga(saga_id, saga_type).await?;
 
         for (i, step) in steps.iter().enumerate() {
-            match step.action.execute(&mut ctx).await {
-                Ok(()) => {
-                    self.log_step(saga_id, i, step.name, StepState::Completed, None)
-                        .await?;
-                    self.update_saga_step(saga_id, i).await?;
+            let mut attempts = 0u32;
+            let mut completed = false;
+            let mut last_error = None;
+
+            while attempts <= step.max_retries {
+                attempts += 1;
+                match step.action.execute(&mut ctx).await {
+                    Ok(()) => {
+                        completed = true;
+                        self.log_step(saga_id, i, step.name, StepState::Completed, None)
+                            .await?;
+                        self.update_saga_step(saga_id, i).await?;
+                        break;
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        last_error = Some(msg.clone());
+                        tracing::warn!(
+                            saga_id = %saga_id,
+                            step = step.name,
+                            attempt = attempts,
+                            max_retries = step.max_retries,
+                            error = %msg,
+                            "Saga step execution failed"
+                        );
+
+                        if attempts <= step.max_retries {
+                            if step.retry_backoff_ms > 0 {
+                                tokio::time::sleep(std::time::Duration::from_millis(
+                                    step.retry_backoff_ms * attempts as u64,
+                                ))
+                                .await;
+                            }
+                            continue;
+                        }
+                    }
                 }
-                Err(e) => {
-                    let msg = e.to_string();
-                    tracing::error!(saga_id = %saga_id, step = step.name, error = %msg, "Saga step failed");
-                    self.log_step(saga_id, i, step.name, StepState::Failed, Some(&msg))
-                        .await?;
-                    self.compensate(saga_id, &steps[..i], &ctx).await;
-                    self.update_saga_state(saga_id, "compensated").await?;
-                    return Err(AppError::internal());
-                }
+            }
+
+            if !completed {
+                let message = last_error.unwrap_or_else(|| "unknown saga step error".to_string());
+                self.log_step(saga_id, i, step.name, StepState::Failed, Some(&message))
+                    .await?;
+                self.update_saga_state(saga_id, "failed").await?;
+                self.compensate(saga_id, &steps[..i], &ctx).await;
+                self.update_saga_state(saga_id, "compensated").await?;
+                return Err(AppError::internal_with_message(format!(
+                    "Saga step `{}` failed: {}",
+                    step.name, message
+                )));
             }
         }
 

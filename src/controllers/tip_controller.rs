@@ -7,7 +7,9 @@ use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
 use crate::db::transaction;
 use crate::errors::{AppError, AppResult};
-use crate::metrics::collectors::DB_QUERY_DURATION_SECONDS; // Kept from your branch
+use crate::metrics::collectors::{
+    DB_QUERY_DURATION_SECONDS, TIPS_AMOUNT_XLM, TIPS_CREATED_TOTAL, TIPS_FAILED_TOTAL,
+};
 use crate::models::pagination::{PaginatedResponse, PaginationParams};
 use crate::models::tip::{RecordTipRequest, Tip, TipFilters, TipSortParams};
 use crate::moderation::ContentType;
@@ -22,6 +24,9 @@ pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Ti
                 .check_content(msg, ContentType::TipMessage, None)
                 .await;
             if moderation.has_high_confidence_violation(0.90) {
+                TIPS_FAILED_TOTAL
+                    .with_label_values(&["moderation_rejected"])
+                    .inc();
                 return Err(AppError::Validation(
                     crate::errors::ValidationError::InvalidRequest {
                         message: "Tip message was rejected by content moderation".to_string(),
@@ -37,12 +42,25 @@ pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Ti
 
     let start = Instant::now();
     // Pass state into the internal helper to support WebSocket broadcasting
-    let (tip, match_result) = record_tip_in_tx(state, &mut tx, &req).await?;
+    let (tip, match_result) = match record_tip_in_tx(state, &mut tx, &req).await {
+        Ok(result) => result,
+        Err(e) => {
+            TIPS_FAILED_TOTAL
+                .with_label_values(&["record_tip_in_tx"])
+                .inc();
+            return Err(e);
+        }
+    };
     tx.commit().await?;
     let duration = start.elapsed();
 
-    // Record your Prometheus metric
-    DB_QUERY_DURATION_SECONDS.observe(duration.as_secs_f64());
+    DB_QUERY_DURATION_SECONDS
+        .with_label_values(&["tip_atomic_record"])
+        .observe(duration.as_secs_f64());
+    TIPS_CREATED_TOTAL.inc();
+    if let Ok(amount) = tip.amount.parse::<f64>() {
+        TIPS_AMOUNT_XLM.observe(amount);
+    }
 
     if let Some(match_info) = match_result {
         let db = state.db.clone();
@@ -81,8 +99,12 @@ pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Ti
         let tips_pattern = keys::creator_tips_pattern(&tip.creator_username);
         let _ = inv.invalidate_pattern(&tips_pattern).await;
         let _ = inv.invalidate_pattern("leaderboard:*").await;
-        let _ = inv.invalidate_pattern(&keys::http_response_pattern("/tips")).await;
-        let _ = inv.invalidate_pattern(&keys::http_response_pattern("/creators/")).await;
+        let _ = inv
+            .invalidate_pattern(&keys::http_response_pattern("/tips"))
+            .await;
+        let _ = inv
+            .invalidate_pattern(&keys::http_response_pattern("/creators/"))
+            .await;
     }
 
     // Main branch added Webhooks
@@ -160,7 +182,14 @@ pub async fn record_tip_in_tx(
         .await?;
 
     // Apply team splits if the recipient belongs to a team.
-    team_controller::record_tip_splits(&state, tip.id, &tip.creator_username, &tip.amount, &mut *tx).await?;
+    team_controller::record_tip_splits(
+        &state,
+        tip.id,
+        &tip.creator_username,
+        &tip.amount,
+        &mut *tx,
+    )
+    .await?;
 
     // Broadcast to WebSocket (Main branch feature)
     let event = crate::ws::TipEvent {
@@ -244,8 +273,9 @@ pub async fn get_tips_for_creator(state: &AppState, username: &str) -> AppResult
         .await?;
     let duration = start.elapsed();
 
-    // Record your Prometheus metric
-    DB_QUERY_DURATION_SECONDS.observe(duration.as_secs_f64());
+    DB_QUERY_DURATION_SECONDS
+        .with_label_values(&["tips_list_by_creator"])
+        .observe(duration.as_secs_f64());
 
     QueryLogger::log_query(query, duration);
     state.performance.track_query(query, duration);
@@ -350,7 +380,9 @@ pub async fn get_tips_paginated(
         .await?;
     let duration = start.elapsed();
 
-    DB_QUERY_DURATION_SECONDS.observe(duration.as_secs_f64());
+    DB_QUERY_DURATION_SECONDS
+        .with_label_values(&["tips_paginated"])
+        .observe(duration.as_secs_f64());
 
     Ok(PaginatedResponse::new(tips, total, &params))
 }
