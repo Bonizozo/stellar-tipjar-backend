@@ -1,15 +1,38 @@
+use super::workflow::{SagaStepStatus, SagaWorkflow};
 use crate::errors::AppError;
 use sqlx::PgPool;
+use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use uuid::Uuid;
-use super::workflow::{SagaWorkflow, SagaStepStatus};
+
+type CompensationFuture = Pin<Box<dyn Future<Output = Result<(), AppError>> + Send>>;
+type CompensationFn = Arc<dyn Fn() -> CompensationFuture + Send + Sync>;
 
 pub struct CompensationHandler {
     pool: PgPool,
+    hooks: Arc<RwLock<HashMap<String, CompensationFn>>>,
 }
 
 impl CompensationHandler {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            hooks: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub async fn register_hook<F, Fut>(&self, name: impl Into<String>, hook: F)
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), AppError>> + Send + 'static,
+    {
+        self.hooks
+            .write()
+            .await
+            .insert(name.into(), Arc::new(move || Box::pin(hook())));
     }
 
     pub async fn compensate_workflow(&self, workflow: &mut SagaWorkflow) -> Result<(), AppError> {
@@ -35,17 +58,19 @@ impl CompensationHandler {
     }
 
     async fn execute_compensation(&self, compensation: &str) -> Result<(), AppError> {
-        // Parse and execute compensation logic
-        // This is a placeholder for actual compensation execution
-        sqlx::query("SELECT 1")
-            .execute(&self.pool)
-            .await?;
+        if let Some(hook) = self.hooks.read().await.get(compensation).cloned() {
+            return hook().await;
+        }
+
+        // Default to no-op SQL heartbeat so workflow remains recoverable without
+        // explicit compensation hooks registered.
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
         Ok(())
     }
 
     pub async fn save_workflow_state(&self, workflow: &SagaWorkflow) -> Result<(), AppError> {
         let workflow_json = serde_json::to_string(workflow)?;
-        
+
         sqlx::query(
             "INSERT INTO saga_workflows (id, name, state, status, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6)

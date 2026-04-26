@@ -2,6 +2,7 @@ pub mod auth_service;
 pub mod circuit_breaker;
 pub mod creator_service;
 pub mod monitoring_service;
+pub mod receipt_service;
 pub mod retry;
 pub mod scheduled_tip_service;
 pub mod stellar_service;

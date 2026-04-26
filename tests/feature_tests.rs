@@ -4,12 +4,13 @@ use std::sync::Arc;
 // ── Issue 1: API Mocking ──────────────────────────────────────────────────────
 
 mod api_mocking {
+    use serde_json::json;
     use stellar_tipjar_backend::mocking::{
         recorder::MockRecorder,
         registry::{MockRegistry, MockRequest, MockResponse},
+        server::{MockServer, MockServerRequest},
         templates,
     };
-    use serde_json::json;
 
     #[tokio::test]
     async fn registry_matches_exact_path_and_method() {
@@ -97,7 +98,13 @@ mod api_mocking {
         let recorder = MockRecorder::new();
         recorder.enable();
         recorder
-            .record("POST", "/tips", Some(json!({ "amount": "1.0" })), 201, json!({}))
+            .record(
+                "POST",
+                "/tips",
+                Some(json!({ "amount": "1.0" })),
+                201,
+                json!({}),
+            )
             .await;
         let all = recorder.get_all().await;
         assert_eq!(all.len(), 1);
@@ -117,7 +124,9 @@ mod api_mocking {
     async fn recorder_clear_removes_all() {
         let recorder = MockRecorder::new();
         recorder.enable();
-        recorder.record("GET", "/health", None, 200, json!({})).await;
+        recorder
+            .record("GET", "/health", None, 200, json!({}))
+            .await;
         recorder.clear().await;
         assert!(recorder.get_all().await.is_empty());
     }
@@ -132,6 +141,87 @@ mod api_mocking {
 
         let tx = templates::stellar_transaction_template("txabc", true);
         assert_eq!(tx["successful"], true);
+    }
+
+    #[tokio::test]
+    async fn registry_matches_wildcard_and_query() {
+        let registry = MockRegistry::new();
+        let req = MockRequest {
+            method: "GET".into(),
+            path: "/creators/*/tips?status=settled".into(),
+            body_contains: None,
+        };
+        let resp = MockResponse {
+            status: 200,
+            body: json!({ "ok": true }),
+            headers: Default::default(),
+        };
+        registry.register(req, resp).await;
+
+        let matched = registry
+            .match_request("GET", "/creators/alice/tips?status=settled", None)
+            .await;
+        assert!(matched.is_some());
+    }
+
+    #[tokio::test]
+    async fn server_renders_path_param_templates() {
+        let server = MockServer::new();
+        server
+            .registry
+            .register(
+                MockRequest {
+                    method: "GET".into(),
+                    path: "/creators/:username".into(),
+                    body_contains: None,
+                },
+                MockResponse {
+                    status: 200,
+                    body: json!({
+                        "username": "{{request.path_param.username}}",
+                        "trace": "{{request.method}} {{request.path}}",
+                        "generated_id": "{{random.uuid}}",
+                    }),
+                    headers: Default::default(),
+                },
+            )
+            .await;
+
+        let response = server
+            .handle_request(MockServerRequest {
+                method: "GET".into(),
+                path: "/creators/alice".into(),
+                headers: Default::default(),
+                body: None,
+            })
+            .await;
+
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body["username"], "alice");
+        assert_eq!(response.body["trace"], "GET /creators/alice");
+        assert!(response.body["generated_id"].as_str().unwrap().len() > 10);
+    }
+
+    #[tokio::test]
+    async fn recorder_can_export_and_import() {
+        let recorder = MockRecorder::new();
+        recorder.enable();
+        recorder
+            .record(
+                "POST",
+                "/tips",
+                Some(json!({ "amount": "3.5" })),
+                201,
+                json!({ "ok": true }),
+            )
+            .await;
+
+        let exported = recorder.export_json().await.unwrap();
+        let imported = MockRecorder::new();
+        let count = imported.import_json(&exported).await.unwrap();
+
+        assert_eq!(count, 1);
+        assert_eq!(imported.get_all().await.len(), 1);
     }
 }
 
@@ -325,8 +415,8 @@ mod cdn_integration {
 // ── Issue 4: API Deprecation Strategy ────────────────────────────────────────
 
 mod api_deprecation {
-    use stellar_tipjar_backend::middleware::deprecation::DeprecationTracker;
     use std::sync::Arc;
+    use stellar_tipjar_backend::middleware::deprecation::DeprecationTracker;
 
     #[tokio::test]
     async fn tracker_records_hits_per_path() {

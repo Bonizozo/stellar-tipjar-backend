@@ -43,6 +43,7 @@ impl SagaAction for RecordTipStep {
                 username: self.req.username.clone(),
                 amount: self.req.amount.clone(),
                 transaction_hash: self.req.transaction_hash.clone(),
+                message: self.req.message.clone(),
             },
         )
         .await?;
@@ -106,6 +107,8 @@ pub async fn run_tip_saga(state: Arc<AppState>, req: RecordTipRequest) -> AppRes
                 tx_hash: req.transaction_hash.clone(),
             }),
             compensation: Box::new(NoOpCompensation),
+            max_retries: 2,
+            retry_backoff_ms: 200,
         },
         SagaStep {
             name: "record_tip",
@@ -121,6 +124,8 @@ pub async fn run_tip_saga(state: Arc<AppState>, req: RecordTipRequest) -> AppRes
             compensation: Box::new(DeleteTipCompensation {
                 pool: state.db.clone(),
             }),
+            max_retries: 1,
+            retry_backoff_ms: 200,
         },
         SagaStep {
             name: "notify",
@@ -130,6 +135,8 @@ pub async fn run_tip_saga(state: Arc<AppState>, req: RecordTipRequest) -> AppRes
                 amount: req.amount.clone(),
             }),
             compensation: Box::new(NoOpCompensation),
+            max_retries: 0,
+            retry_backoff_ms: 0,
         },
     ];
 

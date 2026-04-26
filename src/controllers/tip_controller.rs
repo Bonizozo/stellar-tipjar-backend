@@ -7,9 +7,11 @@ use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
 use crate::db::transaction;
 use crate::errors::{AppError, AppResult};
-use crate::metrics::collectors::DB_QUERY_DURATION_SECONDS; // Kept from your branch
+use crate::metrics::collectors::{
+    DB_QUERY_DURATION_SECONDS, TIPS_AMOUNT_XLM, TIPS_CREATED_TOTAL, TIPS_FAILED_TOTAL,
+};
 use crate::models::pagination::{PaginatedResponse, PaginationParams};
-use crate::models::tip::{RecordTipRequest, Tip, TipFilters, TipSortParams};
+use crate::models::tip::{RecordTipRequest, ReportMessageRequest, Tip, TipFilters, TipSortParams};
 use crate::moderation::ContentType;
 
 #[tracing::instrument(skip(state), fields(username = %req.username, amount = %req.amount))]
@@ -22,6 +24,9 @@ pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Ti
                 .check_content(msg, ContentType::TipMessage, None)
                 .await;
             if moderation.has_high_confidence_violation(0.90) {
+                TIPS_FAILED_TOTAL
+                    .with_label_values(&["moderation_rejected"])
+                    .inc();
                 return Err(AppError::Validation(
                     crate::errors::ValidationError::InvalidRequest {
                         message: "Tip message was rejected by content moderation".to_string(),
@@ -37,12 +42,25 @@ pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Ti
 
     let start = Instant::now();
     // Pass state into the internal helper to support WebSocket broadcasting
-    let (tip, match_result) = record_tip_in_tx(state, &mut tx, &req).await?;
+    let (tip, match_result) = match record_tip_in_tx(state, &mut tx, &req).await {
+        Ok(result) => result,
+        Err(e) => {
+            TIPS_FAILED_TOTAL
+                .with_label_values(&["record_tip_in_tx"])
+                .inc();
+            return Err(e);
+        }
+    };
     tx.commit().await?;
     let duration = start.elapsed();
 
-    // Record your Prometheus metric
-    DB_QUERY_DURATION_SECONDS.observe(duration.as_secs_f64());
+    DB_QUERY_DURATION_SECONDS
+        .with_label_values(&["tip_atomic_record"])
+        .observe(duration.as_secs_f64());
+    TIPS_CREATED_TOTAL.inc();
+    if let Ok(amount) = tip.amount.parse::<f64>() {
+        TIPS_AMOUNT_XLM.observe(amount);
+    }
 
     if let Some(match_info) = match_result {
         let db = state.db.clone();
@@ -81,8 +99,12 @@ pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Ti
         let tips_pattern = keys::creator_tips_pattern(&tip.creator_username);
         let _ = inv.invalidate_pattern(&tips_pattern).await;
         let _ = inv.invalidate_pattern("leaderboard:*").await;
-        let _ = inv.invalidate_pattern(&keys::http_response_pattern("/tips")).await;
-        let _ = inv.invalidate_pattern(&keys::http_response_pattern("/creators/")).await;
+        let _ = inv
+            .invalidate_pattern(&keys::http_response_pattern("/tips"))
+            .await;
+        let _ = inv
+            .invalidate_pattern(&keys::http_response_pattern("/creators/"))
+            .await;
     }
 
     // Main branch added Webhooks
@@ -133,9 +155,9 @@ pub async fn record_tip_in_tx(
     req: &RecordTipRequest,
 ) -> AppResult<(Tip, Option<crate::models::campaign::CampaignMatchResult>)> {
     let query_tip = r#"
-        INSERT INTO tips (id, creator_username, amount, transaction_hash, message, created_at)
-        VALUES ($1, $2, $3, $4, $5, NOW())
-        RETURNING id, creator_username, amount, transaction_hash, message, created_at
+        INSERT INTO tips (id, creator_username, amount, transaction_hash, message, message_visibility, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        RETURNING id, creator_username, amount, transaction_hash, message, message_visibility, created_at
         "#;
 
     let tip = sqlx::query_as::<_, Tip>(query_tip)
@@ -144,6 +166,7 @@ pub async fn record_tip_in_tx(
         .bind(&req.amount)
         .bind(&req.transaction_hash)
         .bind(&req.message)
+        .bind(req.message_visibility.as_str())
         .fetch_one(&mut **tx)
         .await?;
 
@@ -160,7 +183,14 @@ pub async fn record_tip_in_tx(
         .await?;
 
     // Apply team splits if the recipient belongs to a team.
-    team_controller::record_tip_splits(&state, tip.id, &tip.creator_username, &tip.amount, &mut *tx).await?;
+    team_controller::record_tip_splits(
+        &state,
+        tip.id,
+        &tip.creator_username,
+        &tip.amount,
+        &mut *tx,
+    )
+    .await?;
 
     // Broadcast to WebSocket (Main branch feature)
     let event = crate::ws::TipEvent {
@@ -231,7 +261,7 @@ pub async fn record_tip_in_tx(
 /// Fetch all tips for a creator without pagination (kept for internal use).
 pub async fn get_tips_for_creator(state: &AppState, username: &str) -> AppResult<Vec<Tip>> {
     let query = r#"
-        SELECT id, creator_username, amount, transaction_hash, message, created_at
+        SELECT id, creator_username, amount, transaction_hash, message, message_visibility, created_at
         FROM tips
         WHERE creator_username = $1
         ORDER BY created_at DESC
@@ -244,8 +274,9 @@ pub async fn get_tips_for_creator(state: &AppState, username: &str) -> AppResult
         .await?;
     let duration = start.elapsed();
 
-    // Record your Prometheus metric
-    DB_QUERY_DURATION_SECONDS.observe(duration.as_secs_f64());
+    DB_QUERY_DURATION_SECONDS
+        .with_label_values(&["tips_list_by_creator"])
+        .observe(duration.as_secs_f64());
 
     QueryLogger::log_query(query, duration);
     state.performance.track_query(query, duration);
@@ -308,7 +339,7 @@ pub async fn get_tips_paginated(
 
     let count_sql = format!("SELECT COUNT(*) FROM tips {where_clause}");
     let data_sql = format!(
-        "SELECT id, creator_username, amount, transaction_hash, message, created_at \
+        "SELECT id, creator_username, amount, transaction_hash, message, message_visibility, created_at \
          FROM tips {where_clause} \
          ORDER BY {sort_col} {sort_dir} \
          LIMIT ${bind_idx} OFFSET ${}",
@@ -350,7 +381,43 @@ pub async fn get_tips_paginated(
         .await?;
     let duration = start.elapsed();
 
-    DB_QUERY_DURATION_SECONDS.observe(duration.as_secs_f64());
+    DB_QUERY_DURATION_SECONDS
+        .with_label_values(&["tips_paginated"])
+        .observe(duration.as_secs_f64());
 
     Ok(PaginatedResponse::new(tips, total, &params))
+}
+
+/// Report a tip message for moderation review.
+pub async fn report_tip_message(
+    state: &AppState,
+    tip_id: Uuid,
+    req: ReportMessageRequest,
+) -> AppResult<()> {
+    // Verify the tip exists and has a message.
+    let tip = sqlx::query_as::<_, Tip>(
+        "SELECT id, creator_username, amount, transaction_hash, message, message_visibility, created_at \
+         FROM tips WHERE id = $1",
+    )
+    .bind(tip_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::Database(crate::errors::DatabaseError::NotFound {
+        entity: "tip".to_string(),
+        identifier: tip_id.to_string(),
+    }))?;
+
+    let message_text = tip.message.as_deref().unwrap_or("");
+    let reporter = req.reported_by.as_deref().unwrap_or("anonymous");
+
+    state
+        .moderation
+        .flag("tip_message", tip_id, message_text, &req.reason, reporter)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to flag tip message: {e}");
+            AppError::internal()
+        })?;
+
+    Ok(())
 }

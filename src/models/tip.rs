@@ -10,6 +10,40 @@ lazy_static! {
     static ref USERNAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap();
 }
 
+/// Visibility of a tip message.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum MessageVisibility {
+    /// Visible to everyone (default).
+    Public,
+    /// Visible only to the creator.
+    Private,
+    /// Hidden by moderation.
+    Hidden,
+}
+
+impl Default for MessageVisibility {
+    fn default() -> Self {
+        Self::Public
+    }
+}
+
+impl MessageVisibility {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Private => "private",
+            Self::Hidden => "hidden",
+        }
+    }
+}
+
+impl std::fmt::Display for MessageVisibility {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Tip {
     pub id: Uuid,
@@ -17,6 +51,7 @@ pub struct Tip {
     pub amount: String,
     pub transaction_hash: String,
     pub message: Option<String>,
+    pub message_visibility: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -44,6 +79,10 @@ pub struct RecordTipRequest {
     /// Optional public message from the tipper (max 280 characters)
     #[validate(length(max = 280, message = "Message must be 280 characters or fewer"))]
     pub message: Option<String>,
+
+    /// Visibility of the message: "public" (default), "private"
+    #[serde(default)]
+    pub message_visibility: MessageVisibility,
 }
 
 fn validate_tx_hash(hash: &str) -> Result<(), validator::ValidationError> {
@@ -119,6 +158,7 @@ pub struct TipResponse {
     pub amount: String,
     pub transaction_hash: String,
     pub message: Option<String>,
+    pub message_visibility: String,
     pub created_at: DateTime<Utc>,
 }
 
@@ -130,7 +170,19 @@ impl From<Tip> for TipResponse {
             amount: t.amount,
             transaction_hash: t.transaction_hash,
             message: t.message,
+            message_visibility: t.message_visibility.unwrap_or_else(|| "public".to_string()),
             created_at: t.created_at,
         }
     }
+}
+
+/// Request body for reporting a tip message
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct ReportMessageRequest {
+    /// Reason for the report
+    #[validate(length(min = 10, max = 500, message = "Reason must be between 10 and 500 characters"))]
+    pub reason: String,
+    /// Reporter identifier (username or anonymous)
+    #[validate(length(max = 50))]
+    pub reported_by: Option<String>,
 }

@@ -106,6 +106,41 @@ async fn main() -> anyhow::Result<()> {
 
     let moderation = Arc::new(moderation::ModerationService::new(pool.clone()));
 
+    // Initialize read replicas from DATABASE_REPLICA_URL_1, _2, ... env vars.
+    let replica_manager = {
+        let mgr = db::replica::ReplicaManager::new(
+            std::env::var("REPLICA_MAX_LAG_BYTES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(50 * 1024 * 1024), // 50 MB default
+        );
+        let mut idx = 1u32;
+        loop {
+            let key = format!("DATABASE_REPLICA_URL_{}", idx);
+            match std::env::var(&key) {
+                Ok(url) => {
+                    match db::connection::connect_with_retry(&url, 10, 2, Duration::from_secs(3), 3, 3, 30).await {
+                        Ok(replica_pool) => {
+                            tracing::info!(replica = idx, "Read replica connected");
+                            mgr.add_replica(url, replica_pool).await;
+                        }
+                        Err(e) => tracing::warn!(replica = idx, error = %e, "Failed to connect replica"),
+                    }
+                    idx += 1;
+                }
+                Err(_) => break,
+            }
+        }
+        let stats = mgr.stats().await;
+        if stats.total > 0 {
+            tracing::info!(total = stats.total, "Read replicas initialized");
+            Some(Arc::new(mgr))
+        } else {
+            tracing::info!("No read replicas configured");
+            None
+        }
+    };
+
     // Initialize multi-layer cache and invalidator
     let cache = Arc::new(cache::MultiLayerCache::with_defaults());
     let invalidator = Arc::new(cache::CacheInvalidator::new(Arc::clone(&cache), None));
@@ -127,8 +162,17 @@ async fn main() -> anyhow::Result<()> {
         )),
         cache: Some(Arc::clone(&cache)),
         invalidator: Some(Arc::clone(&invalidator)),
-        sharding,
+        replicas: replica_manager.clone(),
     });
+
+    // Start replica lag monitoring background task.
+    if let Some(ref mgr) = replica_manager {
+        let mgr = Arc::clone(mgr);
+        let primary = pool.clone();
+        tokio::spawn(async move {
+            mgr.as_ref().clone().monitor_loop(primary, Duration::from_secs(10)).await;
+        });
+    }
 
     // Start cache warming background task
     {
@@ -152,9 +196,20 @@ async fn main() -> anyhow::Result<()> {
     // Start background job processing system
     let (_job_queue, _job_scheduler) = jobs::start(Arc::clone(&state), jobs::JobConfig::default());
 
-    // Start RabbitMQ message queue system (#231)
-    // Gracefully skipped when RABBITMQ_URL is not set or the broker is unreachable.
-    let queue_system = queue::try_start(Arc::clone(&state)).await;
+    // Start cron scheduler (cleanup, weekly reports, cache warming, analytics)
+    {
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            match scheduler::SchedulerManager::new(pool.clone()).await {
+                Ok(mgr) => {
+                    if let Err(e) = mgr.start(pool).await {
+                        tracing::error!("Scheduler failed to start: {e}");
+                    }
+                }
+                Err(e) => tracing::error!("Failed to create scheduler: {e}"),
+            }
+        });
+    }
 
     // Start Stellar transaction monitoring (#175)
     let monitor = services::monitoring_service::spawn(Arc::clone(&state));
@@ -225,6 +280,7 @@ async fn main() -> anyhow::Result<()> {
                         .merge(routes::leaderboard::router())
                         .merge(routes::stats::router())
                         .merge(routes::analytics::router())
+                        .merge(routes::receipts::router())
                         .layer(general_limiter_v1),
                 ),
         )
@@ -267,6 +323,7 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::leaderboard::router())
                     .merge(routes::stats::router())
                     .merge(routes::analytics::router())
+                    .merge(routes::receipts::router())
                     .layer(general_limiter_v2),
             ),
     )

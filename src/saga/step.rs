@@ -53,6 +53,8 @@ pub struct SagaStep {
     pub name: &'static str,
     pub action: Box<dyn SagaAction>,
     pub compensation: Box<dyn CompensationAction>,
+    pub max_retries: u32,
+    pub retry_backoff_ms: u64,
 }
 
 #[async_trait::async_trait]

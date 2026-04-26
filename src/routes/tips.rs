@@ -1,16 +1,24 @@
-use axum::{extract::{Query, State}, http::StatusCode, response::IntoResponse, routing::{get, post}, Json, Router};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
+    Json, Router,
+};
 use std::sync::Arc;
+use uuid::Uuid;
 
 use crate::controllers::tip_controller;
 use crate::db::connection::AppState;
 use crate::errors::{AppError, StellarError};
 use crate::models::pagination::PaginationParams;
-use crate::models::tip::{RecordTipRequest, TipFilters, TipResponse, TipSortParams};
+use crate::models::tip::{RecordTipRequest, ReportMessageRequest, TipFilters, TipResponse, TipSortParams};
 use crate::services::validation_service::{TipValidationService, ValidationRules};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/tips", post(record_tip).get(list_tips))
+        .route("/tips/:id/report", post(report_tip_message))
 }
 
 /// Record a new tip (verifies transaction on the Stellar network first)
@@ -72,4 +80,26 @@ pub async fn list_tips(
     let result = tip_controller::get_tips_paginated(&state, None, params, filters, sort).await?;
     let response = result.map(TipResponse::from);
     Ok((StatusCode::OK, Json(serde_json::json!(response))).into_response())
+}
+
+/// Report a tip message for moderation review
+#[utoipa::path(
+    post,
+    path = "/tips/{id}/report",
+    tag = "tips",
+    params(("id" = Uuid, Path, description = "Tip ID")),
+    request_body = ReportMessageRequest,
+    responses(
+        (status = 204, description = "Report submitted"),
+        (status = 404, description = "Tip not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn report_tip_message(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    crate::validation::ValidatedJson(body): crate::validation::ValidatedJson<ReportMessageRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    tip_controller::report_tip_message(&state, id, body).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }

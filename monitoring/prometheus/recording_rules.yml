@@ -1,0 +1,28 @@
+groups:
+  - name: tipjar_recording_rules
+    interval: 30s
+    rules:
+      - record: tipjar:http_requests:rate_5m
+        expr: sum(rate(http_requests_total[5m]))
+
+      - record: tipjar:http_error_ratio:rate_5m
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(http_requests_total[5m])), 1)
+
+      - record: tipjar:http_latency_p95_seconds:5m
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          )
+
+      - record: tipjar:tips_created:rate_5m
+        expr: sum(rate(tips_created_total[5m]))
+
+      - record: tipjar:cache_hit_ratio:rate_5m
+        expr: |
+          sum(rate(cache_hits_total[5m]))
+          /
+          clamp_min(sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m])), 1)
