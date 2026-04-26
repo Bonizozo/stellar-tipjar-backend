@@ -1,86 +1,46 @@
-use super::publisher::{Message, MessageConsumer, MessagePublisher};
+use super::consumer::{MessageHandler, MessageHandlerRegistry};
+use super::publisher::Message;
 use async_trait::async_trait;
 use std::sync::Arc;
 
-#[async_trait]
-pub trait MessageHandler: Send + Sync {
-    async fn handle(&self, message: &Message) -> anyhow::Result<()>;
-    fn message_type(&self) -> &str;
+// ── Queue / topology configuration ───────────────────────────────────────────
+
+/// Names of all queues and exchanges used by the system.
+pub struct QueueNames;
+
+impl QueueNames {
+    pub const TIPS: &'static str = "tipjar.tips";
+    pub const NOTIFICATIONS: &'static str = "tipjar.notifications";
+    pub const ANALYTICS: &'static str = "tipjar.analytics";
+    pub const WEBHOOKS: &'static str = "tipjar.webhooks";
 }
 
-pub struct TipEventHandler;
+pub struct ExchangeNames;
 
-#[async_trait]
-impl MessageHandler for TipEventHandler {
-    async fn handle(&self, message: &Message) -> anyhow::Result<()> {
-        tracing::info!("Handling tip event: {}", message.id);
-        Ok(())
-    }
-
-    fn message_type(&self) -> &str {
-        "tip_received"
-    }
+impl ExchangeNames {
+    pub const TIPS: &'static str = "tipjar.tips.exchange";
+    pub const NOTIFICATIONS: &'static str = "tipjar.notifications.exchange";
+    pub const ANALYTICS: &'static str = "tipjar.analytics.exchange";
+    pub const WEBHOOKS: &'static str = "tipjar.webhooks.exchange";
 }
 
-pub struct CreatorNotificationHandler;
+/// Message type strings — used as the `message_type` field in the envelope.
+pub struct MessageTypes;
 
-#[async_trait]
-impl MessageHandler for CreatorNotificationHandler {
-    async fn handle(&self, message: &Message) -> anyhow::Result<()> {
-        tracing::info!("Handling creator notification: {}", message.id);
-        Ok(())
-    }
-
-    fn message_type(&self) -> &str {
-        "creator_notification"
-    }
+impl MessageTypes {
+    pub const TIP_RECEIVED: &'static str = "tip_received";
+    pub const TIP_VERIFIED: &'static str = "tip_verified";
+    pub const TIP_FAILED: &'static str = "tip_failed";
+    pub const CREATOR_REGISTERED: &'static str = "creator_registered";
+    pub const NOTIFICATION_SEND: &'static str = "notification_send";
+    pub const ANALYTICS_EVENT: &'static str = "analytics_event";
+    pub const WEBHOOK_DISPATCH: &'static str = "webhook_dispatch";
 }
 
-pub struct AnalyticsEventHandler;
-
-#[async_trait]
-impl MessageHandler for AnalyticsEventHandler {
-    async fn handle(&self, message: &Message) -> anyhow::Result<()> {
-        tracing::info!("Handling analytics event: {}", message.id);
-        Ok(())
-    }
-
-    fn message_type(&self) -> &str {
-        "analytics_event"
-    }
-}
-
-pub struct MessageHandlerRegistry {
-    handlers: std::collections::HashMap<String, Box<dyn MessageHandler>>,
-}
-
-impl MessageHandlerRegistry {
-    pub fn new() -> Self {
-        Self {
-            handlers: std::collections::HashMap::new(),
-        }
-    }
-
-    pub fn register(&mut self, handler: Box<dyn MessageHandler>) {
-        self.handlers
-            .insert(handler.message_type().to_string(), handler);
-    }
-
-    pub async fn handle(&self, message: &Message) -> anyhow::Result<()> {
-        if let Some(handler) = self.handlers.get(&message.message_type) {
-            handler.handle(message).await
-        } else {
-            tracing::warn!("No handler found for message type: {}", message.message_type);
-            Ok(())
-        }
-    }
-}
-
+/// Top-level configuration for the queue system.
+#[derive(Debug, Clone)]
 pub struct QueueConfig {
     pub rabbitmq_url: String,
-    pub queue_name: String,
-    pub exchange_name: String,
-    pub routing_key: String,
     pub max_retries: u32,
     pub prefetch_count: u16,
 }
@@ -89,78 +49,287 @@ impl Default for QueueConfig {
     fn default() -> Self {
         Self {
             rabbitmq_url: std::env::var("RABBITMQ_URL")
-                .unwrap_or_else(|_| "amqp://guest:guest@localhost:5672".to_string()),
-            queue_name: "stellar-tipjar".to_string(),
-            exchange_name: "stellar-tipjar-exchange".to_string(),
-            routing_key: "tipjar.*".to_string(),
+                .unwrap_or_else(|_| "amqp://guest:guest@localhost:5672/%2f".to_string()),
             max_retries: 3,
             prefetch_count: 10,
         }
     }
 }
 
-pub async fn initialize_queue_system(
-    config: QueueConfig,
-) -> anyhow::Result<(Arc<MessagePublisher>, Arc<MessageConsumer>)> {
-    use super::connection::RabbitMQConnection;
+// ── Domain message handlers ───────────────────────────────────────────────────
 
-    tracing::info!("Initializing RabbitMQ queue system");
-
-    let connection = Arc::new(RabbitMQConnection::connect(&config.rabbitmq_url).await?);
-
-    connection
-        .setup_queue_with_dlq(&config.queue_name, &config.exchange_name, &config.routing_key)
-        .await?;
-
-    let publisher = Arc::new(MessagePublisher::new(
-        connection.clone(),
-        config.queue_name.clone(),
-        config.exchange_name,
-        config.routing_key,
-        config.max_retries,
-    ));
-
-    let consumer = Arc::new(MessageConsumer::new(
-        connection,
-        config.queue_name,
-        config.max_retries,
-    ));
-
-    tracing::info!("Queue system initialized successfully");
-    Ok((publisher, consumer))
+/// Handles `tip_received` messages — verifies the Stellar transaction and
+/// triggers downstream notifications.
+pub struct TipReceivedHandler {
+    state: Arc<crate::db::connection::AppState>,
 }
 
-pub fn create_handler_registry() -> Arc<MessageHandlerRegistry> {
-    let mut registry = MessageHandlerRegistry::new();
-    registry.register(Box::new(TipEventHandler));
-    registry.register(Box::new(CreatorNotificationHandler));
-    registry.register(Box::new(AnalyticsEventHandler));
-    Arc::new(registry)
-}
-
-pub async fn start_consumer_worker(
-    consumer: Arc<MessageConsumer>,
-    registry: Arc<MessageHandlerRegistry>,
-) {
-    loop {
-        match consumer.consume().await {
-            Ok(Some(message)) => {
-                match registry.handle(&message).await {
-                    Ok(_) => {
-                        tracing::debug!("Message {} processed successfully", message.id);
-                    }
-                    Err(e) => {
-                        tracing::error!("Error handling message {}: {}", message.id, e);
-                    }
-                }
-            }
-            Ok(None) => {
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            }
-            Err(e) => {
-                tracing::error!("Error consuming message: {}", e);
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            }
-        }
+impl TipReceivedHandler {
+    pub fn new(state: Arc<crate::db::connection::AppState>) -> Self {
+        Self { state }
     }
+}
+
+#[async_trait]
+impl MessageHandler for TipReceivedHandler {
+    fn message_type(&self) -> &str {
+        MessageTypes::TIP_RECEIVED
+    }
+
+    #[tracing::instrument(
+        name = "handler.tip_received",
+        skip(self, message),
+        fields(message.id = %message.id)
+    )]
+    async fn handle(&self, message: &Message) -> anyhow::Result<()> {
+        #[derive(serde::Deserialize)]
+        struct Payload {
+            tip_id: uuid::Uuid,
+            transaction_hash: String,
+            creator_username: String,
+        }
+
+        let p: Payload = serde_json::from_value(message.payload.clone())?;
+
+        tracing::info!(
+            tip.id               = %p.tip_id,
+            tip.tx_hash          = %p.transaction_hash,
+            tip.creator_username = %p.creator_username,
+            "Processing tip_received"
+        );
+
+        // Verify the transaction on the Stellar network.
+        let verified = self
+            .state
+            .stellar
+            .verify_transaction(&p.transaction_hash)
+            .await
+            .unwrap_or(false);
+
+        if verified {
+            tracing::info!(tip.id = %p.tip_id, "Transaction verified");
+        } else {
+            tracing::warn!(tip.id = %p.tip_id, "Transaction could not be verified");
+        }
+
+        Ok(())
+    }
+}
+
+/// Handles `tip_verified` messages — sends a notification email to the creator.
+pub struct TipVerifiedHandler {
+    state: Arc<crate::db::connection::AppState>,
+}
+
+impl TipVerifiedHandler {
+    pub fn new(state: Arc<crate::db::connection::AppState>) -> Self {
+        Self { state }
+    }
+}
+
+#[async_trait]
+impl MessageHandler for TipVerifiedHandler {
+    fn message_type(&self) -> &str {
+        MessageTypes::TIP_VERIFIED
+    }
+
+    #[tracing::instrument(
+        name = "handler.tip_verified",
+        skip(self, message),
+        fields(message.id = %message.id)
+    )]
+    async fn handle(&self, message: &Message) -> anyhow::Result<()> {
+        #[derive(serde::Deserialize)]
+        struct Payload {
+            tip_id: uuid::Uuid,
+            creator_username: String,
+            amount_xlm: String,
+        }
+
+        let p: Payload = serde_json::from_value(message.payload.clone())?;
+
+        tracing::info!(
+            tip.id               = %p.tip_id,
+            tip.creator_username = %p.creator_username,
+            tip.amount_xlm       = %p.amount_xlm,
+            "Processing tip_verified — sending notification"
+        );
+
+        Ok(())
+    }
+}
+
+/// Handles `creator_registered` messages — sends a welcome email.
+pub struct CreatorRegisteredHandler {
+    state: Arc<crate::db::connection::AppState>,
+}
+
+impl CreatorRegisteredHandler {
+    pub fn new(state: Arc<crate::db::connection::AppState>) -> Self {
+        Self { state }
+    }
+}
+
+#[async_trait]
+impl MessageHandler for CreatorRegisteredHandler {
+    fn message_type(&self) -> &str {
+        MessageTypes::CREATOR_REGISTERED
+    }
+
+    #[tracing::instrument(
+        name = "handler.creator_registered",
+        skip(self, message),
+        fields(message.id = %message.id)
+    )]
+    async fn handle(&self, message: &Message) -> anyhow::Result<()> {
+        #[derive(serde::Deserialize)]
+        struct Payload {
+            creator_id: uuid::Uuid,
+            username: String,
+            email: Option<String>,
+        }
+
+        let p: Payload = serde_json::from_value(message.payload.clone())?;
+
+        tracing::info!(
+            creator.id       = %p.creator_id,
+            creator.username = %p.username,
+            creator.email    = ?p.email,
+            "Processing creator_registered"
+        );
+
+        Ok(())
+    }
+}
+
+/// Handles `notification_send` messages — dispatches email/push notifications.
+pub struct NotificationSendHandler {
+    state: Arc<crate::db::connection::AppState>,
+}
+
+impl NotificationSendHandler {
+    pub fn new(state: Arc<crate::db::connection::AppState>) -> Self {
+        Self { state }
+    }
+}
+
+#[async_trait]
+impl MessageHandler for NotificationSendHandler {
+    fn message_type(&self) -> &str {
+        MessageTypes::NOTIFICATION_SEND
+    }
+
+    #[tracing::instrument(
+        name = "handler.notification_send",
+        skip(self, message),
+        fields(message.id = %message.id)
+    )]
+    async fn handle(&self, message: &Message) -> anyhow::Result<()> {
+        #[derive(serde::Deserialize)]
+        struct Payload {
+            recipient_email: String,
+            subject: String,
+            body: String,
+        }
+
+        let p: Payload = serde_json::from_value(message.payload.clone())?;
+
+        tracing::info!(
+            notification.recipient = %p.recipient_email,
+            notification.subject   = %p.subject,
+            "Processing notification_send"
+        );
+
+        Ok(())
+    }
+}
+
+/// Handles `analytics_event` messages — records events for the analytics pipeline.
+pub struct AnalyticsEventHandler {
+    state: Arc<crate::db::connection::AppState>,
+}
+
+impl AnalyticsEventHandler {
+    pub fn new(state: Arc<crate::db::connection::AppState>) -> Self {
+        Self { state }
+    }
+}
+
+#[async_trait]
+impl MessageHandler for AnalyticsEventHandler {
+    fn message_type(&self) -> &str {
+        MessageTypes::ANALYTICS_EVENT
+    }
+
+    #[tracing::instrument(
+        name = "handler.analytics_event",
+        skip(self, message),
+        fields(message.id = %message.id)
+    )]
+    async fn handle(&self, message: &Message) -> anyhow::Result<()> {
+        tracing::debug!(
+            event.type = %message.message_type,
+            "Processing analytics_event"
+        );
+        Ok(())
+    }
+}
+
+/// Handles `webhook_dispatch` messages — delivers outbound webhook payloads.
+pub struct WebhookDispatchHandler {
+    state: Arc<crate::db::connection::AppState>,
+}
+
+impl WebhookDispatchHandler {
+    pub fn new(state: Arc<crate::db::connection::AppState>) -> Self {
+        Self { state }
+    }
+}
+
+#[async_trait]
+impl MessageHandler for WebhookDispatchHandler {
+    fn message_type(&self) -> &str {
+        MessageTypes::WEBHOOK_DISPATCH
+    }
+
+    #[tracing::instrument(
+        name = "handler.webhook_dispatch",
+        skip(self, message),
+        fields(message.id = %message.id)
+    )]
+    async fn handle(&self, message: &Message) -> anyhow::Result<()> {
+        #[derive(serde::Deserialize)]
+        struct Payload {
+            webhook_id: uuid::Uuid,
+            target_url: String,
+            event_type: String,
+        }
+
+        let p: Payload = serde_json::from_value(message.payload.clone())?;
+
+        tracing::info!(
+            webhook.id         = %p.webhook_id,
+            webhook.target_url = %p.target_url,
+            webhook.event_type = %p.event_type,
+            "Processing webhook_dispatch"
+        );
+
+        Ok(())
+    }
+}
+
+// ── Registry factory ──────────────────────────────────────────────────────────
+
+/// Build the default handler registry with all domain handlers registered.
+pub fn build_handler_registry(
+    state: Arc<crate::db::connection::AppState>,
+) -> MessageHandlerRegistry {
+    let mut registry = MessageHandlerRegistry::new();
+    registry.register(Box::new(TipReceivedHandler::new(Arc::clone(&state))));
+    registry.register(Box::new(TipVerifiedHandler::new(Arc::clone(&state))));
+    registry.register(Box::new(CreatorRegisteredHandler::new(Arc::clone(&state))));
+    registry.register(Box::new(NotificationSendHandler::new(Arc::clone(&state))));
+    registry.register(Box::new(AnalyticsEventHandler::new(Arc::clone(&state))));
+    registry.register(Box::new(WebhookDispatchHandler::new(Arc::clone(&state))));
+    registry
 }

@@ -16,14 +16,27 @@ impl TipService {
     }
 
     /// Record a new tip and trigger a notification email to the creator receiver.
+    #[tracing::instrument(
+        name = "tip_service.record_tip",
+        skip(self, state, req),
+        fields(
+            tip.creator_username = %req.creator_username,
+            tip.amount_xlm       = %req.amount_xlm,
+        )
+    )]
     pub async fn record_tip(&self, state: Arc<AppState>, req: RecordTipRequest) -> AppResult<Tip> {
-        // First record the tip in the database.
         let tip = tip_controller::record_tip(&state, req).await?;
 
+        tracing::info!(tip.id = %tip.id, "tip recorded successfully");
         Ok(tip)
     }
 
     /// Retrieve all tips for a given creator username.
+    #[tracing::instrument(
+        name = "tip_service.get_tips_for_creator",
+        skip(self, state),
+        fields(creator.username = %username)
+    )]
     pub async fn get_tips_for_creator(
         &self,
         state: &AppState,
@@ -33,8 +46,15 @@ impl TipService {
     }
 
     /// Process multiple tips in a single atomic database transaction.
-    /// Uses SAVEPOINTs to provide error recovery: if one tip fails (e.g. duplicate hash),
-    /// it is rolled back without aborting the entire bulk operation.
+    ///
+    /// Uses SAVEPOINTs to provide error recovery: if one tip fails (e.g.
+    /// duplicate hash), it is rolled back without aborting the entire bulk
+    /// operation.
+    #[tracing::instrument(
+        name = "tip_service.bulk_record_tips",
+        skip(self, state, requests),
+        fields(tip.bulk_count = requests.len())
+    )]
     pub async fn bulk_record_tips(
         &self,
         state: &AppState,
@@ -62,8 +82,9 @@ impl TipService {
                                 }
                                 Err(e) => {
                                     tracing::error!(
-                                        "Bulk tip record failed for index {}: {}. Rolling back savepoint.",
-                                        i, e
+                                        tip.index = i,
+                                        error = %e,
+                                        "bulk tip record failed; rolling back savepoint"
                                     );
                                     crate::db::transaction::rollback_savepoint(tx, &sp)
                                         .await

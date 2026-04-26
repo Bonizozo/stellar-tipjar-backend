@@ -1,31 +1,37 @@
 use super::connection::RabbitMQConnection;
-use lapin::options::BasicPublishOptions;
+use lapin::{
+    options::BasicPublishOptions,
+    BasicProperties,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
+// ── Message envelope ─────────────────────────────────────────────────────────
+
+/// Envelope wrapping every message published to RabbitMQ.
+///
+/// The envelope carries routing metadata alongside the domain payload so
+/// consumers can dispatch without deserialising the inner payload first.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
+    /// Unique message identifier (used for idempotency checks).
     pub id: Uuid,
+    /// Logical message type — consumers use this to route to the right handler.
     pub message_type: String,
+    /// Domain payload; structure depends on `message_type`.
     pub payload: serde_json::Value,
+    /// Wall-clock time the message was first created.
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// How many times delivery has been attempted (incremented by the consumer).
     pub retry_count: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeadLetterMessage {
-    pub id: Uuid,
-    pub original_message: Message,
-    pub error: String,
-    pub failed_at: chrono::DateTime<chrono::Utc>,
-}
-
 impl Message {
-    pub fn new(message_type: String, payload: serde_json::Value) -> Self {
+    pub fn new(message_type: impl Into<String>, payload: serde_json::Value) -> Self {
         Self {
             id: Uuid::new_v4(),
-            message_type,
+            message_type: message_type.into(),
             payload,
             created_at: chrono::Utc::now(),
             retry_count: 0,
@@ -41,177 +47,111 @@ impl Message {
     }
 }
 
+/// A message that has been permanently moved to the dead-letter queue.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeadLetterMessage {
+    pub id: Uuid,
+    pub original_message: Message,
+    /// Human-readable reason the message was dead-lettered.
+    pub error: String,
+    pub failed_at: chrono::DateTime<chrono::Utc>,
+}
+
+// ── Publisher ─────────────────────────────────────────────────────────────────
+
+/// Publishes messages to a RabbitMQ exchange.
+///
+/// Each `MessagePublisher` owns its own AMQP channel so concurrent publishers
+/// don't contend on a shared channel.
 pub struct MessagePublisher {
     connection: Arc<RabbitMQConnection>,
-    queue_name: String,
     exchange_name: String,
     routing_key: String,
-    max_retries: u32,
 }
 
 impl MessagePublisher {
-    pub fn new(
+    pub async fn new(
         connection: Arc<RabbitMQConnection>,
-        queue_name: String,
-        exchange_name: String,
-        routing_key: String,
-        max_retries: u32,
-    ) -> Self {
-        Self {
+        exchange_name: impl Into<String>,
+        routing_key: impl Into<String>,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
             connection,
-            queue_name,
-            exchange_name,
-            routing_key,
-            max_retries,
-        }
+            exchange_name: exchange_name.into(),
+            routing_key: routing_key.into(),
+        })
     }
 
-    pub async fn publish(&self, message: Message) -> anyhow::Result<()> {
-        let payload = serde_json::to_vec(&message)?;
-        let channel = self.connection.channel();
+    /// Publish a single message.
+    ///
+    /// Sets AMQP `content_type`, `message_id`, and `delivery_mode = 2`
+    /// (persistent) so messages survive broker restarts.
+    ///
+    /// Each publish creates a short-lived channel.  For high-throughput
+    /// scenarios consider pooling channels; for this workload the overhead
+    /// is acceptable and keeps the API simple.
+    #[tracing::instrument(
+        name = "publisher.publish",
+        skip(self, message),
+        fields(
+            message.id        = %message.id,
+            message.type      = %message.message_type,
+            exchange          = %self.exchange_name,
+            routing_key       = %self.routing_key,
+        )
+    )]
+    pub async fn publish(&self, message: &Message) -> anyhow::Result<()> {
+        let payload = serde_json::to_vec(message)?;
+        let channel = self.connection.create_channel().await?;
 
-        channel
+        let props = BasicProperties::default()
+            .with_content_type("application/json".into())
+            .with_message_id(message.id.to_string().into())
+            .with_delivery_mode(2); // persistent
+
+        // `basic_publish` returns a `PublisherConfirm` future.  We drop it
+        // here (fire-and-forget) because the channel is not in confirm mode.
+        // To enable at-least-once delivery guarantees, call
+        // `channel.confirm_select(...)` before publishing and then `.await`
+        // the returned future.
+        let _confirm = channel
             .basic_publish(
                 &self.exchange_name,
                 &self.routing_key,
                 BasicPublishOptions::default(),
                 &payload,
-                Default::default(),
+                props,
             )
             .await?;
 
         tracing::info!(
-            "Published message {} to exchange {} with routing key {}",
-            message.id,
-            self.exchange_name,
-            self.routing_key
+            message.id = %message.id,
+            message.type = %message.message_type,
+            "Message published"
         );
         Ok(())
     }
 
-    pub async fn publish_batch(&self, messages: Vec<Message>) -> anyhow::Result<()> {
-        for message in messages {
-            self.publish(message).await?;
+    /// Publish a batch of messages.  Each message is published individually;
+    /// failures are collected and returned as a combined error.
+    pub async fn publish_batch(&self, messages: &[Message]) -> anyhow::Result<()> {
+        let mut errors: Vec<String> = Vec::new();
+
+        for msg in messages {
+            if let Err(e) = self.publish(msg).await {
+                errors.push(format!("{}: {}", msg.id, e));
+            }
         }
-        tracing::info!(
-            "Published {} messages to queue {}",
-            messages.len(),
-            self.queue_name
-        );
-        Ok(())
-    }
-}
 
-pub struct MessageConsumer {
-    connection: Arc<RabbitMQConnection>,
-    queue_name: String,
-    max_retries: u32,
-    dead_letter_queue: String,
-}
-
-impl MessageConsumer {
-    pub fn new(
-        connection: Arc<RabbitMQConnection>,
-        queue_name: String,
-        max_retries: u32,
-    ) -> Self {
-        Self {
-            connection,
-            queue_name: queue_name.clone(),
-            max_retries,
-            dead_letter_queue: format!("{}.dlq", queue_name),
-        }
-    }
-
-    pub async fn consume(&self) -> anyhow::Result<Option<Message>> {
-        let channel = self.connection.channel();
-        let delivery = channel
-            .basic_consume(
-                &self.queue_name,
-                "",
-                lapin::options::BasicConsumeOptions {
-                    no_ack: false,
-                    ..Default::default()
-                },
-                Default::default(),
-            )
-            .await?;
-
-        use futures_lite::stream::StreamExt;
-        if let Some(delivery) = delivery.next().await {
-            let delivery = delivery?;
-            let message: Message = serde_json::from_slice(&delivery.data)?;
-            Ok(Some(message))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub async fn acknowledge(&self, delivery_tag: u64) -> anyhow::Result<()> {
-        let channel = self.connection.channel();
-        channel
-            .basic_ack(delivery_tag, lapin::options::BasicAckOptions::default())
-            .await?;
-        tracing::debug!("Acknowledged message with tag {}", delivery_tag);
-        Ok(())
-    }
-
-    pub async fn nack(&self, message: &mut Message, delivery_tag: u64) -> anyhow::Result<()> {
-        message.increment_retry();
-        let channel = self.connection.channel();
-
-        if message.should_retry(self.max_retries) {
-            tracing::warn!(
-                "Retrying message {} (attempt {})",
-                message.id,
-                message.retry_count
-            );
-            channel
-                .basic_nack(
-                    delivery_tag,
-                    lapin::options::BasicNackOptions {
-                        requeue: true,
-                        ..Default::default()
-                    },
-                )
-                .await?;
+        if errors.is_empty() {
+            tracing::info!(count = messages.len(), "Batch published successfully");
             Ok(())
         } else {
-            tracing::error!("Message {} exceeded max retries, sending to DLQ", message.id);
-            self.send_to_dlq(message).await?;
-            channel
-                .basic_ack(delivery_tag, lapin::options::BasicAckOptions::default())
-                .await?;
-            Ok(())
+            Err(anyhow::anyhow!(
+                "Batch publish had {} error(s): {}",
+                errors.len(),
+                errors.join("; ")
+            ))
         }
-    }
-
-    async fn send_to_dlq(&self, message: &Message) -> anyhow::Result<()> {
-        let dlq_message = DeadLetterMessage {
-            id: Uuid::new_v4(),
-            original_message: message.clone(),
-            error: format!("Exceeded max retries: {}", self.max_retries),
-            failed_at: chrono::Utc::now(),
-        };
-
-        let payload = serde_json::to_vec(&dlq_message)?;
-        let channel = self.connection.channel();
-
-        channel
-            .basic_publish(
-                "",
-                &self.dead_letter_queue,
-                BasicPublishOptions::default(),
-                &payload,
-                Default::default(),
-            )
-            .await?;
-
-        tracing::error!(
-            "Sent message {} to dead letter queue {}",
-            message.id,
-            self.dead_letter_queue
-        );
-        Ok(())
     }
 }

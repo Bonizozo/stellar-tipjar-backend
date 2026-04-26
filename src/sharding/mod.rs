@@ -1,7 +1,9 @@
-pub mod strategy;
-pub mod router;
+pub mod monitor;
 pub mod rebalancer;
+pub mod router;
+pub mod strategy;
 
-pub use strategy::ShardingStrategy;
-pub use router::ShardRouter;
-pub use rebalancer::ShardRebalancer;
+pub use monitor::{ShardClusterHealth, ShardHealth, ShardMonitor};
+pub use rebalancer::{MigrationStats, RebalanceReport, ShardRebalancer};
+pub use router::{ShardDescriptor, ShardRouter, ShardRouterBuilder, ShardStats, ShardStatus};
+pub use strategy::{fnv1a_shard, ShardKey, ShardingStrategy};

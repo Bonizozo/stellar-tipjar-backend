@@ -28,8 +28,11 @@ services:
       - DATABASE_URL=postgres://user:password@db:5432/tipjar
       - STELLAR_NETWORK=testnet
       - RUST_LOG=stellar_tipjar_backend=debug
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/%2f
     depends_on:
       db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   prometheus:
@@ -63,6 +66,23 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
     depends_on:
       - prometheus
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: tipjar-rabbitmq
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Management UI  →  http://localhost:15672  (guest/guest)
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   prometheus_data:

@@ -1,142 +1,190 @@
-use crate::errors::app_error::AppError;
-use axum::http::StatusCode;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::time::Instant;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiVersion {
-    pub version: String,
-    pub deprecated: bool,
-    pub sunset_date: Option<String>,
-}
+use axum::{
+    extract::Request,
+    http::HeaderValue,
+    middleware::Next,
+    response::{IntoResponse, Response},
+};
 
-#[derive(Debug, Clone)]
-pub struct RateLimitConfig {
-    pub requests_per_minute: u32,
-    pub burst_size: u32,
-}
+use crate::errors::AppError;
+use crate::gateway::context::GatewayIdentity;
 
-#[derive(Debug, Clone)]
-pub struct RouteConfig {
-    pub path: String,
-    pub methods: Vec<String>,
-    pub rate_limit: RateLimitConfig,
-    pub requires_auth: bool,
-    pub api_versions: Vec<ApiVersion>,
-}
+// ── API-key scope enforcement ─────────────────────────────────────────────────
 
-pub struct ApiGatewayMiddleware {
-    routes: Arc<RwLock<HashMap<String, RouteConfig>>>,
-    rate_limiters: Arc<RwLock<HashMap<String, RateLimiter>>>,
-}
+/// Axum middleware factory: require the caller to hold a specific permission.
+///
+/// Must run **after** `gateway_auth` (which injects `GatewayIdentity`).
+///
+/// JWT callers always pass (role-based checks happen in `authorization`
+/// middleware downstream).  API-key callers are checked against their
+/// explicit permission list.  Anonymous callers are always rejected.
+///
+/// # Example
+/// ```rust
+/// .layer(axum::middleware::from_fn(|req, next| {
+///     require_scope("tips:write", req, next)
+/// }))
+/// ```
+pub async fn require_scope(
+    scope: &'static str,
+    req: Request,
+    next: Next,
+) -> Response {
+    let identity = req.extensions().get::<GatewayIdentity>().cloned();
 
-#[derive(Debug, Clone)]
-struct RateLimiter {
-    requests: Vec<std::time::Instant>,
-    limit: u32,
-}
-
-impl RateLimiter {
-    fn new(limit: u32) -> Self {
-        Self {
-            requests: Vec::new(),
-            limit,
+    match identity {
+        Some(GatewayIdentity::Jwt { .. }) => next.run(req).await,
+        Some(GatewayIdentity::ApiKey { ref permissions, .. }) => {
+            if permissions.iter().any(|p| p == scope || p == "*") {
+                next.run(req).await
+            } else {
+                AppError::forbidden(format!(
+                    "API key does not have the '{}' permission",
+                    scope
+                ))
+                .into_response()
+            }
         }
-    }
-
-    fn check_limit(&mut self) -> bool {
-        let now = std::time::Instant::now();
-        let one_minute_ago = now - std::time::Duration::from_secs(60);
-
-        self.requests.retain(|&t| t > one_minute_ago);
-
-        if self.requests.len() < self.limit as usize {
-            self.requests.push(now);
-            true
-        } else {
-            false
+        Some(GatewayIdentity::Anonymous) | None => {
+            AppError::unauthorized("Authentication required").into_response()
         }
     }
 }
 
-impl ApiGatewayMiddleware {
-    pub fn new() -> Self {
-        Self {
-            routes: Arc::new(RwLock::new(HashMap::new())),
-            rate_limiters: Arc::new(RwLock::new(HashMap::new())),
+// ── Gateway metrics middleware ────────────────────────────────────────────────
+
+/// Axum middleware that records gateway-level metrics on every request:
+///
+/// - `x-gateway-latency-ms` response header (total gateway processing time).
+/// - Structured log line with method, path, status, latency, and caller identity.
+///
+/// This runs at the outermost layer so it captures the full round-trip time
+/// including all inner middleware.
+pub async fn gateway_metrics(req: Request, next: Next) -> Response {
+    let method = req.method().to_string();
+    let path = req.uri().path().to_owned();
+    let identity = req
+        .extensions()
+        .get::<GatewayIdentity>()
+        .map(|id| id.display())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let start = Instant::now();
+    let mut response = next.run(req).await;
+    let latency_ms = start.elapsed().as_millis();
+
+    let status = response.status().as_u16();
+
+    tracing::info!(
+        method   = %method,
+        path     = %path,
+        status   = status,
+        latency_ms = latency_ms,
+        identity = %identity,
+        "gateway request"
+    );
+
+    // Inject latency header for client-side diagnostics.
+    if let Ok(v) = HeaderValue::from_str(&latency_ms.to_string()) {
+        response.headers_mut().insert("x-gateway-latency-ms", v);
+    }
+
+    response
+}
+
+// ── Request ID propagation ────────────────────────────────────────────────────
+
+/// Inject the `x-request-id` value (set by `tower_http::SetRequestIdLayer`)
+/// into the response so callers can correlate requests with server logs.
+pub async fn propagate_request_id_to_response(req: Request, next: Next) -> Response {
+    let request_id = req
+        .headers()
+        .get("x-request-id")
+        .cloned();
+
+    let mut response = next.run(req).await;
+
+    if let Some(id) = request_id {
+        response.headers_mut().insert("x-request-id", id);
+    }
+
+    response
+}
+
+// ── Caller identity header ────────────────────────────────────────────────────
+
+/// Inject `X-Authenticated-As` into the response for debugging.
+/// Only injected in non-production environments.
+pub async fn inject_identity_header(req: Request, next: Next) -> Response {
+    let is_dev = std::env::var("DEPLOYMENT_ENVIRONMENT")
+        .map(|e| e == "development" || e == "staging")
+        .unwrap_or(true);
+
+    let identity_str = req
+        .extensions()
+        .get::<GatewayIdentity>()
+        .map(|id| id.display());
+
+    let mut response = next.run(req).await;
+
+    if is_dev {
+        if let Some(id) = identity_str {
+            if let Ok(v) = HeaderValue::from_str(&id) {
+                response.headers_mut().insert("x-authenticated-as", v);
+            }
         }
     }
 
-    pub async fn register_route(&self, config: RouteConfig) {
-        let mut routes = self.routes.write().await;
-        routes.insert(config.path.clone(), config.clone());
+    response
+}
 
-        let mut limiters = self.rate_limiters.write().await;
-        limiters.insert(
-            config.path.clone(),
-            RateLimiter::new(config.rate_limit.requests_per_minute),
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{middleware::from_fn, routing::get, Router};
+    use axum_test::TestServer;
+
+    async fn ok_handler() -> &'static str {
+        "ok"
+    }
+
+    #[tokio::test]
+    async fn gateway_metrics_adds_latency_header() {
+        let app = Router::new()
+            .route("/test", get(ok_handler))
+            .layer(from_fn(gateway_metrics));
+
+        let server = TestServer::new(app).unwrap();
+        let res = server.get("/test").await;
+        res.assert_status_ok();
+        assert!(
+            res.headers().get("x-gateway-latency-ms").is_some(),
+            "x-gateway-latency-ms header should be present"
         );
     }
 
-    pub async fn check_rate_limit(&self, path: &str, client_id: &str) -> Result<(), AppError> {
-        let key = format!("{}:{}", path, client_id);
-        let mut limiters = self.rate_limiters.write().await;
+    #[tokio::test]
+    async fn propagate_request_id_to_response_works() {
+        let app = Router::new()
+            .route("/test", get(ok_handler))
+            .layer(from_fn(propagate_request_id_to_response));
 
-        if let Some(limiter) = limiters.get_mut(&key) {
-            if !limiter.check_limit() {
-                return Err(AppError::rate_limited(
-                    "Rate limit exceeded".to_string(),
-                ));
-            }
-        }
-
-        Ok(())
-    }
-
-    pub async fn transform_request(
-        &self,
-        path: &str,
-        version: &str,
-    ) -> Result<String, AppError> {
-        let routes = self.routes.read().await;
-
-        if let Some(route) = routes.get(path) {
-            let version_exists = route
-                .api_versions
-                .iter()
-                .any(|v| v.version == version && !v.deprecated);
-
-            if version_exists {
-                Ok(format!("{}/{}", version, path))
-            } else {
-                Err(AppError::bad_request(format!(
-                    "API version {} not supported",
-                    version
-                )))
-            }
-        } else {
-            Err(AppError::not_found(format!("Route {} not found", path)))
-        }
-    }
-
-    pub async fn get_route_config(&self, path: &str) -> Result<RouteConfig, AppError> {
-        let routes = self.routes.read().await;
-        routes
-            .get(path)
-            .cloned()
-            .ok_or_else(|| AppError::not_found(format!("Route {} not found", path)))
-    }
-
-    pub async fn list_routes(&self) -> Vec<RouteConfig> {
-        let routes = self.routes.read().await;
-        routes.values().cloned().collect()
-    }
-}
-
-impl Default for ApiGatewayMiddleware {
-    fn default() -> Self {
-        Self::new()
+        let server = TestServer::new(app).unwrap();
+        let res = server
+            .get("/test")
+            .add_header(
+                axum::http::HeaderName::from_static("x-request-id"),
+                axum::http::HeaderValue::from_static("test-id-123"),
+            )
+            .await;
+        res.assert_status_ok();
+        assert_eq!(
+            res.headers()
+                .get("x-request-id")
+                .and_then(|v| v.to_str().ok()),
+            Some("test-id-123")
+        );
     }
 }

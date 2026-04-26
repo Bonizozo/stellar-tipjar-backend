@@ -1,10 +1,14 @@
 pub mod connection;
+pub mod consumer;
 pub mod handlers;
 pub mod publisher;
+pub mod system;
 
+// Flat re-exports for the most commonly used types.
 pub use connection::RabbitMQConnection;
+pub use consumer::{MessageConsumer, MessageHandler, MessageHandlerRegistry};
 pub use handlers::{
-    initialize_queue_system, start_consumer_worker, create_handler_registry, QueueConfig,
-    MessageHandler, MessageHandlerRegistry,
+    build_handler_registry, ExchangeNames, MessageTypes, QueueConfig, QueueNames,
 };
-pub use publisher::{Message, MessageConsumer, MessagePublisher};
+pub use publisher::{DeadLetterMessage, Message, MessagePublisher};
+pub use system::{try_start, QueueSystem};

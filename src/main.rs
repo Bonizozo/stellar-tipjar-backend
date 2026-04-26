@@ -21,6 +21,7 @@ mod docs;
 mod email;
 mod errors;
 mod events;
+mod gateway;
 mod graphql;
 mod indexer;
 mod jobs;
@@ -144,6 +145,10 @@ async fn main() -> anyhow::Result<()> {
     let cache = Arc::new(cache::MultiLayerCache::with_defaults());
     let invalidator = Arc::new(cache::CacheInvalidator::new(Arc::clone(&cache), None));
 
+    // Initialize sharding manager (#233)
+    // Gracefully disabled when SHARD_COUNT=1 and no SHARD_n_DSN env vars are set.
+    let sharding = db::sharding::init_sharding(&database_url).await;
+
     let state = Arc::new(AppState {
         db: pool.clone(),
         stellar,
@@ -229,6 +234,19 @@ async fn main() -> anyhow::Result<()> {
     let general_limiter_v2 = middleware::rate_limiter::general_limiter();
     let write_limiter_v2 = middleware::rate_limiter::write_limiter();
 
+    // ── API Gateway layer (#232) ───────────────────────────────────────────────
+    // Applied to all versioned API routes.  Provides:
+    //   • Unified authentication (JWT + API key) with GatewayIdentity injection
+    //   • Request transformation (body normalisation, header mutations)
+    //   • Version negotiation with deprecation headers
+    //   • Gateway-level metrics (latency header + structured log)
+    //   • Request-ID propagation to response
+    //   • Caller identity header (dev/staging only)
+    let gateway_auth_layer = axum::middleware::from_fn_with_state(
+        Arc::clone(&state),
+        gateway::gateway_auth,
+    );
+
     // Versioned API Routes (Merged from Main)
     let v1 = Router::new()
         .nest(
@@ -266,9 +284,13 @@ async fn main() -> anyhow::Result<()> {
                         .layer(general_limiter_v1),
                 ),
         )
-        .layer(axum::middleware::from_fn(
-            middleware::version::version_headers,
-        ));
+        // Gateway layers (innermost → outermost, applied bottom-up by Tower)
+        .layer(axum::middleware::from_fn(gateway::inject_identity_header))
+        .layer(axum::middleware::from_fn(gateway::gateway_metrics))
+        .layer(axum::middleware::from_fn(gateway::propagate_request_id_to_response))
+        .layer(axum::middleware::from_fn(gateway::transform_request))
+        .layer(axum::middleware::from_fn(gateway::version_negotiation))
+        .layer(gateway_auth_layer.clone());
 
     let v2 = Router::new().nest(
         "/api/v2",
@@ -305,9 +327,13 @@ async fn main() -> anyhow::Result<()> {
                     .layer(general_limiter_v2),
             ),
     )
-    .layer(axum::middleware::from_fn(
-        middleware::version::version_headers,
-    ));
+    // Gateway layers
+    .layer(axum::middleware::from_fn(gateway::inject_identity_header))
+    .layer(axum::middleware::from_fn(gateway::gateway_metrics))
+    .layer(axum::middleware::from_fn(gateway::propagate_request_id_to_response))
+    .layer(axum::middleware::from_fn(gateway::transform_request))
+    .layer(axum::middleware::from_fn(gateway::version_negotiation))
+    .layer(gateway_auth_layer);
 
     let x_request_id = axum::http::HeaderName::from_static("x-request-id");
 
@@ -383,6 +409,13 @@ async fn main() -> anyhow::Result<()> {
         );
         tokio::time::sleep(shutdown_timeout).await;
         monitor.stop().await;
+        // Flush and shut down the OTel tracer so all buffered spans are
+        // exported before the process exits.
+        telemetry::shutdown_tracer();
+        // Stop RabbitMQ consumer workers.
+        if let Some(qs) = &queue_system {
+            qs.shutdown();
+        }
         tracing::info!("Graceful shutdown complete");
     })
     .await?;

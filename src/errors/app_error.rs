@@ -25,6 +25,10 @@ pub enum AppError {
     Forbidden { message: String },
     #[error("conflict")]
     Conflict { code: &'static str, message: String },
+    #[error("service unavailable")]
+    ServiceUnavailable { message: String },
+    #[error("too many requests")]
+    RateLimited { message: String, retry_after_secs: Option<u64> },
     #[error("internal server error")]
     Internal,
 }
@@ -69,6 +73,32 @@ impl AppError {
         }
     }
 
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self::Database(crate::errors::DatabaseError::NotFound {
+            entity: "resource",
+            identifier: message.into(),
+        })
+    }
+
+    pub fn bad_request(message: impl Into<String>) -> Self {
+        Self::Validation(crate::errors::ValidationError::InvalidRequest {
+            message: message.into(),
+        })
+    }
+
+    pub fn rate_limited_with_retry(message: impl Into<String>, retry_after_secs: u64) -> Self {
+        Self::RateLimited {
+            message: message.into(),
+            retry_after_secs: Some(retry_after_secs),
+        }
+    }
+
+    pub fn service_unavailable(message: impl Into<String>) -> Self {
+        Self::ServiceUnavailable {
+            message: message.into(),
+        }
+    }
+
     fn status(&self) -> StatusCode {
         match self {
             Self::Database(err) => match err {
@@ -87,6 +117,8 @@ impl AppError {
             Self::Unauthorized { .. } => StatusCode::UNAUTHORIZED,
             Self::Forbidden { .. } => StatusCode::FORBIDDEN,
             Self::Conflict { .. } => StatusCode::CONFLICT,
+            Self::ServiceUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -138,6 +170,16 @@ impl AppError {
                 message: message.clone(),
                 details: None,
             },
+            Self::ServiceUnavailable { message } => ErrorBody {
+                code: "SERVICE_UNAVAILABLE",
+                message: message.clone(),
+                details: None,
+            },
+            Self::RateLimited { message, retry_after_secs } => ErrorBody {
+                code: "RATE_LIMIT_EXCEEDED",
+                message: message.clone(),
+                details: retry_after_secs.map(|s| serde_json::json!({ "retry_after_secs": s })),
+            },
             Self::Internal => ErrorBody {
                 code: "INTERNAL_ERROR",
                 message: "Internal server error".to_string(),
@@ -177,6 +219,19 @@ impl IntoResponse for AppError {
             tracing::error!(error = %self, "Request failed");
         } else {
             tracing::warn!(error = %self, "Request rejected");
+        }
+
+        // For rate-limited errors, inject a Retry-After header.
+        if let Self::RateLimited { retry_after_secs, .. } = &self {
+            let retry = *retry_after_secs;
+            let body = self.body();
+            let mut resp = (status, Json(ErrorResponse { error: body })).into_response();
+            if let Some(secs) = retry {
+                if let Ok(v) = secs.to_string().parse() {
+                    resp.headers_mut().insert("Retry-After", v);
+                }
+            }
+            return resp;
         }
 
         let body = self.body();
