@@ -196,6 +196,9 @@ async fn main() -> anyhow::Result<()> {
     // Start background job processing system
     let (_job_queue, _job_scheduler) = jobs::start(Arc::clone(&state), jobs::JobConfig::default());
 
+    // Start RabbitMQ queue system (optional — skipped when RABBITMQ_URL is unset).
+    let queue_system = queue::try_start(Arc::clone(&state)).await;
+
     // Start cron scheduler (cleanup, weekly reports, cache warming, analytics)
     {
         let pool = pool.clone();
@@ -216,6 +219,40 @@ async fn main() -> anyhow::Result<()> {
 
     // Service mesh: registry for health/canary endpoints (#245)
     let service_registry = Arc::new(ServiceRegistry::new());
+
+    // CDN service — endpoint and TTL configurable via env vars.
+    let cdn_endpoint = std::env::var("CDN_ENDPOINT")
+        .unwrap_or_else(|_| "https://cdn.example.com".to_string());
+    let cdn_ttl: u32 = std::env::var("CDN_CACHE_TTL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(86400);
+    let cdn_service = {
+        let svc = cdn::CdnService::new(cdn_endpoint, cdn_ttl);
+        // Additional regions from CDN_REGION_n_NAME / CDN_REGION_n_ENDPOINT env vars.
+        let mut extra_regions = Vec::new();
+        let mut i = 1u32;
+        loop {
+            let name_key = format!("CDN_REGION_{}_NAME", i);
+            let ep_key = format!("CDN_REGION_{}_ENDPOINT", i);
+            match (std::env::var(&name_key), std::env::var(&ep_key)) {
+                (Ok(name), Ok(endpoint)) => {
+                    extra_regions.push(cdn::CdnRegion { name, endpoint });
+                    i += 1;
+                }
+                _ => break,
+            }
+        }
+        let svc = if !extra_regions.is_empty() {
+            svc.with_regions(extra_regions)
+        } else {
+            svc
+        };
+        Arc::new(svc)
+    };
+
+    // Deprecation tracker — shared across v1 routes.
+    let deprecation_tracker = Arc::new(middleware::deprecation::DeprecationTracker::new());
 
     // --- Currency service ---
     let currency_svc = Arc::new(currency::CurrencyService::new());
@@ -260,6 +297,7 @@ async fn main() -> anyhow::Result<()> {
                 .merge(routes::refunds::admin_router(Arc::clone(&state)))
                 .merge(routes::audit_logs::router(Arc::clone(&state)))
                 .merge(routes::export::router(Arc::clone(&state)))
+                .merge(routes::deprecation::router())
                 .merge(
                     Router::new()
                         .merge(routes::auth::router())
@@ -282,7 +320,12 @@ async fn main() -> anyhow::Result<()> {
                         .merge(routes::analytics::router())
                         .merge(routes::receipts::router())
                         .layer(general_limiter_v1),
-                ),
+                )
+                // Inject deprecation tracker for the /deprecation-status endpoint.
+                // Extension layer is outermost so it runs first, making the tracker
+                // available to the deprecation_notice middleware below.
+                .layer(axum::middleware::from_fn(middleware::deprecation::deprecation_notice))
+                .layer(axum::Extension(Arc::clone(&deprecation_tracker))),
         )
         // Gateway layers (innermost → outermost, applied bottom-up by Tower)
         .layer(axum::middleware::from_fn(gateway::inject_identity_header))
@@ -350,6 +393,8 @@ async fn main() -> anyhow::Result<()> {
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .merge(routes::monitoring::router(Arc::clone(&state), Arc::clone(&monitor)))
         .merge(routes::mesh::router(Arc::clone(&state), Arc::clone(&service_registry)))
+        .merge(routes::load_balancer::router(Arc::clone(&state), Arc::clone(&service_registry)))
+        .merge(routes::cdn::router(Arc::clone(&cdn_service)))
         .merge(routes::profiling::router(Arc::clone(&state)))
         .merge(v1)
         .merge(v2)

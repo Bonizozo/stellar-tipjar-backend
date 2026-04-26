@@ -10,6 +10,10 @@ const MIGRATION_LINK: &str =
 
 /// Injects `Deprecation`, `Sunset`, and `Link` headers on v1 responses.
 pub async fn deprecation_notice(req: Request, next: Next) -> Response {
+    // Record usage if tracker is available as an extension.
+    let path = req.uri().path().to_string();
+    let tracker = req.extensions().get::<Arc<DeprecationTracker>>().cloned();
+
     let mut response = next.run(req).await;
     let headers = response.headers_mut();
     headers.insert("Deprecation", HeaderValue::from_static("true"));
@@ -18,6 +22,15 @@ pub async fn deprecation_notice(req: Request, next: Next) -> Response {
         HeaderValue::from_static(r#"</api/v2>; rel="successor-version""#),
     );
     headers.insert("Sunset", HeaderValue::from_static(SUNSET_DATE));
+    headers.insert(
+        "X-Deprecation-Warning",
+        HeaderValue::from_static("This API version is deprecated. Please migrate to /api/v2"),
+    );
+
+    if let Some(t) = tracker {
+        t.record(&path).await;
+    }
+
     response
 }
 
