@@ -48,6 +48,88 @@ pub async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoRespon
     }
 }
 
+/// Readiness probe: checks all external dependencies (DB, Stellar, Redis).
+/// Returns 200 only when every dependency is reachable; 503 otherwise.
+/// Kubernetes should use this for readinessProbe and the simpler /health
+/// for livenessProbe.
+pub async fn readiness_check(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let mut all_ok = true;
+    let mut checks = serde_json::Map::new();
+
+    // --- Database ---
+    match check_db(&state.db).await {
+        Ok(_) => {
+            checks.insert("db".into(), json!("ok"));
+        }
+        Err(e) => {
+            tracing::error!("Readiness: DB check failed: {:?}", e);
+            checks.insert("db".into(), json!("unreachable"));
+            all_ok = false;
+        }
+    }
+
+    // --- Stellar network (Horizon ping) ---
+    let horizon_base = if state.stellar.network == "mainnet" {
+        "https://horizon.stellar.org"
+    } else {
+        "https://horizon-testnet.stellar.org"
+    };
+    match reqwest::Client::new()
+        .get(horizon_base)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 200 => {
+            checks.insert("stellar".into(), json!("ok"));
+        }
+        Ok(resp) => {
+            tracing::warn!("Readiness: Stellar returned {}", resp.status());
+            checks.insert("stellar".into(), json!(format!("degraded ({})", resp.status())));
+            // Stellar degraded is a warning, not a hard failure for readiness
+        }
+        Err(e) => {
+            tracing::error!("Readiness: Stellar check failed: {:?}", e);
+            checks.insert("stellar".into(), json!("unreachable"));
+            all_ok = false;
+        }
+    }
+
+    // --- Redis ---
+    match &state.redis {
+        Some(redis) => {
+            let mut conn = redis.clone();
+            match redis::cmd("PING")
+                .query_async::<String>(&mut conn)
+                .await
+            {
+                Ok(_) => {
+                    checks.insert("redis".into(), json!("ok"));
+                }
+                Err(e) => {
+                    tracing::error!("Readiness: Redis check failed: {:?}", e);
+                    checks.insert("redis".into(), json!("unreachable"));
+                    all_ok = false;
+                }
+            }
+        }
+        None => {
+            checks.insert("redis".into(), json!("not_configured"));
+        }
+    }
+
+    let status = if all_ok { "ready" } else { "not_ready" };
+    let code = if all_ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (code, Json(json!({ "status": status, "checks": checks }))).into_response()
+}
+
 pub fn router() -> Router<Arc<AppState>> {
-    Router::new().route("/health", get(health_check))
+    Router::new()
+        .route("/health", get(health_check))
+        .route("/ready", get(readiness_check))
 }
