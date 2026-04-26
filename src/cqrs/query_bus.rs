@@ -4,17 +4,30 @@ use crate::db::connection::AppState;
 use crate::errors::AppResult;
 use std::sync::Arc;
 
+use super::projections::CqrsProjection;
+
 /// Executes read-side queries against the (optionally separate) read pool.
 ///
 /// In this deployment both read and write share the same `AppState` pool.
 /// To point reads at a replica, swap `state.db` for a replica `PgPool` here.
 pub struct QueryBus {
     state: Arc<AppState>,
+    projection: Option<Arc<CqrsProjection>>,
 }
 
 impl QueryBus {
     pub fn new(state: Arc<AppState>) -> Self {
-        Self { state }
+        Self {
+            state,
+            projection: None,
+        }
+    }
+
+    pub fn with_projection(state: Arc<AppState>, projection: Arc<CqrsProjection>) -> Self {
+        Self {
+            state,
+            projection: Some(projection),
+        }
     }
 
     pub async fn execute(&self, query: Query) -> AppResult<QueryResult> {
@@ -41,6 +54,16 @@ impl QueryBus {
                 .fetch_one(&self.state.db)
                 .await?;
                 Ok(QueryResult::TipCount(count))
+            }
+            Query::GetCreatorSummary { username } => {
+                if let Some(projection) = &self.projection {
+                    let summary = projection
+                        .get_creator_summary_by_username(&username)
+                        .await?;
+                    Ok(QueryResult::CreatorSummary(summary))
+                } else {
+                    Ok(QueryResult::CreatorSummary(None))
+                }
             }
         }
     }

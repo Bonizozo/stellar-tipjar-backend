@@ -57,6 +57,7 @@ async-trait = "0.1"
 tokio-cron-scheduler = "0.10"
 lapin = "2"
 futures-lite = "2"
+printpdf = "0.7"
 
 # OpenTelemetry distributed tracing
 opentelemetry = { version = "0.22", features = ["trace"] }

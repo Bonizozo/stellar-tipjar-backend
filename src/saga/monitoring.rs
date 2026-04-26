@@ -1,7 +1,7 @@
+use super::workflow::{SagaStepStatus, SagaWorkflow};
 use crate::errors::AppError;
 use sqlx::PgPool;
 use uuid::Uuid;
-use super::workflow::{SagaWorkflow, SagaStepStatus};
 
 pub struct SagaMonitor {
     pool: PgPool,
@@ -69,6 +69,18 @@ impl SagaMonitor {
 
         Ok(workflows)
     }
+
+    pub async fn get_status_counts(&self) -> Result<Vec<SagaStatusCount>, AppError> {
+        let rows = sqlx::query_as::<_, SagaStatusCount>(
+            "SELECT status, COUNT(*)::BIGINT AS total
+             FROM saga_workflows
+             GROUP BY status
+             ORDER BY total DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -88,4 +100,10 @@ pub struct FailedWorkflow {
     pub status: String,
     pub error_message: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct SagaStatusCount {
+    pub status: String,
+    pub total: i64,
 }
