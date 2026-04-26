@@ -6,6 +6,7 @@ pub mod auth;
 pub mod categories;
 pub mod creators;
 pub mod currency;
+pub mod deployment;
 pub mod export;
 pub mod feature_flags;
 pub mod follows;
