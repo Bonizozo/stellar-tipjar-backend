@@ -7,6 +7,7 @@ use stellar_tipjar_backend::chaos::{
         ServiceCrashInjector,
     },
     metrics::MetricsCollector,
+    resource_exhaustion::ResourceExhaustionInjector,
     scenarios::ChaosScenarios,
 };
 
@@ -169,8 +170,8 @@ async fn experiment_fails_when_error_rate_exceeded() {
 // ── Scenario smoke tests ──────────────────────────────────────────────────────
 
 #[test]
-fn scenarios_all_returns_six_experiments() {
-    assert_eq!(ChaosScenarios::all().len(), 6);
+fn scenarios_all_returns_seven_experiments() {
+    assert_eq!(ChaosScenarios::all().len(), 7);
 }
 
 #[test]
@@ -219,4 +220,22 @@ fn assert_all_passed_panics_on_failure() {
 
     let result = std::panic::catch_unwind(|| assert_all_passed(&results));
     assert!(result.is_err(), "Should panic when an experiment failed");
+}
+
+// ── Resource exhaustion tests ─────────────────────────────────────────────────
+
+#[tokio::test]
+async fn resource_exhaustion_blocks_when_pool_full() {
+    let inj = ResourceExhaustionInjector::new(1);
+    inj.inject().await.unwrap();
+    let _guard = inj.try_acquire().unwrap();
+    assert!(inj.try_acquire().is_err(), "Pool should be exhausted");
+    inj.recover().await.unwrap();
+    assert!(inj.try_acquire().is_ok(), "Pool should be available after recovery");
+}
+
+#[test]
+fn resource_exhaustion_scenario_exists() {
+    let names: Vec<_> = ChaosScenarios::all().iter().map(|e| e.name.clone()).collect();
+    assert!(names.contains(&"Resource Exhaustion".to_string()));
 }
