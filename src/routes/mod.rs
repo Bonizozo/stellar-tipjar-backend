@@ -5,6 +5,7 @@ pub mod audit_logs;
 pub mod auth;
 pub mod categories;
 pub mod cdn;
+pub mod comments;
 pub mod creators;
 pub mod currency;
 pub mod deprecation;

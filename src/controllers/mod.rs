@@ -2,6 +2,7 @@ pub mod admin_controller;
 pub mod analytics_controller;
 pub mod api_key_controller;
 pub mod audit_log_controller;
+pub mod comment_controller;
 pub mod creator_controller;
 pub mod export_controller;
 pub mod feature_flag_controller;

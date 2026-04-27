@@ -4,6 +4,7 @@ pub mod audit_log;
 pub mod auth;
 pub mod campaign;
 pub mod category;
+pub mod comment;
 pub mod creator;
 pub mod feature_flag;
 pub mod follow;
