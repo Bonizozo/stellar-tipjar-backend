@@ -192,6 +192,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Start scheduled tip processor
     services::scheduled_tip_service::spawn(Arc::clone(&state));
+    services::tx_pool_service::spawn(Arc::clone(&state));
 
     // Start background job processing system
     let (_job_queue, _job_scheduler) = jobs::start(Arc::clone(&state), jobs::JobConfig::default());
@@ -308,6 +309,7 @@ async fn main() -> anyhow::Result<()> {
                         .merge(routes::verification::router())
                         .merge(routes::goals::router())
                         .merge(routes::scheduled_tips::router())
+                        .merge(routes::tx_pool::router())
                         .merge(routes::v1::router())
                         .layer(write_limiter_v1),
                 )
@@ -320,6 +322,7 @@ async fn main() -> anyhow::Result<()> {
                         .merge(routes::stats::router())
                         .merge(routes::analytics::router())
                         .merge(routes::receipts::router())
+                        .merge(routes::location::router())
                         .layer(general_limiter_v1),
                 )
                 // Inject deprecation tracker for the /deprecation-status endpoint.
@@ -356,6 +359,7 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::verification::router())
                     .merge(routes::goals::router())
                     .merge(routes::scheduled_tips::router())
+                    .merge(routes::tx_pool::router())
                     .merge(routes::v2::router())
                     .layer(write_limiter_v2),
             )
@@ -368,6 +372,7 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::stats::router())
                     .merge(routes::analytics::router())
                     .merge(routes::receipts::router())
+                    .merge(routes::location::router())
                     .layer(general_limiter_v2),
             ),
     )

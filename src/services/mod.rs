@@ -8,4 +8,5 @@ pub mod scheduled_tip_service;
 pub mod stellar_service;
 pub mod subscription_service;
 pub mod tip_service;
+pub mod tx_pool_service;
 pub mod validation_service;
