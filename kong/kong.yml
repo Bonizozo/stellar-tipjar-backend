@@ -1,0 +1,112 @@
+_format_version: "3.0"
+_transform: true
+
+# ── Upstream ──────────────────────────────────────────────────────────────────
+upstreams:
+  - name: tipjar-backend
+    algorithm: round-robin
+    healthchecks:
+      active:
+        http_path: /health
+        healthy:
+          interval: 10
+          successes: 2
+        unhealthy:
+          interval: 5
+          http_failures: 3
+    targets:
+      - target: backend:8000
+        weight: 100
+
+# ── Services ──────────────────────────────────────────────────────────────────
+services:
+  - name: tipjar-api
+    host: tipjar-backend
+    protocol: http
+    port: 8000
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 30000
+
+    routes:
+      # Public read routes — no auth required
+      - name: public-routes
+        paths:
+          - /api/v1/creators
+          - /api/v2/creators
+          - /api/v1/tips
+          - /api/v2/tips
+          - /api/v1/health
+          - /api/v2/health
+          - /api/v1/leaderboard
+          - /api/v2/leaderboard
+          - /api/v1/stats
+          - /api/v2/stats
+          - /api/v1/auth
+          - /api/v2/auth
+          - /metrics
+          - /swagger-ui
+          - /api-docs
+          - /ws
+          - /graphql
+        strip_path: false
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 120
+              hour: 3000
+              policy: local
+              fault_tolerant: true
+              hide_client_headers: false
+
+      # Protected routes — JWT or API-key required
+      - name: protected-routes
+        paths:
+          - /api/v1
+          - /api/v2
+        strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              key_claim_name: kid
+              claims_to_verify:
+                - exp
+              header_names:
+                - authorization
+          - name: rate-limiting
+            config:
+              minute: 60
+              hour: 1000
+              policy: local
+              fault_tolerant: true
+
+# ── Global plugins ────────────────────────────────────────────────────────────
+plugins:
+  # Request correlation ID
+  - name: correlation-id
+    config:
+      header_name: X-Request-ID
+      generator: uuid#counter
+      echo_downstream: true
+
+  # Prometheus metrics (scraped by existing Prometheus stack)
+  - name: prometheus
+    config:
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+      upstream_health_metrics: true
+
+  # Response compression
+  - name: response-transformer
+    config:
+      add:
+        headers:
+          - "X-Kong-Gateway: tipjar"
+
+  # Bot detection / basic security headers
+  - name: bot-detection
+    config:
+      allow: []
+      deny:
+        - curl/7.0

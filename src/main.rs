@@ -149,6 +149,11 @@ async fn main() -> anyhow::Result<()> {
     // Gracefully disabled when SHARD_COUNT=1 and no SHARD_n_DSN env vars are set.
     let sharding = db::sharding::init_sharding(&database_url).await;
 
+    // Build distributed lock service before AppState so it can be stored directly.
+    let lock_service = redis.as_ref().map(|conn| {
+        Arc::new(services::distributed_lock::DistributedLockService::new(conn.clone()))
+    });
+
     let state = Arc::new(AppState {
         db: pool.clone(),
         stellar,
@@ -163,6 +168,7 @@ async fn main() -> anyhow::Result<()> {
         cache: Some(Arc::clone(&cache)),
         invalidator: Some(Arc::clone(&invalidator)),
         replicas: replica_manager.clone(),
+        lock_service: lock_service.clone(),
     });
 
     // Start replica lag monitoring background task.
@@ -192,6 +198,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Start scheduled tip processor
     services::scheduled_tip_service::spawn(Arc::clone(&state));
+    services::tx_pool_service::spawn(Arc::clone(&state));
 
     // Start background job processing system
     let (_job_queue, _job_scheduler) = jobs::start(Arc::clone(&state), jobs::JobConfig::default());
@@ -216,6 +223,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Start Stellar transaction monitoring (#175)
     let monitor = services::monitoring_service::spawn(Arc::clone(&state));
+
+    // Spawn distributed lock monitor (#267).
+    if let Some(ref svc) = lock_service {
+        services::distributed_lock::spawn_monitor(Arc::clone(svc));
+    }
 
     // Service mesh: registry for health/canary endpoints (#245)
     let service_registry = Arc::new(ServiceRegistry::new());
@@ -308,6 +320,7 @@ async fn main() -> anyhow::Result<()> {
                         .merge(routes::verification::router())
                         .merge(routes::goals::router())
                         .merge(routes::scheduled_tips::router())
+                        .merge(routes::tx_pool::router())
                         .merge(routes::v1::router())
                         .layer(write_limiter_v1),
                 )
@@ -320,6 +333,8 @@ async fn main() -> anyhow::Result<()> {
                         .merge(routes::stats::router())
                         .merge(routes::analytics::router())
                         .merge(routes::receipts::router())
+                        .merge(routes::location::router())
+                        .merge(routes::locks::router())
                         .layer(general_limiter_v1),
                 )
                 // Inject deprecation tracker for the /deprecation-status endpoint.
@@ -356,6 +371,7 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::verification::router())
                     .merge(routes::goals::router())
                     .merge(routes::scheduled_tips::router())
+                    .merge(routes::tx_pool::router())
                     .merge(routes::v2::router())
                     .layer(write_limiter_v2),
             )
@@ -368,6 +384,8 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::stats::router())
                     .merge(routes::analytics::router())
                     .merge(routes::receipts::router())
+                    .merge(routes::location::router())
+                    .merge(routes::locks::router())
                     .layer(general_limiter_v2),
             ),
     )

@@ -10,6 +10,7 @@ use super::replica::ReplicaManager;
 use crate::cache::{CacheInvalidator, MultiLayerCache};
 use crate::moderation::ModerationService;
 use crate::services::circuit_breaker::CircuitBreaker;
+use crate::services::distributed_lock::DistributedLockService;
 use crate::services::stellar_service::StellarService;
 use crate::ws::TipEvent;
 
@@ -26,6 +27,8 @@ pub struct AppState {
     pub invalidator: Option<Arc<CacheInvalidator>>,
     /// Read replica manager — None when no replicas are configured.
     pub replicas: Option<Arc<ReplicaManager>>,
+    /// Distributed lock service — None when Redis is unavailable.
+    pub lock_service: Option<Arc<DistributedLockService>>,
 }
 
 impl AppState {

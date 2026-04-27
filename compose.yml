@@ -84,6 +84,30 @@ services:
       timeout: 5s
       retries: 5
 
+  kong:
+    image: kong:3.7-ubuntu
+    container_name: tipjar-kong
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+      KONG_PROXY_LISTEN: "0.0.0.0:8080"
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_LOG_LEVEL: info
+      KONG_PLUGINS: bundled
+    ports:
+      - "8080:8080"   # Proxy (public entry point)
+      - "8001:8001"   # Admin API (internal only)
+    volumes:
+      - ./kong/kong.yml:/etc/kong/kong.yml:ro
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      backend:
+        condition: service_started
+
 volumes:
   prometheus_data:
   grafana_data:

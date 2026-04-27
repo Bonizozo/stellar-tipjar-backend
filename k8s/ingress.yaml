@@ -12,6 +12,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: stellar-tipjar-backend
+                name: kong
                 port:
                   number: 80

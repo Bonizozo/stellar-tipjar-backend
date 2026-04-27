@@ -29,6 +29,7 @@ fn make_state(pool: PgPool) -> Arc<AppState> {
         cache: None,
         invalidator: None,
         db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
+        lock_service: None,
     })
 }
 

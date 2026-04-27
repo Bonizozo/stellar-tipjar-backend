@@ -70,6 +70,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .merge(routes::verification::router())
         .merge(routes::goals::router())
         .merge(routes::refunds::public_router())
+        .merge(routes::tx_pool::router())
         .layer(write_limiter);
 
     // Read endpoints use the general limit and intelligent response caching.
@@ -81,6 +82,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .merge(routes::stats::router())
         .merge(routes::analytics::router())
         .merge(routes::receipts::router())
+        .merge(routes::location::router())
+        .merge(routes::locks::router())
         .layer(general_limiter);
 
     Router::new()
