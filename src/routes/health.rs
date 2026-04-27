@@ -5,6 +5,18 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::ge
 use serde_json::json;
 use std::sync::Arc;
 
+/// Liveness probe — checks DB connectivity and circuit-breaker state
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "health",
+    responses(
+        (status = 200, description = "Service is healthy",
+         example = json!({ "status": "ok", "db": "connected" })),
+        (status = 503, description = "Service degraded",
+         example = json!({ "status": "degraded", "db": "circuit_open" }))
+    )
+)]
 pub async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let cb_state = state.db_circuit_breaker.state();
     let cb_open = cb_state == CircuitState::Open;
@@ -48,10 +60,18 @@ pub async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoRespon
     }
 }
 
-/// Readiness probe: checks all external dependencies (DB, Stellar, Redis).
-/// Returns 200 only when every dependency is reachable; 503 otherwise.
-/// Kubernetes should use this for readinessProbe and the simpler /health
-/// for livenessProbe.
+/// Readiness probe — checks DB, Stellar network, and Redis
+#[utoipa::path(
+    get,
+    path = "/ready",
+    tag = "health",
+    responses(
+        (status = 200, description = "All dependencies reachable",
+         example = json!({ "status": "ready", "checks": { "db": "ok", "stellar": "ok", "redis": "ok" } })),
+        (status = 503, description = "One or more dependencies unreachable",
+         example = json!({ "status": "not_ready", "checks": { "db": "unreachable", "stellar": "ok", "redis": "not_configured" } }))
+    )
+)]
 pub async fn readiness_check(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let mut all_ok = true;
     let mut checks = serde_json::Map::new();
@@ -86,7 +106,6 @@ pub async fn readiness_check(State(state): State<Arc<AppState>>) -> impl IntoRes
         Ok(resp) => {
             tracing::warn!("Readiness: Stellar returned {}", resp.status());
             checks.insert("stellar".into(), json!(format!("degraded ({})", resp.status())));
-            // Stellar degraded is a warning, not a hard failure for readiness
         }
         Err(e) => {
             tracing::error!("Readiness: Stellar check failed: {:?}", e);

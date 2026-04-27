@@ -175,6 +175,12 @@ async fn main() -> anyhow::Result<()> {
         lock_service: lock_service.clone(),
     });
 
+    // Build CommandBus after state is constructed (avoids circular dependency).
+    let command_bus = Arc::new(cqrs::CommandBus::new(
+        Arc::clone(&state),
+        Arc::clone(&event_store),
+    ));
+
     // Start replica lag monitoring background task.
     if let Some(ref mgr) = replica_manager {
         let mgr = Arc::clone(mgr);
@@ -314,6 +320,7 @@ async fn main() -> anyhow::Result<()> {
                 .merge(routes::audit_logs::router(Arc::clone(&state)))
                 .merge(routes::export::router(Arc::clone(&state)))
                 .merge(routes::deprecation::router())
+                .merge(routes::tenants::router())
                 .merge(
                     Router::new()
                         .merge(routes::auth::router())
@@ -366,6 +373,7 @@ async fn main() -> anyhow::Result<()> {
             .merge(routes::refunds::admin_router(Arc::clone(&state)))
             .merge(routes::audit_logs::router(Arc::clone(&state)))
             .merge(routes::export::router(Arc::clone(&state)))
+            .merge(routes::tenants::router())
             .merge(
                 Router::new()
                     .merge(routes::auth::router())
@@ -426,6 +434,8 @@ async fn main() -> anyhow::Result<()> {
         .layer(axum::Extension(currency_svc))
         // Inject Redis connection into request extensions for distributed throttling.
         .layer(axum::Extension(state.redis.clone()))
+        // Inject CommandBus for event-sourcing write operations.
+        .layer(axum::Extension(command_bus))
         .layer(cors)
         .layer(axum::middleware::map_response(middleware::cors::security_headers))
         .layer(TraceLayer::new_for_http())

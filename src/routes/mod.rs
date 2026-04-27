@@ -32,6 +32,7 @@ pub mod scheduler;
 pub mod stats;
 pub mod subscriptions;
 pub mod teams;
+pub mod tenants;
 pub mod tips;
 pub mod tx_pool;
 pub mod v1;
