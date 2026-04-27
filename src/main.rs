@@ -217,6 +217,9 @@ async fn main() -> anyhow::Result<()> {
     // Start Stellar transaction monitoring (#175)
     let monitor = services::monitoring_service::spawn(Arc::clone(&state));
 
+    // Start blockchain event listener (#238)
+    indexer::spawn(Arc::clone(&state));
+
     // Service mesh: registry for health/canary endpoints (#245)
     let service_registry = Arc::new(ServiceRegistry::new());
 
