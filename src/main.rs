@@ -71,6 +71,9 @@ async fn main() -> anyhow::Result<()> {
     let stellar_rpc_url = secrets.stellar_rpc_url;
     let stellar_network = secrets.stellar_network;
 
+    // --- Encryption Manager Initialization ---
+    let encryption_manager = Arc::new(crate::crypto::encryption::EncryptionKeyManager::new().load().await?);
+    crate::crypto::encryption::set_global_encryption_manager(Arc::clone(&encryption_manager))?;
 
     let pool = db::connection::connect_with_retry(
         &database_url,
@@ -162,6 +165,7 @@ async fn main() -> anyhow::Result<()> {
         )),
         cache: Some(Arc::clone(&cache)),
         invalidator: Some(Arc::clone(&invalidator)),
+        encryption: Arc::clone(&encryption_manager),
         replicas: replica_manager.clone(),
     });
 

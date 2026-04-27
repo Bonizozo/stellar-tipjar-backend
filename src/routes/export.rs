@@ -218,18 +218,35 @@ async fn trigger_backup(State(state): State<Arc<AppState>>) -> impl IntoResponse
 
     match output {
         Ok(out) if out.status.success() => {
+            // Parse the JSON output from the backup script
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let backup_info: serde_json::Value = match serde_json::from_str(&stdout.trim()) {
+                Ok(json) => json,
+                Err(_) => serde_json::json!({}),
+            };
+
+            let size = backup_info.get("size").and_then(|v| v.as_i64());
+            let location = backup_info.get("file").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let checksum = backup_info.get("checksum").and_then(|v| v.as_str()).map(|s| s.to_string());
+
             let _ = export_controller::record_backup(
                 &state.db,
                 "manual",
                 "completed",
-                None,
-                None,
-                None,
+                size,
+                location.as_deref(),
+                checksum.as_deref(),
             )
             .await;
+
             (
                 StatusCode::OK,
-                Json(serde_json::json!({ "status": "completed" })),
+                Json(serde_json::json!({
+                    "status": "completed",
+                    "file": location,
+                    "size_bytes": size,
+                    "checksum": checksum
+                })),
             )
         }
         Ok(out) => {
@@ -251,6 +268,15 @@ async fn trigger_backup(State(state): State<Arc<AppState>>) -> impl IntoResponse
         }
         Err(e) => {
             tracing::error!("Failed to run backup script: {}", e);
+            let _ = export_controller::record_backup(
+                &state.db,
+                "manual",
+                "failed",
+                None,
+                None,
+                None,
+            )
+            .await;
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "status": "failed", "error": e.to_string() })),

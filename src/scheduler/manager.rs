@@ -42,6 +42,9 @@ impl SchedulerManager {
         // Scheduled database backup - runs daily at 2 AM
         self.add_backup_job(db_pool.clone()).await?;
 
+        // Key rotation - runs weekly on Sunday at 3 AM
+        self.add_key_rotation_job(db_pool.clone()).await?;
+
         self.scheduler.start().await?;
         info!("Scheduler started successfully");
         
@@ -213,14 +216,25 @@ impl SchedulerManager {
                 let output = std::process::Command::new("./scripts/backup.sh").output();
                 match output {
                     Ok(out) if out.status.success() => {
+                        // Parse the JSON output from the backup script
+                        let stdout = String::from_utf8_lossy(&out.stdout);
+                        let backup_info: serde_json::Value = match serde_json::from_str(&stdout.trim()) {
+                            Ok(json) => json,
+                            Err(_) => serde_json::json!({}),
+                        };
+
+                        let size = backup_info.get("size").and_then(|v| v.as_i64());
+                        let location = backup_info.get("file").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let checksum = backup_info.get("checksum").and_then(|v| v.as_str()).map(|s| s.to_string());
+
                         info!("Scheduled backup completed successfully");
                         let _ = crate::controllers::export_controller::record_backup(
                             &pool,
                             "scheduled",
                             "completed",
-                            None,
-                            None,
-                            None,
+                            size,
+                            location.as_deref(),
+                            checksum.as_deref(),
                         )
                         .await;
                         mon.record_success("scheduled_backup").await;
@@ -242,6 +256,41 @@ impl SchedulerManager {
                     Err(e) => {
                         error!("Failed to run backup script: {}", e);
                         mon.record_failure("scheduled_backup", &e.to_string()).await;
+                    }
+                }
+            })
+        })?;
+
+        self.scheduler.add(job).await?;
+        Ok(())
+    }
+
+    async fn add_key_rotation_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        let monitor = self.monitor.clone();
+
+        let job = Job::new_async("0 0 3 * * 0", move |_uuid, _l| {
+            let pool = db_pool.clone();
+            let mon = monitor.clone();
+            Box::pin(async move {
+                info!("Running key rotation job");
+                mon.record_start("key_rotation").await;
+
+                match crate::crypto::encryption::global_encryption_manager() {
+                    Ok(manager) => {
+                        match manager.rotate_keys().await {
+                            Ok(_) => {
+                                info!("Key rotation completed successfully");
+                                mon.record_success("key_rotation").await;
+                            }
+                            Err(e) => {
+                                error!("Key rotation failed: {}", e);
+                                mon.record_failure("key_rotation", &e.to_string()).await;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to get encryption manager: {}", e);
+                        mon.record_failure("key_rotation", &e.to_string()).await;
                     }
                 }
             })

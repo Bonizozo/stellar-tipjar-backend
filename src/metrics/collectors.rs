@@ -110,6 +110,29 @@ lazy_static! {
         "Authentication failures by reason",
         &["reason"]
     ).unwrap();
+
+    // ── Encryption ────────────────────────────────────────────────────────────
+    pub static ref ENCRYPTION_OPERATIONS_TOTAL: CounterVec = register_counter_vec!(
+        "encryption_operations_total",
+        "Total encryption/decryption operations by type",
+        &["operation"]  // "encrypt" | "decrypt"
+    ).unwrap();
+
+    pub static ref ENCRYPTION_FAILURES_TOTAL: CounterVec = register_counter_vec!(
+        "encryption_failures_total",
+        "Total encryption/decryption failures by reason",
+        &["reason"]
+    ).unwrap();
+
+    pub static ref ENCRYPTION_KEY_ROTATIONS_TOTAL: Counter = register_counter!(
+        "encryption_key_rotations_total",
+        "Total encryption key rotations performed"
+    ).unwrap();
+
+    pub static ref ENCRYPTION_ACTIVE_KEY_AGE_SECONDS: Gauge = register_gauge!(
+        "encryption_active_key_age_seconds",
+        "Age of the currently active encryption key in seconds"
+    ).unwrap();
 }
 
 /// Aggregated snapshot used by the `/metrics/summary` endpoint.

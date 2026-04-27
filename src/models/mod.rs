@@ -12,6 +12,7 @@ pub mod goal;
 pub mod ip_block;
 pub mod leaderboard;
 pub mod notification;
+pub mod oauth2;
 pub mod pagination;
 pub mod receipt;
 pub mod refund;

@@ -6,6 +6,8 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 use validator::Validate;
 
+use crate::crypto::encryption::EncryptedString;
+
 lazy_static! {
     /// Alphanumeric + underscores/hyphens only.
     static ref USERNAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap();
@@ -19,15 +21,15 @@ pub struct Creator {
     pub email: Option<String>,
     #[serde(default)]
     #[serde(skip_serializing)]
-    pub password_hash: String,
+    pub password_hash: EncryptedString,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(skip_serializing)]
-    pub totp_secret: Option<String>,
+    pub totp_secret: Option<EncryptedString>,
     pub totp_enabled: bool,
     #[serde(default)]
     #[serde(skip_serializing)]
-    pub backup_code_hashes: Vec<String>,
+    pub backup_code_hashes: Vec<EncryptedString>,
     pub created_at: DateTime<Utc>,
 }
 

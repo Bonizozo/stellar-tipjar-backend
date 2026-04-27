@@ -3,12 +3,14 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::crypto::encryption::EncryptedString;
+
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct ApiKey {
     pub id: Uuid,
     pub key: String,
     #[serde(skip_serializing)]
-    pub secret: String,
+    pub secret: EncryptedString,
     pub name: String,
     pub permissions: Vec<String>,
     pub active: bool,

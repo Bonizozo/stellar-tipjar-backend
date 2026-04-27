@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::crypto::encryption::EncryptedString;
 use crate::errors::{AppError, AppResult};
 
 #[derive(Debug, Deserialize)]
@@ -114,6 +115,9 @@ pub async fn upsert_oauth2_account(
     refresh_token: Option<&str>,
     expires_at: Option<DateTime<Utc>>,
 ) -> AppResult<()> {
+    let access_token_enc = EncryptedString::new(access_token.to_string());
+    let refresh_token_enc = refresh_token.map(|rt| EncryptedString::new(rt.to_string()));
+
     sqlx::query(
         "INSERT INTO oauth2_accounts (user_id, provider, provider_user_id, access_token, refresh_token, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6)
@@ -123,8 +127,8 @@ pub async fn upsert_oauth2_account(
     .bind(user_id)
     .bind(provider)
     .bind(provider_user_id)
-    .bind(access_token)
-    .bind(refresh_token)
+    .bind(access_token_enc)
+    .bind(refresh_token_enc)
     .bind(expires_at)
     .execute(pool)
     .await?;
