@@ -1,8 +1,11 @@
 pub mod admin;
 pub mod analytics;
+pub mod anonymization;
 pub mod mocking;
 pub mod cache;
+pub mod cdn;
 pub mod chaos;
+pub mod collaboration;
 pub mod config;
 pub mod controllers;
 pub mod cqrs;

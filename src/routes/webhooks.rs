@@ -2,6 +2,7 @@ use crate::db::connection::AppState;
 use crate::webhooks::{
     self, CreateWebhookRequest, UpdateWebhookRequest,
 };
+use crate::webhooks::retry::{list_dlq, replay_dlq_entry, WebhookRetryConfig};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -151,5 +152,36 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/webhooks/:id", get(get_one).put(update).delete(remove))
         .route("/webhooks/:id/logs", get(delivery_logs))
         .route("/webhooks/:id/test", post(test_webhook))
+        .route("/webhooks/dlq", get(dlq_list))
+        .route("/webhooks/dlq/:id/replay", post(dlq_replay))
         .with_state(state)
+}
+
+/// GET /webhooks/dlq
+async fn dlq_list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match list_dlq(&state.db, 50).await {
+        Ok(entries) => Json(entries).into_response(),
+        Err(e) => {
+            tracing::error!("list_dlq: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response()
+        }
+    }
+}
+
+/// POST /webhooks/dlq/:id/replay
+async fn dlq_replay(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let config = WebhookRetryConfig::default();
+    match replay_dlq_entry(&state.db, id, &config).await {
+        Ok(status) => Json(status).into_response(),
+        Err(sqlx::Error::RowNotFound) => {
+            (StatusCode::NOT_FOUND, Json(json!({"error": "not found"}))).into_response()
+        }
+        Err(e) => {
+            tracing::error!("dlq_replay: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response()
+        }
+    }
 }

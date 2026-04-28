@@ -4,6 +4,7 @@
 //! scheduled/cron jobs, dead letter queue, priority levels, and metrics.
 
 pub mod handlers;
+pub mod monitoring;
 pub mod queue;
 pub mod scheduler;
 pub mod types;
@@ -13,6 +14,7 @@ pub use handlers::{
     AggregateStatsHandler, CleanupDataHandler, JobHandlerRegistry, SendNotificationHandler,
     VerifyTransactionHandler,
 };
+pub use monitoring::JobMonitor;
 pub use queue::{JobQueueManager, QueueMetrics};
 pub use scheduler::JobScheduler;
 pub use types::*;

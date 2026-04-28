@@ -7,14 +7,18 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 mod analytics;
+mod anonymization;
+mod admin;
 mod cache;
 mod mocking;
 mod cdn;
 mod chaos;
+mod collaboration;
 mod config;
 mod controllers;
 mod cqrs;
 mod crypto;
+mod currency;
 mod db;
 mod deduplication;
 mod deployment;
@@ -33,6 +37,7 @@ mod middleware;
 mod ml;
 mod moderation;
 mod models;
+mod pagination;
 mod queue;
 mod routes;
 mod saga;
@@ -214,6 +219,30 @@ async fn main() -> anyhow::Result<()> {
 
     // Start background job processing system
     let (_job_queue, _job_scheduler) = jobs::start(Arc::clone(&state), jobs::JobConfig::default());
+
+    // Start job monitoring
+    let job_monitor = jobs::monitoring::JobMonitor::new(
+        Arc::new(pool.clone()),
+        Arc::clone(&_job_queue),
+    );
+    Arc::clone(&job_monitor).spawn();
+
+    // Collaboration session registry and presence manager
+    let collab_sessions = collaboration::crdt::SessionRegistry::new();
+    let collab_presence = collaboration::presence::PresenceManager::new();
+    let collab_history = Arc::new(collaboration::history::CollaborationHistory::new(pool.clone()));
+    let collab_state = Arc::new(routes::collaboration::CollabState {
+        sessions: collab_sessions,
+        presence: collab_presence,
+        history: collab_history,
+    });
+
+    // Anonymization services
+    let anon_state = Arc::new(routes::anonymization::AnonymizationState {
+        anonymizer: Arc::new(anonymization::masker::Anonymizer::new()),
+        detector: Arc::new(anonymization::detector::PiiDetector::new()),
+        audit: Arc::new(anonymization::audit::AnonymizationAudit::new(pool.clone())),
+    });
 
     // Start RabbitMQ queue system (optional — skipped when RABBITMQ_URL is unset).
     let queue_system = queue::try_start(Arc::clone(&state)).await;
@@ -429,6 +458,9 @@ async fn main() -> anyhow::Result<()> {
         .merge(routes::load_balancer::router(Arc::clone(&state), Arc::clone(&service_registry)))
         .merge(routes::cdn::router(Arc::clone(&cdn_service)))
         .merge(routes::profiling::router(Arc::clone(&state)))
+        .merge(routes::job_monitoring::router(Arc::clone(&state), Arc::clone(&job_monitor)))
+        .merge(routes::collaboration::router(collab_state))
+        .merge(routes::anonymization::router(anon_state))
         .merge(v1)
         .merge(v2)
         .layer(axum::Extension(gql_schema))
