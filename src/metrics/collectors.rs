@@ -133,6 +133,56 @@ lazy_static! {
         "encryption_active_key_age_seconds",
         "Age of the currently active encryption key in seconds"
     ).unwrap();
+
+    // ── Background Jobs ───────────────────────────────────────────────────────
+    pub static ref JOB_QUEUE_DEPTH: GaugeVec = register_gauge_vec!(
+        "job_queue_depth",
+        "Current job queue depth by status",
+        &["status"]
+    ).unwrap();
+
+    pub static ref JOB_SUCCESS_TOTAL: CounterVec = register_counter_vec!(
+        "job_success_total",
+        "Total successfully completed jobs by type",
+        &["job_type"]
+    ).unwrap();
+
+    pub static ref JOB_FAILURES_TOTAL: CounterVec = register_counter_vec!(
+        "job_failures_total",
+        "Total failed jobs by type and reason",
+        &["job_type", "reason"]
+    ).unwrap();
+
+    pub static ref JOB_DURATION_SECONDS: HistogramVec = register_histogram_vec!(
+        "job_duration_seconds",
+        "Job execution duration in seconds by type",
+        &["job_type"],
+        vec![0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 300.0]
+    ).unwrap();
+
+    pub static ref JOB_ALERTS_TOTAL: CounterVec = register_counter_vec!(
+        "job_alerts_total",
+        "Total job monitoring alerts triggered by type",
+        &["alert_type"]
+    ).unwrap();
+
+    // ── Webhooks ──────────────────────────────────────────────────────────────
+    pub static ref WEBHOOK_DELIVERIES_TOTAL: CounterVec = register_counter_vec!(
+        "webhook_deliveries_total",
+        "Total webhook delivery attempts by status",
+        &["status"]
+    ).unwrap();
+
+    pub static ref WEBHOOK_RETRY_ATTEMPTS_TOTAL: CounterVec = register_counter_vec!(
+        "webhook_retry_attempts_total",
+        "Total webhook retry attempts by attempt number",
+        &["attempt"]
+    ).unwrap();
+
+    pub static ref WEBHOOK_DLQ_TOTAL: Counter = register_counter!(
+        "webhook_dlq_total",
+        "Total webhooks moved to dead letter queue"
+    ).unwrap();
 }
 
 /// Aggregated snapshot used by the `/metrics/summary` endpoint.
