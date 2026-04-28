@@ -3,6 +3,7 @@ pub mod analytics;
 pub mod api_keys;
 pub mod audit_logs;
 pub mod auth;
+pub mod bulk_operations;
 pub mod categories;
 pub mod cdn;
 pub mod comments;

@@ -94,33 +94,171 @@ fn detect_version(path: &str) -> Option<&'static str> {
     }
 }
 
-/// Axum middleware that:
-/// 1. Injects `X-API-Version` on every response.
-/// 2. Validates the requested version is known (returns 400 for unknown versions).
-/// 3. Adds `Deprecation`, `Sunset`, and `Link` headers for deprecated versions.
+/// Detect API version from Accept header (content negotiation)
+fn detect_version_from_accept(accept_header: &str) -> Option<&'static str> {
+    // Parse Accept header for version information
+    // Example: "application/json; version=v1" or "application/vnd.api.v1+json"
+    if accept_header.contains("version=v1") || accept_header.contains("vnd.api.v1") {
+        Some("v1")
+    } else if accept_header.contains("version=v2") || accept_header.contains("vnd.api.v2") {
+        Some("v2")
+    } else {
+        None
+    }
+}
+
+/// Detect API version from custom header
+fn detect_version_from_header(headers: &axum::http::HeaderMap) -> Option<&'static str> {
+    if let Some(header_value) = headers.get("X-API-Version") {
+        if let Ok(version_str) = header_value.to_str() {
+            match version_str {
+                "v1" => return Some("v1"),
+                "v2" => return Some("v2"),
+                _ => {}
+            }
+        }
+    }
+    
+    if let Some(header_value) = headers.get("API-Version") {
+        if let Ok(version_str) = header_value.to_str() {
+            match version_str {
+                "v1" => return Some("v1"),
+                "v2" => return Some("v2"),
+                _ => {}
+            }
+        }
+    }
+    
+    None
+}
+
+/// Resolve API version using multiple strategies in priority order
+fn resolve_api_version(req: &axum::extract::Request) -> Option<VersionResolution> {
+    let path = req.uri().path();
+    
+    // Priority 1: Path-based versioning (most explicit)
+    if let Some(version) = detect_version(path) {
+        return Some(VersionResolution {
+            version: version.to_string(),
+            source: VersionSource::Path,
+            confidence: 1.0,
+        });
+    }
+    
+    // Priority 2: Custom headers
+    if let Some(version) = detect_version_from_header(req.headers()) {
+        return Some(VersionResolution {
+            version: version.to_string(),
+            source: VersionSource::Header,
+            confidence: 0.9,
+        });
+    }
+    
+    // Priority 3: Accept header (content negotiation)
+    if let Some(accept_header) = req.headers().get(axum::http::header::ACCEPT) {
+        if let Ok(accept_str) = accept_header.to_str() {
+            if let Some(version) = detect_version_from_accept(accept_str) {
+                return Some(VersionResolution {
+                    version: version.to_string(),
+                    source: VersionSource::AcceptHeader,
+                    confidence: 0.8,
+                });
+            }
+        }
+    }
+    
+    // Priority 4: Default version (if no version specified)
+    None
+}
+
+/// Version resolution information
+#[derive(Debug, Clone)]
+pub struct VersionResolution {
+    pub version: String,
+    pub source: VersionSource,
+    pub confidence: f64,
+}
+
+/// Version detection method
+#[derive(Debug, Clone, PartialEq)]
+pub enum VersionSource {
+    Path,
+    Header,
+    AcceptHeader,
+    Default,
+}
+
+/// Enhanced version negotiation middleware supporting multiple version detection strategies
 pub async fn version_negotiation(req: Request, next: Next) -> Response {
-    let path = req.uri().path().to_owned();
     let mgr = default_version_manager();
+    let path = req.uri().path();
 
-    let version = detect_version(&path);
+    // Resolve version using multiple strategies
+    let version_resolution = resolve_api_version(&req);
+    
+    // For non-versioned paths (like /metrics), pass through
+    if version_resolution.is_none() && !path.starts_with("/api/") {
+        return next.run(req).await;
+    }
 
-    // Unknown version prefix → pass through (non-versioned paths like /metrics)
-    let version_str = match version {
-        Some(v) => v,
-        None => return next.run(req).await,
-    };
+    // Use resolved version or default for API paths
+    let version_str = version_resolution
+        .map(|r| r.version)
+        .unwrap_or_else(|| mgr.current().to_string());
+
+    // Validate version exists
+    if !mgr.versions.contains_key(&version_str) {
+        let mut response = axum::http::Response::builder()
+            .status(axum::http::StatusCode::BAD_REQUEST)
+            .header(axum::http::header::CONTENT_TYPE, "application/json")
+            .body(axum::body::Body::from(format!(
+                r#"{{"error": "Unsupported API version '{}', supported versions: {}"#,
+                version_str,
+                mgr.versions.keys().cloned().collect::<Vec<_>>().join(", ")
+            )))
+            .unwrap();
+        
+        // Add supported versions header
+        response.headers_mut().insert(
+            "X-API-Versions",
+            HeaderValue::from_str(
+                &mgr.versions.keys().cloned().collect::<Vec<_>>().join(", ")
+            ).unwrap_or(HeaderValue::from_static("v1,v2")),
+        );
+        
+        return response;
+    }
 
     let mut response = next.run(req).await;
     let headers = response.headers_mut();
 
-    // Always inject the version header.
+    // Always inject the version header
     headers.insert(
         "X-API-Version",
-        HeaderValue::from_static(version_str),
+        HeaderValue::from_str(&version_str).unwrap_or(HeaderValue::from_static("unknown")),
     );
 
-    // Inject deprecation headers for deprecated versions.
-    if let Some(meta) = mgr.get(version_str) {
+    // Add version detection method header for debugging
+    if let Some(resolution) = version_resolution {
+        headers.insert(
+            "X-Version-Detection-Method",
+            HeaderValue::from_str(match resolution.source {
+                VersionSource::Path => "path",
+                VersionSource::Header => "header",
+                VersionSource::AcceptHeader => "accept",
+                VersionSource::Default => "default",
+            }).unwrap_or(HeaderValue::from_static("unknown")),
+        );
+    }
+
+    // Add Vary header to inform clients about version negotiation
+    headers.insert(
+        axum::http::header::VARY,
+        HeaderValue::from_static("Accept, X-API-Version, API-Version"),
+    );
+
+    // Inject deprecation headers for deprecated versions
+    if let Some(meta) = mgr.get(&version_str) {
         if meta.deprecated {
             headers.insert("Deprecation", HeaderValue::from_static("true"));
 
@@ -146,7 +284,45 @@ pub async fn version_negotiation(req: Request, next: Next) -> Response {
         }
     }
 
+    // Add API documentation links
+    let docs_link = format!("<https://docs.example.com/api/{}>; rel=\"api-documentation\"", version_str);
+    if let Ok(v) = HeaderValue::from_str(&docs_link) {
+        headers.insert("Link", v);
+    }
+
     response
+}
+
+/// Middleware to handle version routing for non-versioned endpoints
+pub async fn version_routing(req: Request, next: Next) -> Response {
+    let mgr = default_version_manager();
+    let path = req.uri().path();
+    
+    // Only apply to API endpoints without explicit version
+    if path.starts_with("/api/") && !path.contains("/v1/") && !path.contains("/v2/") {
+        let resolution = resolve_api_version(&req);
+        let target_version = resolution
+            .map(|r| r.version)
+            .unwrap_or_else(|| mgr.current().to_string());
+        
+        // Add version context to request extensions for downstream handlers
+        let mut req = req;
+        req.extensions_mut().insert(ApiVersionContext {
+            version: target_version.clone(),
+            source: resolution.map(|r| r.source).unwrap_or(VersionSource::Default),
+        });
+        
+        return next.run(req).await;
+    }
+    
+    next.run(req).await
+}
+
+/// Version context attached to requests
+#[derive(Debug, Clone)]
+pub struct ApiVersionContext {
+    pub version: String,
+    pub source: VersionSource,
 }
 
 #[cfg(test)]

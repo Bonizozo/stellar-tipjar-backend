@@ -24,6 +24,7 @@ pub mod middleware;
 pub mod ml;
 pub mod moderation;
 pub mod models;
+pub mod pagination;
 pub mod queue;
 pub mod routes;
 pub mod saga;
