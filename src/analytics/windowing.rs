@@ -1,6 +1,10 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+use sqlx::PgPool;
+
+use crate::errors::AppResult;
+
 /// A sliding time window that evicts events older than `duration`.
 pub struct TimeWindow {
     duration: Duration,
@@ -44,4 +48,28 @@ impl TimeWindow {
             avg_stroops: if count > 0 { total / count as u64 } else { 0 },
         }
     }
+}
+
+/// Upserts a 1-minute tumbling window bucket for `creator_username` and returns
+/// (window_total_stroops, window_tip_count) for the current bucket.
+pub async fn update_tumbling_window(
+    pool: &PgPool,
+    creator_username: &str,
+    amount_stroops: u64,
+) -> AppResult<(i64, i64)> {
+    let row: (i64, i64) = sqlx::query_as(
+        "INSERT INTO analytics_windows (creator_username, bucket, total_stroops, tip_count)
+         VALUES ($1, date_trunc('minute', now()), $2, 1)
+         ON CONFLICT (creator_username, bucket)
+         DO UPDATE SET
+           total_stroops = analytics_windows.total_stroops + EXCLUDED.total_stroops,
+           tip_count     = analytics_windows.tip_count + 1
+         RETURNING total_stroops, tip_count",
+    )
+    .bind(creator_username)
+    .bind(amount_stroops as i64)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(row)
 }
