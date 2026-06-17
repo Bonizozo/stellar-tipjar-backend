@@ -99,8 +99,10 @@ impl CommandHandler for RecordTipHandler {
             RecordTipRequest {
                 username: creator_username,
                 amount,
+                tipper_wallet: None,
                 transaction_hash,
                 message: None,
+                message_visibility: crate::models::tip::MessageVisibility::Public,
             },
         )
         .await?;

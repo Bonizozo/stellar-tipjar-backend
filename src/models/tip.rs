@@ -71,6 +71,10 @@ pub struct RecordTipRequest {
     #[validate(custom(function = "crate::validation::amount::validate_xlm_amount"))]
     pub amount: String,
 
+    /// Optional wallet address for the tipper; used for per-wallet rate limiting.
+    #[validate(custom(function = "crate::validation::stellar::validate_stellar_address"))]
+    pub tipper_wallet: Option<String>,
+
     /// Stellar transaction hash — 64 hex characters
     #[validate(length(equal = 64, message = "Transaction hash must be exactly 64 characters"))]
     #[validate(custom(function = "validate_tx_hash"))]
@@ -180,7 +184,11 @@ impl From<Tip> for TipResponse {
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct ReportMessageRequest {
     /// Reason for the report
-    #[validate(length(min = 10, max = 500, message = "Reason must be between 10 and 500 characters"))]
+    #[validate(length(
+        min = 10,
+        max = 500,
+        message = "Reason must be between 10 and 500 characters"
+    ))]
     pub reason: String,
     /// Reporter identifier (username or anonymous)
     #[validate(length(max = 50))]

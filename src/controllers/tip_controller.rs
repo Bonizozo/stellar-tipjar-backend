@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{net::IpAddr, time::Instant};
 use uuid::Uuid;
 
 use crate::cache::{keys, redis_client};
@@ -12,10 +12,25 @@ use crate::metrics::collectors::{
 };
 use crate::models::pagination::{PaginatedResponse, PaginationParams};
 use crate::models::tip::{RecordTipRequest, ReportMessageRequest, Tip, TipFilters, TipSortParams};
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TipRecordContext {
+    pub ip: Option<IpAddr>,
+}
+
 use crate::moderation::ContentType;
 
 #[tracing::instrument(skip(state), fields(username = %req.username, amount = %req.amount))]
 pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Tip> {
+    record_tip_with_context(state, req, TipRecordContext::default()).await
+}
+
+#[tracing::instrument(skip(state), fields(username = %req.username, amount = %req.amount, ip = ?context.ip))]
+pub async fn record_tip_with_context(
+    state: &AppState,
+    req: RecordTipRequest,
+    context: TipRecordContext,
+) -> AppResult<Tip> {
     // Moderate the tip message when provided.
     if let Some(ref msg) = req.message {
         if !msg.trim().is_empty() {
@@ -42,15 +57,16 @@ pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Ti
 
     let start = Instant::now();
     // Pass state into the internal helper to support WebSocket broadcasting
-    let (tip, match_result) = match record_tip_in_tx(state, &mut tx, &req).await {
-        Ok(result) => result,
-        Err(e) => {
-            TIPS_FAILED_TOTAL
-                .with_label_values(&["record_tip_in_tx"])
-                .inc();
-            return Err(e);
-        }
-    };
+    let (tip, match_result) =
+        match record_tip_in_tx_with_context(state, &mut tx, &req, context).await {
+            Ok(result) => result,
+            Err(e) => {
+                TIPS_FAILED_TOTAL
+                    .with_label_values(&["record_tip_in_tx"])
+                    .inc();
+                return Err(e);
+            }
+        };
     tx.commit().await?;
     let duration = start.elapsed();
 
@@ -154,9 +170,18 @@ pub async fn record_tip_in_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     req: &RecordTipRequest,
 ) -> AppResult<(Tip, Option<crate::models::campaign::CampaignMatchResult>)> {
+    record_tip_in_tx_with_context(state, tx, req, TipRecordContext::default()).await
+}
+
+pub async fn record_tip_in_tx_with_context(
+    state: &AppState,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    req: &RecordTipRequest,
+    context: TipRecordContext,
+) -> AppResult<(Tip, Option<crate::models::campaign::CampaignMatchResult>)> {
     let query_tip = r#"
-        INSERT INTO tips (id, creator_username, amount, transaction_hash, message, message_visibility, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        INSERT INTO tips (id, creator_username, amount, transaction_hash, message, message_visibility, tipper_wallet, tipper_ip, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
         RETURNING id, creator_username, amount, transaction_hash, message, message_visibility, created_at
         "#;
 
@@ -167,6 +192,8 @@ pub async fn record_tip_in_tx(
         .bind(&req.transaction_hash)
         .bind(&req.message)
         .bind(req.message_visibility.as_str())
+        .bind(&req.tipper_wallet)
+        .bind(context.ip.map(|ip| ip.to_string()))
         .fetch_one(&mut **tx)
         .await?;
 

@@ -19,6 +19,7 @@ pub struct CreateCreatorInput {
 pub struct RecordTipInput {
     pub username: String,
     pub amount: String,
+    pub tipper_wallet: Option<String>,
     pub transaction_hash: String,
 }
 
@@ -58,8 +59,10 @@ impl MutationRoot {
         let req = RecordTipRequest {
             username: input.username,
             amount: input.amount,
+            tipper_wallet: input.tipper_wallet,
             transaction_hash: input.transaction_hash,
             message: None,
+            message_visibility: crate::models::tip::MessageVisibility::Public,
         };
         req.validate()
             .map_err(|e| async_graphql::Error::new(e.to_string()))?;

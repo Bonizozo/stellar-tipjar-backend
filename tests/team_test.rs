@@ -90,8 +90,10 @@ async fn test_team_tip_split_history_and_recording() {
     let record_req = RecordTipRequest {
         username: member_username.clone(),
         amount: "10".to_string(),
+        tipper_wallet: None,
         transaction_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
         message: None,
+        message_visibility: stellar_tipjar_backend::models::tip::MessageVisibility::Public,
     };
 
     let (tip, _) = tip_controller::record_tip_in_tx(&state, &mut tx, &record_req)
