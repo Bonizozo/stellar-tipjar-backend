@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stellar Tipjar — SDK Guide</title>
+  <style>
+    :root {
+      --brand: #3b82f6; --bg: #0f172a; --surface: #1e293b;
+      --text: #e2e8f0; --muted: #94a3b8; --border: #334155; --code-bg: #0d1117;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; line-height: 1.6; }
+    header {
+      display: flex; align-items: center; gap: 16px; padding: 14px 28px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    nav { margin-left: auto; display: flex; gap: 24px; }
+    nav a { color: var(--muted); text-decoration: none; font-size: 0.85rem; }
+    nav a:hover, nav a.active { color: var(--text); }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 48px 24px 80px; }
+    h2 { font-size: 1.4rem; margin: 40px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    h3 { font-size: 1rem; margin: 28px 0 8px; color: var(--brand); }
+    p, li { color: var(--muted); margin-bottom: 8px; font-size: 0.93rem; }
+    ul { padding-left: 20px; }
+    a { color: var(--brand); }
+    .alert {
+      background: #1e3a5f; border-left: 3px solid var(--brand);
+      padding: 12px 16px; border-radius: 4px; margin: 12px 0 20px; font-size: 0.9rem;
+    }
+    .tabs { display: flex; border-bottom: 1px solid var(--border); }
+    .tab {
+      padding: 8px 18px; cursor: pointer; font-size: 0.82rem; color: var(--muted);
+      background: none; border: none; border-bottom: 2px solid transparent;
+      margin-bottom: -1px; transition: all .15s;
+    }
+    .tab.active { color: var(--brand); border-bottom-color: var(--brand); }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    pre {
+      background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 18px; overflow-x: auto; font-size: 0.8rem; line-height: 1.6; margin: 0 0 24px;
+    }
+    code { font-family: 'Fira Code', monospace; color: #cdd6f4; }
+    .kw { color: #ff79c6; } .str { color: #f1fa8c; } .cm { color: #6272a4; }
+    .fn { color: #50fa7b; } .ty { color: #8be9fd; } .nm { color: #bd93f9; }
+    .pill {
+      display: inline-block; font-size: 0.68rem; padding: 2px 7px; border-radius: 4px;
+      font-weight: 700; margin-right: 4px; vertical-align: middle; color: #fff;
+    }
+    .POST { background: #1d4ed8; } .GET { background: #065f46; }
+    table { width: 100%; border-collapse: collapse; margin: 8px 0 24px; font-size: 0.84rem; }
+    th { text-align: left; color: var(--brand); border-bottom: 1px solid var(--border); padding: 8px; }
+    td { padding: 8px; border-bottom: 1px solid var(--border); color: var(--muted); }
+    td code { background: var(--surface); padding: 1px 5px; border-radius: 3px; font-size: 0.78rem; color: var(--text); }
+  </style>
+</head>
+<body>
+<header>
+  <span style="font-size:1.5rem">&#x1F680;</span>
+  <h1>Stellar Tipjar API</h1>
+  <nav>
+    <a href="/docs">Reference</a>
+    <a href="/docs/sdk" class="active">SDK Guide</a>
+    <a href="/swagger-ui">Swagger UI</a>
+    <a href="/docs/openapi.json">OpenAPI JSON</a>
+  </nav>
+</header>
+<div class="wrap">
+
+  <h2>Quickstart</h2>
+  <p>The Stellar Tipjar API lets you create creator profiles and record on-chain tips verified against the Stellar network.</p>
+  <div class="alert">
+    <strong>Production:</strong> <code>https://api.stellar-tipjar.com</code>
+    &nbsp;&nbsp;|&nbsp;&nbsp;
+    <strong>Local:</strong> <code>http://localhost:8000</code>
+  </div>
+
+  <h3>Authentication</h3>
+  <p>Obtain a JWT pair by registering or logging in, then pass the access token as a Bearer header:</p>
+  <pre><code>Authorization: Bearer &lt;access_token&gt;</code></pre>
+  <p>Access tokens expire after <strong>15 minutes</strong>. Refresh via <code>POST /api/v2/auth/refresh</code>.</p>
+
+  <h2>Code Samples</h2>
+
+  <!-- Register -->
+  <h3><span class="pill POST">POST</span> Register a creator</h3>
+  <div class="tabs" id="reg">
+    <button class="tab active" onclick="sw('reg',0)">cURL</button>
+    <button class="tab" onclick="sw('reg',1)">Python</button>
+    <button class="tab" onclick="sw('reg',2)">JavaScript</button>
+    <button class="tab" onclick="sw('reg',3)">Rust</button>
+  </div>
+  <div class="panel active"><pre><code>curl -X POST https://api.stellar-tipjar.com/api/v2/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "alice",
+    "wallet_address": "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
+    "password": "supersecret123"
+  }'</code></pre></div>
+  <div class="panel"><pre><code><span class="kw">import</span> requests
+
+resp = requests.post(
+    <span class="str">"https://api.stellar-tipjar.com/api/v2/auth/register"</span>,
+    json={
+        <span class="str">"username"</span>: <span class="str">"alice"</span>,
+        <span class="str">"wallet_address"</span>: <span class="str">"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN"</span>,
+        <span class="str">"password"</span>: <span class="str">"supersecret123"</span>,
+    }
+)
+tokens = resp.json()
+access_token = tokens[<span class="str">"access_token"</span>]</code></pre></div>
+  <div class="panel"><pre><code><span class="kw">const</span> resp = <span class="kw">await</span> fetch(<span class="str">"https://api.stellar-tipjar.com/api/v2/auth/register"</span>, {
+  method: <span class="str">"POST"</span>,
+  headers: { <span class="str">"Content-Type"</span>: <span class="str">"application/json"</span> },
+  body: JSON.stringify({
+    username: <span class="str">"alice"</span>,
+    wallet_address: <span class="str">"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN"</span>,
+    password: <span class="str">"supersecret123"</span>,
+  }),
+});
+<span class="kw">const</span> { access_token, refresh_token } = <span class="kw">await</span> resp.json();</code></pre></div>
+  <div class="panel"><pre><code><span class="kw">let</span> resp = reqwest::Client::new()
+    .post(<span class="str">"https://api.stellar-tipjar.com/api/v2/auth/register"</span>)
+    .json(&amp;serde_json::json!({
+        <span class="str">"username"</span>: <span class="str">"alice"</span>,
+        <span class="str">"wallet_address"</span>: <span class="str">"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN"</span>,
+        <span class="str">"password"</span>: <span class="str">"supersecret123"</span>,
+    }))
+    .send().await?;
+<span class="kw">let</span> tokens: serde_json::Value = resp.json().await?;</code></pre></div>
+
+  <!-- Record Tip -->
+  <h3><span class="pill POST">POST</span> Record a tip</h3>
+  <div class="tabs" id="tip">
+    <button class="tab active" onclick="sw('tip',0)">cURL</button>
+    <button class="tab" onclick="sw('tip',1)">Python</button>
+    <button class="tab" onclick="sw('tip',2)">JavaScript</button>
+    <button class="tab" onclick="sw('tip',3)">Rust</button>
+  </div>
+  <div class="panel active"><pre><code>curl -X POST https://api.stellar-tipjar.com/api/v2/tips \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "username": "alice",
+    "amount": "10.5",
+    "transaction_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+    "message": "Keep up the great work!"
+  }'</code></pre></div>
+  <div class="panel"><pre><code>resp = requests.post(
+    <span class="str">"https://api.stellar-tipjar.com/api/v2/tips"</span>,
+    headers={<span class="str">"Authorization"</span>: <span class="str">f"Bearer {access_token}"</span>},
+    json={
+        <span class="str">"username"</span>: <span class="str">"alice"</span>,
+        <span class="str">"amount"</span>: <span class="str">"10.5"</span>,
+        <span class="str">"transaction_hash"</span>: <span class="str">"a1b2c3d4..."</span>,
+        <span class="str">"message"</span>: <span class="str">"Keep up the great work!"</span>,
+    }
+)
+tip = resp.json()</code></pre></div>
+  <div class="panel"><pre><code><span class="kw">const</span> resp = <span class="kw">await</span> fetch(<span class="str">"https://api.stellar-tipjar.com/api/v2/tips"</span>, {
+  method: <span class="str">"POST"</span>,
+  headers: {
+    <span class="str">"Content-Type"</span>: <span class="str">"application/json"</span>,
+    <span class="str">"Authorization"</span>: <span class="str">`Bearer ${accessToken}`</span>,
+  },
+  body: JSON.stringify({
+    username: <span class="str">"alice"</span>, amount: <span class="str">"10.5"</span>,
+    transaction_hash: <span class="str">"a1b2c3d4..."</span>,
+    message: <span class="str">"Keep up the great work!"</span>,
+  }),
+});
+<span class="kw">const</span> tip = <span class="kw">await</span> resp.json();</code></pre></div>
+  <div class="panel"><pre><code><span class="kw">let</span> resp = client
+    .post(<span class="str">"https://api.stellar-tipjar.com/api/v2/tips"</span>)
+    .bearer_auth(&amp;access_token)
+    .json(&amp;serde_json::json!({
+        <span class="str">"username"</span>: <span class="str">"alice"</span>, <span class="str">"amount"</span>: <span class="str">"10.5"</span>,
+        <span class="str">"transaction_hash"</span>: <span class="str">"a1b2c3d4..."</span>,
+        <span class="str">"message"</span>: <span class="str">"Keep up the great work!"</span>,
+    }))
+    .send().await?;</code></pre></div>
+
+  <!-- List creator tips -->
+  <h3><span class="pill GET">GET</span> List creator tips (paginated)</h3>
+  <div class="tabs" id="list">
+    <button class="tab active" onclick="sw('list',0)">cURL</button>
+    <button class="tab" onclick="sw('list',1)">Python</button>
+    <button class="tab" onclick="sw('list',2)">JavaScript</button>
+  </div>
+  <div class="panel active"><pre><code>curl "https://api.stellar-tipjar.com/api/v2/creators/alice/tips?page=1&limit=20"</code></pre></div>
+  <div class="panel"><pre><code>resp = requests.get(
+    <span class="str">"https://api.stellar-tipjar.com/api/v2/creators/alice/tips"</span>,
+    params={<span class="str">"page"</span>: <span class="nm">1</span>, <span class="str">"limit"</span>: <span class="nm">20</span>},
+)
+data = resp.json()  <span class="cm"># { data, total, page, limit, total_pages, has_next, has_prev }</span></code></pre></div>
+  <div class="panel"><pre><code><span class="kw">const</span> resp = <span class="kw">await</span> fetch(
+  <span class="str">"https://api.stellar-tipjar.com/api/v2/creators/alice/tips?page=1&amp;limit=20"</span>
+);
+<span class="kw">const</span> { data, total, has_next } = <span class="kw">await</span> resp.json();</code></pre></div>
+
+  <h2>SDK Generation</h2>
+  <p>Generate a typed client from the OpenAPI spec using <a href="https://openapi-generator.tech">openapi-generator</a>:</p>
+  <h3>TypeScript</h3>
+  <pre><code>npx @openapitools/openapi-generator-cli generate \
+  -i https://api.stellar-tipjar.com/docs/openapi.json \
+  -g typescript-fetch \
+  -o ./sdk/typescript \
+  --additional-properties=typescriptThreePlus=true</code></pre>
+  <h3>Python</h3>
+  <pre><code>openapi-generator generate \
+  -i https://api.stellar-tipjar.com/docs/openapi.json \
+  -g python \
+  -o ./sdk/python \
+  --additional-properties=packageName=stellar_tipjar</code></pre>
+  <h3>Go</h3>
+  <pre><code>openapi-generator generate \
+  -i https://api.stellar-tipjar.com/docs/openapi.json \
+  -g go \
+  -o ./sdk/go \
+  --additional-properties=packageName=stellartipjar</code></pre>
+
+  <h2>Endpoint Reference</h2>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Auth</th><th>Description</th></tr>
+    <tr><td><span class="pill GET">GET</span></td><td><code>/health</code></td><td>—</td><td>Liveness probe</td></tr>
+    <tr><td><span class="pill GET">GET</span></td><td><code>/ready</code></td><td>—</td><td>Readiness probe</td></tr>
+    <tr><td><span class="pill POST">POST</span></td><td><code>/api/v2/auth/register</code></td><td>—</td><td>Register a new creator</td></tr>
+    <tr><td><span class="pill POST">POST</span></td><td><code>/api/v2/auth/login</code></td><td>—</td><td>Login, receive JWT pair</td></tr>
+    <tr><td><span class="pill POST">POST</span></td><td><code>/api/v2/auth/refresh</code></td><td>—</td><td>Refresh access token</td></tr>
+    <tr><td><span class="pill POST">POST</span></td><td><code>/api/v2/auth/2fa/setup</code></td><td>Bearer</td><td>Initiate TOTP 2FA setup</td></tr>
+    <tr><td><span class="pill POST">POST</span></td><td><code>/api/v2/auth/2fa/verify</code></td><td>Bearer</td><td>Verify and enable 2FA</td></tr>
+    <tr><td><span class="pill POST">POST</span></td><td><code>/api/v2/auth/2fa/recover</code></td><td>—</td><td>Account recovery with backup code</td></tr>
+    <tr><td><span class="pill POST">POST</span></td><td><code>/api/v2/creators</code></td><td>—</td><td>Create creator profile</td></tr>
+    <tr><td><span class="pill GET">GET</span></td><td><code>/api/v2/creators/{username}</code></td><td>—</td><td>Get creator by username</td></tr>
+    <tr><td><span class="pill GET">GET</span></td><td><code>/api/v2/creators/{username}/tips</code></td><td>—</td><td>List creator tips (paginated)</td></tr>
+    <tr><td><span class="pill GET">GET</span></td><td><code>/api/v2/creators/search</code></td><td>—</td><td>Search creators</td></tr>
+    <tr><td><span class="pill POST">POST</span></td><td><code>/api/v2/tips</code></td><td>Bearer</td><td>Record a verified tip</td></tr>
+    <tr><td><span class="pill GET">GET</span></td><td><code>/api/v2/tips</code></td><td>—</td><td>List all tips (paginated)</td></tr>
+    <tr><td><span class="pill POST">POST</span></td><td><code>/api/v2/tips/{id}/report</code></td><td>—</td><td>Report tip message</td></tr>
+    <tr><td><span class="pill POST">POST</span></td><td><code>/api/v2/teams</code></td><td>Bearer</td><td>Create team</td></tr>
+    <tr><td><span class="pill GET">GET</span></td><td><code>/api/v2/teams/{id}/splits</code></td><td>Bearer</td><td>Tip split history</td></tr>
+    <tr><td><span class="pill POST">POST</span></td><td><code>/api/v2/tenants</code></td><td>Bearer</td><td>Provision tenant</td></tr>
+    <tr><td><span class="pill GET">GET</span></td><td><code>/api/v2/tenants/{id}/analytics</code></td><td>Bearer</td><td>Tenant analytics</td></tr>
+    <tr><td><span class="pill GET">GET</span></td><td><code>/api/v2/tenants/{id}/usage</code></td><td>Bearer</td><td>Tenant resource usage</td></tr>
+  </table>
+
+  <h2>Rate Limits</h2>
+  <table>
+    <tr><th>Tier</th><th>Limit</th><th>Applies to</th></tr>
+    <tr><td>Read</td><td>120 req/min per IP</td><td>GET endpoints</td></tr>
+    <tr><td>Write</td><td>30 req/min per IP</td><td>POST / PUT / DELETE</td></tr>
+  </table>
+  <p>HTTP <code>429 Too Many Requests</code> is returned when exceeded. Check the <code>Retry-After</code> header.</p>
+
+  <h2>Error Format</h2>
+  <p>All errors use a consistent JSON envelope:</p>
+  <pre><code>{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Human-readable description",
+    "details": {}
+  }
+}</code></pre>
+</div>
+<script>
+function sw(id, idx) {
+  const group = document.getElementById(id);
+  group.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+  let panels = [], el = group.nextElementSibling;
+  while (el && el.classList.contains('panel')) { panels.push(el); el = el.nextElementSibling; }
+  panels.forEach((p, i) => p.classList.toggle('active', i === idx));
+}
+</script>
+</body>
+</html>

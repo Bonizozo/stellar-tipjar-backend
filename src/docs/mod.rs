@@ -1,3 +1,5 @@
+pub mod portal;
+
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
     Modify, OpenApi,
@@ -43,6 +45,8 @@ impl Modify for BearerAuth {
 Backend API for the Stellar Tipjar — create creator profiles and record on-chain tips
 verified against the Stellar network.
 
+> **Interactive docs:** [Redoc portal](/docs) | [Swagger UI](/swagger-ui) | [SDK guide](/docs/sdk)
+
 ## Authentication
 Most write endpoints require a JWT Bearer token obtained via `POST /auth/login`.
 
@@ -55,25 +59,40 @@ Access tokens expire after **15 minutes**. Use `POST /auth/refresh` with your
 `refresh_token` to obtain a new pair.
 
 ## Rate Limiting
-- **Read endpoints**: 120 req/min per IP
-- **Write endpoints**: 30 req/min per IP
+| Tier | Limit | Applies to |
+|------|-------|------------|
+| Read | 120 req/min per IP | GET endpoints |
+| Write | 30 req/min per IP | POST / PUT / DELETE |
+
+HTTP `429 Too Many Requests` is returned when exceeded. Check the `Retry-After` header.
 
 ## Multi-Tenancy
 Tenant-scoped endpoints require an `X-Tenant-ID` header containing the tenant UUID.
 
 ## Versioning
-All endpoints are available under `/api/v1` and `/api/v2`.
+All endpoints are available under `/api/v1` (legacy, deprecated) and `/api/v2` (current).
 
 ## Cursor Pagination
 Cursor-based pagination uses a composite cursor of `created_at` timestamp and `id`.
-The cursor value is a base64-encoded string of the form `"<timestamp>|<uuid>"` where
-`<timestamp>` is unix seconds and `<uuid>` is the tip's UUID. Example: base64("1620000000|550e8400-e29b-41d4-a716-446655440000").
+The cursor value is a base64-encoded string of the form `\"<timestamp>|<uuid>\"` where
+`<timestamp>` is unix seconds and `<uuid>` is the tip's UUID.
+Example: `base64(\"1620000000|550e8400-e29b-41d4-a716-446655440000\")`.
+
+## Errors
+All errors follow a consistent envelope:
+```json
+{ \"error\": { \"code\": \"VALIDATION_ERROR\", \"message\": \"...\", \"details\": {} } }
+```
         ",
         contact(
             name = "Stellar Tipjar Team",
             url = "https://github.com/stellar-tipjar"
         ),
         license(name = "MIT")
+    ),
+    servers(
+        (url = "http://localhost:8000", description = "Local development"),
+        (url = "https://api.stellar-tipjar.com", description = "Production"),
     ),
     paths(
         // Health
