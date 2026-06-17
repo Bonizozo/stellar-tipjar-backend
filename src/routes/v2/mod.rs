@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -80,10 +80,22 @@ async fn get_creator_tips(
 
 async fn record_tip(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     crate::validation::ValidatedJson(body): crate::validation::ValidatedJson<RecordTipRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     use crate::errors::StellarError;
-    match state.stellar.verify_transaction(&body.transaction_hash).await {
+    let client_ip = crate::routes::tips::extract_client_ip(&headers);
+    let validator = crate::services::validation_service::TipValidationService::new(
+        crate::services::validation_service::ValidationRules::default(),
+    );
+    validator
+        .validate_with_client(&state.db, &body, client_ip)
+        .await?;
+    match state
+        .stellar
+        .verify_transaction(&body.transaction_hash)
+        .await
+    {
         Ok(false) => {
             return Err(AppError::Stellar(StellarError::TransactionNotFound {
                 hash: body.transaction_hash.clone(),
@@ -92,7 +104,12 @@ async fn record_tip(
         Err(e) => return Err(e),
         Ok(true) => {}
     }
-    let t = tip_controller::record_tip(&state, body).await?;
+    let t = tip_controller::record_tip_with_context(
+        &state,
+        body,
+        tip_controller::TipRecordContext { ip: client_ip },
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(TipResponse::from(t))))
 }
 
