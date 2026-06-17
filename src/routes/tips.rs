@@ -1,18 +1,20 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc};
 use uuid::Uuid;
 
 use crate::controllers::tip_controller;
 use crate::db::connection::AppState;
 use crate::errors::{AppError, StellarError};
 use crate::models::pagination::PaginationParams;
-use crate::models::tip::{RecordTipRequest, ReportMessageRequest, TipFilters, TipResponse, TipSortParams};
+use crate::models::tip::{
+    RecordTipRequest, ReportMessageRequest, TipFilters, TipResponse, TipSortParams,
+};
 use crate::services::validation_service::{TipValidationService, ValidationRules};
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -36,10 +38,14 @@ pub fn router() -> Router<Arc<AppState>> {
 )]
 pub async fn record_tip(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     crate::validation::ValidatedJson(body): crate::validation::ValidatedJson<RecordTipRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    let client_ip = extract_client_ip(&headers);
     let validator = TipValidationService::new(ValidationRules::default());
-    validator.validate(&state.db, &body).await?;
+    validator
+        .validate_with_client(&state.db, &body, client_ip)
+        .await?;
 
     match state
         .stellar
@@ -55,7 +61,12 @@ pub async fn record_tip(
         Ok(true) => {}
     }
 
-    let tip = tip_controller::record_tip(&state, body).await?;
+    let tip = tip_controller::record_tip_with_context(
+        &state,
+        body,
+        tip_controller::TipRecordContext { ip: client_ip },
+    )
+    .await?;
     let response: TipResponse = tip.into();
     Ok((StatusCode::CREATED, Json(serde_json::json!(response))).into_response())
 }
@@ -102,4 +113,19 @@ pub async fn report_tip_message(
 ) -> Result<impl IntoResponse, AppError> {
     tip_controller::report_tip_message(&state, id, body).await?;
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+pub(crate) fn extract_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+        .and_then(|v| v.parse().ok())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse().ok())
+        })
 }
