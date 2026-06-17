@@ -21,6 +21,14 @@ pub struct PaginationParams {
     /// Items per page, max 100 (default: 20)
     #[serde(default = "default_limit")]
     pub limit: i64,
+    /// Cursor for cursor-based pagination. This is a base64 encoded string
+    /// representing a composite cursor based on `created_at` timestamp and `id`.
+    /// Format (base64 of): "<timestamp>|<uuid>" (unix seconds for timestamp).
+    #[serde(default)]
+    pub cursor: Option<String>,
+    /// When using cursor pagination, set to true to fetch the previous page.
+    #[serde(default)]
+    pub previous: Option<bool>,
 }
 
 impl PaginationParams {
@@ -52,6 +60,8 @@ pub struct PaginatedResponse<T: Serialize> {
     pub has_next: bool,
     /// Whether a previous page exists.
     pub has_prev: bool,
+    /// The active cursor value when using cursor-based pagination.
+    pub cursor: Option<String>,
 }
 
 impl<T: Serialize> PaginatedResponse<T> {
@@ -65,6 +75,7 @@ impl<T: Serialize> PaginatedResponse<T> {
             page: params.page,
             limit: params.limit,
             total_pages,
+            cursor: params.cursor.clone(),
         }
     }
 
@@ -77,6 +88,7 @@ impl<T: Serialize> PaginatedResponse<T> {
             total_pages: self.total_pages,
             has_next: self.has_next,
             has_prev: self.has_prev,
+            cursor: self.cursor,
         }
     }
 }

@@ -358,20 +358,74 @@ pub async fn get_tips_paginated(
         bind_idx += 1;
     }
 
-    let where_clause = if conditions.is_empty() {
+    let mut where_clause = if conditions.is_empty() {
         String::new()
     } else {
         format!("WHERE {}", conditions.join(" AND "))
     };
 
     let count_sql = format!("SELECT COUNT(*) FROM tips {where_clause}");
-    let data_sql = format!(
-        "SELECT id, creator_username, amount, transaction_hash, message, message_visibility, created_at \
-         FROM tips {where_clause} \
-         ORDER BY {sort_col} {sort_dir} \
-         LIMIT ${bind_idx} OFFSET ${}",
-        bind_idx + 1
-    );
+
+    // If a cursor is provided, use cursor-based pagination (created_at + id composite).
+    let data_sql = if let Some(cursor_str) = &params.cursor {
+        // Decode cursor: support either "<timestamp>|<uuid>" or legacy "<value>|<timestamp>|<uuid>" formats.
+        let decoded = base64::decode(cursor_str)
+            .map_err(|_| AppError::bad_request("Invalid cursor format"))?;
+        let cursor_s = String::from_utf8(decoded)
+            .map_err(|_| AppError::bad_request("Invalid cursor encoding"))?;
+        let parts: Vec<&str> = cursor_s.split('|').collect();
+        let (ts_str, id_str) = match parts.len() {
+            2 => (parts[0], parts[1]),
+            3 => (parts[1], parts[2]),
+            _ => return Err(AppError::bad_request("Invalid cursor structure")),
+        };
+
+        let ts = ts_str.parse::<i64>()
+            .map_err(|_| AppError::bad_request("Invalid cursor timestamp"))?;
+        let uuid = Uuid::parse_str(id_str)
+            .map_err(|_| AppError::bad_request("Invalid cursor id"))?;
+
+        // Determine comparison operator and order depending on sort direction and previous flag
+        let previous = params.previous.unwrap_or(false);
+        let (operator, order) = if sort_dir.eq_ignore_ascii_case("DESC") {
+            if previous { (">", "ASC") } else { ("<", "DESC") }
+        } else {
+            if previous { ("<", "DESC") } else { (">", "ASC") }
+        };
+
+        // Add cursor condition to WHERE clause using parameter placeholders
+        let ts_idx = bind_idx;
+        bind_idx += 1;
+        let id_idx = bind_idx;
+        bind_idx += 1;
+
+        if where_clause.is_empty() {
+            where_clause = format!(
+                "WHERE ({} {} to_timestamp(${}) OR ({} = to_timestamp(${}) AND id {} ${}))",
+                sort_col, operator, ts_idx, sort_col, ts_idx, operator, id_idx
+            );
+        } else {
+            where_clause = format!(
+                "{} AND ({} {} to_timestamp(${}) OR ({} = to_timestamp(${}) AND id {} ${}))",
+                where_clause, sort_col, operator, ts_idx, sort_col, ts_idx, operator, id_idx
+            );
+        }
+
+        // Order by sort column and id to make ordering deterministic
+        format!(
+            "SELECT id, creator_username, amount, transaction_hash, message, message_visibility, created_at \n                 FROM tips {where_clause} \n                 ORDER BY {sort_col} {order}, id {order} \n                 LIMIT ${}",
+            bind_idx
+        )
+    } else {
+        format!(
+            "SELECT id, creator_username, amount, transaction_hash, message, message_visibility, created_at \ 
+         FROM tips {where_clause} \ 
+         ORDER BY {sort_col} {sort_dir} \ 
+         LIMIT ${} OFFSET ${}",
+            bind_idx,
+            bind_idx + 1
+        )
+    };
 
     // Bind all active filter parameters onto a query builder.
     macro_rules! bind_filters {
@@ -401,18 +455,54 @@ pub async fn get_tips_paginated(
         .await?;
 
     let start = Instant::now();
-    let tips: Vec<Tip> = bind_filters!(sqlx::query_as::<_, Tip>(&data_sql))
-        .bind(params.limit)
-        .bind(params.offset())
-        .fetch_all(&state.db)
-        .await?;
-    let duration = start.elapsed();
+    let mut q = bind_filters!(sqlx::query_as::<_, Tip>(&data_sql));
 
-    DB_QUERY_DURATION_SECONDS
-        .with_label_values(&["tips_paginated"])
-        .observe(duration.as_secs_f64());
+    if params.cursor.is_some() {
+        // cursor query: bind limit, then cursor timestamp and id
+        // Note: we've already reserved placeholder indexes for timestamp and id when building SQL
+        // bind order: filters (bound by macro) -> limit -> ts -> id
+        // Re-decode to get values to bind
+        let decoded = base64::decode(params.cursor.as_ref().unwrap())
+            .map_err(|_| AppError::bad_request("Invalid cursor format"))?;
+        let cursor_s = String::from_utf8(decoded)
+            .map_err(|_| AppError::bad_request("Invalid cursor encoding"))?;
+        let parts: Vec<&str> = cursor_s.split('|').collect();
+        let (ts_str, id_str) = match parts.len() {
+            2 => (parts[0], parts[1]),
+            3 => (parts[1], parts[2]),
+            _ => return Err(AppError::bad_request("Invalid cursor structure")),
+        };
+        let ts = ts_str.parse::<i64>()
+            .map_err(|_| AppError::bad_request("Invalid cursor timestamp"))?;
+        let uuid = Uuid::parse_str(id_str)
+            .map_err(|_| AppError::bad_request("Invalid cursor id"))?;
 
-    Ok(PaginatedResponse::new(tips, total, &params))
+        let tips: Vec<Tip> = q.bind(params.limit).bind(ts).bind(uuid).fetch_all(&state.db).await?;
+
+        let duration = start.elapsed();
+
+        DB_QUERY_DURATION_SECONDS
+            .with_label_values(&["tips_paginated"]) 
+            .observe(duration.as_secs_f64());
+
+        // If previous flag was set, results were ordered ascending for cursor; reverse to return newest-first
+        let mut tips = tips;
+        if params.previous.unwrap_or(false) {
+            tips.reverse();
+        }
+
+        return Ok(PaginatedResponse::new(tips, total, &params));
+    } else {
+        // offset query: bind limit and offset
+        let tips: Vec<Tip> = q.bind(params.limit).bind(params.offset()).fetch_all(&state.db).await?;
+        let duration = start.elapsed();
+
+        DB_QUERY_DURATION_SECONDS
+            .with_label_values(&["tips_paginated"]) 
+            .observe(duration.as_secs_f64());
+
+        return Ok(PaginatedResponse::new(tips, total, &params));
+    }
 }
 
 /// Report a tip message for moderation review.
