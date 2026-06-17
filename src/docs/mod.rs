@@ -63,6 +63,11 @@ Tenant-scoped endpoints require an `X-Tenant-ID` header containing the tenant UU
 
 ## Versioning
 All endpoints are available under `/api/v1` and `/api/v2`.
+
+## Cursor Pagination
+Cursor-based pagination uses a composite cursor of `created_at` timestamp and `id`.
+The cursor value is a base64-encoded string of the form `"<timestamp>|<uuid>"` where
+`<timestamp>` is unix seconds and `<uuid>` is the tip's UUID. Example: base64("1620000000|550e8400-e29b-41d4-a716-446655440000").
         ",
         contact(
             name = "Stellar Tipjar Team",
