@@ -12,6 +12,7 @@ use crate::controllers::goal_controller;
 use crate::db::connection::AppState;
 use crate::errors::AppError;
 use crate::models::goal::{CreateGoalRequest, TipGoalResponse};
+use crate::validation::ValidatedJson;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -22,7 +23,7 @@ pub fn router() -> Router<Arc<AppState>> {
 async fn create_goal(
     State(state): State<Arc<AppState>>,
     Path(username): Path<String>,
-    Json(body): Json<CreateGoalRequest>,
+    ValidatedJson(body): ValidatedJson<CreateGoalRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let goal = goal_controller::create_goal(&state.db, &username, body).await?;
     let resp: TipGoalResponse = goal.into();
