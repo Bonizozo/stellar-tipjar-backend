@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stellar Tipjar — API Docs</title>
+  <link rel="icon" href="https://stellar.org/favicon.ico" />
+  <style>
+    :root {
+      --brand: #3b82f6; --bg: #0f172a; --surface: #1e293b;
+      --text: #e2e8f0; --muted: #94a3b8; --border: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+    header {
+      display: flex; align-items: center; gap: 16px; padding: 14px 28px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    .badge {
+      font-size: 0.7rem; padding: 2px 8px; border-radius: 9999px;
+      background: var(--brand); color: #fff; font-weight: 700;
+    }
+    nav { margin-left: auto; display: flex; align-items: center; gap: 24px; }
+    nav a { color: var(--muted); text-decoration: none; font-size: 0.85rem; transition: color .15s; }
+    nav a:hover, nav a.active { color: var(--text); }
+    #redoc-container { min-height: calc(100vh - 56px); }
+  </style>
+</head>
+<body>
+  <header>
+    <span style="font-size:1.5rem">&#x1F680;</span>
+    <h1>Stellar Tipjar API</h1>
+    <span class="badge">v1.0</span>
+    <nav>
+      <a href="/docs" class="active">Reference</a>
+      <a href="/docs/sdk">SDK Guide</a>
+      <a href="/swagger-ui">Swagger UI</a>
+      <a href="/docs/openapi.json">OpenAPI JSON</a>
+    </nav>
+  </header>
+  <div id="redoc-container"></div>
+  <script src="https://cdn.jsdelivr.net/npm/redoc@latest/bundles/redoc.standalone.js"></script>
+  <script>
+    Redoc.init('/docs/openapi.json', {
+      theme: {
+        colors: { primary: { main: '#3b82f6' } },
+        typography: {
+          fontSize: '15px',
+          fontFamily: 'system-ui, sans-serif',
+          code: { fontSize: '13px' }
+        },
+        sidebar: { backgroundColor: '#1e293b', textColor: '#e2e8f0' },
+        rightPanel: { backgroundColor: '#0d1117' },
+        codeBlock: { backgroundColor: '#0d1117' },
+      },
+      hideDownloadButton: false,
+      expandResponses: '200,201',
+      requiredPropsFirst: true,
+      sortPropsAlphabetically: false,
+      showExtensions: true,
+    }, document.getElementById('redoc-container'));
+  </script>
+</body>
+</html>

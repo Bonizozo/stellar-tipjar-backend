@@ -94,6 +94,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 
     Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .merge(docs::portal::router())
         .merge(routes::feature_flags::router(Arc::clone(&state)))
         .merge(routes::usage_analytics::router(Arc::clone(&state)))
         .merge(routes::refunds::admin_router(Arc::clone(&state)))

@@ -453,6 +453,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/metrics", axum::routing::get(metrics_handler))
         .route("/metrics/summary", axum::routing::get(metrics_summary_handler))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .merge(docs::portal::router())
         .merge(routes::monitoring::router(Arc::clone(&state), Arc::clone(&monitor)))
         .merge(routes::mesh::router(Arc::clone(&state), Arc::clone(&service_registry)))
         .merge(routes::load_balancer::router(Arc::clone(&state), Arc::clone(&service_registry)))
