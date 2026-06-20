@@ -44,8 +44,8 @@ async fn test_rate_limit_exceeded_returns_429() {
     if resp.status_code() == StatusCode::TOO_MANY_REQUESTS {
         // Verify JSON error body
         let body = resp.json::<serde_json::Value>();
-        assert_eq!(body["error"]["code"], "RATE_LIMIT_EXCEEDED");
-        assert!(body["error"]["retry_after_secs"].is_number());
+        assert_eq!(body["code"], "RATE_LIMIT_EXCEEDED");
+        assert!(body["details"]["retry_after_secs"].is_number());
 
         // Verify Retry-After header
         assert!(

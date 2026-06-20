@@ -81,8 +81,36 @@ Example: `base64(\"1620000000|550e8400-e29b-41d4-a716-446655440000\")`.
 ## Errors
 All errors follow a consistent envelope:
 ```json
-{ \"error\": { \"code\": \"VALIDATION_ERROR\", \"message\": \"...\", \"details\": {} } }
+{
+  \"error\": \"One or more fields failed validation\",
+  \"code\": \"VALIDATION_ERROR\",
+  \"status\": 400,
+  \"details\": { \"fields\": { \"username\": [\"too short\"] } },
+  \"request_id\": \"a1b2c3d4-...\"
+}
 ```
+`details` and `request_id` are omitted when not applicable. `request_id` echoes the
+`x-request-id` response header — include it when contacting support.
+
+### Error codes
+| Code | HTTP status | Meaning |
+|------|-------------|---------|
+| `VALIDATION_ERROR` | 400 | One or more request fields failed validation |
+| `INVALID_JSON` | 400 | Request body is not valid JSON |
+| `INVALID_REQUEST` | 400 | Request failed a business-rule precondition |
+| `UNAUTHORIZED` | 401 | Missing, invalid, or expired credentials |
+| `FORBIDDEN` | 403 | Authenticated but not permitted to perform this action |
+| `DB_NOT_FOUND` | 404 | The requested resource does not exist |
+| `CREATOR_NOT_FOUND` | 404 | The requested creator username does not exist |
+| `DB_UNIQUE_VIOLATION` | 409 | A resource with this unique field already exists |
+| `CONFLICT` (or a custom code) | 409 | The request conflicts with current state |
+| `STELLAR_TX_NOT_FOUND` | 422 | Stellar transaction not found or unsuccessful |
+| `STELLAR_INVALID_TX` | 422 | The submitted Stellar transaction failed validation |
+| `STELLAR_NETWORK_UNAVAILABLE` | 502 | Unable to reach the Stellar network |
+| `STELLAR_CIRCUIT_OPEN` | 503 | Stellar verification circuit breaker is open |
+| `SERVICE_UNAVAILABLE` | 503 | A dependency is temporarily unavailable |
+| `RATE_LIMIT_EXCEEDED` | 429 | Too many requests; see `Retry-After` header |
+| `DB_QUERY_FAILED` / `INTERNAL_ERROR` | 500 | Unexpected server error (details are never leaked) |
         ",
         contact(
             name = "Stellar Tipjar Team",

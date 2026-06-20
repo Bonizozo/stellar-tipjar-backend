@@ -89,11 +89,11 @@ fn rate_limit_error_handler(err: GovernorError) -> Response {
     tracing::warn!(retry_after_secs = retry_after, "Rate limit exceeded");
 
     let body = serde_json::json!({
-        "error": {
-            "code": "RATE_LIMIT_EXCEEDED",
-            "message": message,
-            "retry_after_secs": retry_after
-        }
+        "error": message,
+        "code": "RATE_LIMIT_EXCEEDED",
+        "status": StatusCode::TOO_MANY_REQUESTS.as_u16(),
+        "details": { "retry_after_secs": retry_after },
+        "request_id": crate::middleware::request_id::current_request_id(),
     });
 
     let mut resp = (StatusCode::TOO_MANY_REQUESTS, axum::Json(body)).into_response();
@@ -220,11 +220,11 @@ pub async fn redis_throttle_middleware(
         if count > limit {
             tracing::warn!(ip, count, limit, "Redis distributed rate limit exceeded");
             let body = serde_json::json!({
-                "error": {
-                    "code": "RATE_LIMIT_EXCEEDED",
-                    "message": "Too many requests. Please slow down.",
-                    "retry_after_secs": reset_secs
-                }
+                "error": "Too many requests. Please slow down.",
+                "code": "RATE_LIMIT_EXCEEDED",
+                "status": StatusCode::TOO_MANY_REQUESTS.as_u16(),
+                "details": { "retry_after_secs": reset_secs },
+                "request_id": crate::middleware::request_id::current_request_id(),
             });
             let mut resp = (StatusCode::TOO_MANY_REQUESTS, axum::Json(body)).into_response();
             resp.headers_mut().insert("X-RateLimit-Limit", limit.to_string().parse().unwrap());
