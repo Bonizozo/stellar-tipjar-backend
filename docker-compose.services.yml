@@ -57,7 +57,9 @@ services:
       - wallet-service
 
   postgres:
-    image: postgres:15
+    # postgis/postgis bundles the PostGIS extension required by migration
+    # 0056 (creator_locations); plain postgres:15 lacks it.
+    image: postgis/postgis:15-3.4
     environment:
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=password

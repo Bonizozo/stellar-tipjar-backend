@@ -1,6 +1,8 @@
 services:
   db:
-    image: postgres:15-alpine
+    # postgis/postgis bundles the PostGIS extension required by migration
+    # 0056 (creator_locations); plain postgres:15-alpine lacks it.
+    image: postgis/postgis:15-3.4-alpine
     container_name: tipjar-db
     environment:
       POSTGRES_USER: user

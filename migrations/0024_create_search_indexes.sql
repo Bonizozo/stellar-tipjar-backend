@@ -1,6 +1,16 @@
 -- Enable pg_trgm extension for fuzzy matching
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
+-- Profile columns referenced by full-text/fuzzy search below, but never
+-- previously created by any migration.
+ALTER TABLE creators ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE creators ADD COLUMN IF NOT EXISTS bio TEXT;
+
+-- Tips were keyed by creator_username; search joins tips to creators by id.
+ALTER TABLE tips ADD COLUMN IF NOT EXISTS creator_id UUID REFERENCES creators(id) ON DELETE CASCADE;
+UPDATE tips t SET creator_id = c.id FROM creators c WHERE t.creator_username = c.username AND t.creator_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_tips_creator_id ON tips(creator_id);
+
 -- Add search vector columns to creators table
 ALTER TABLE creators ADD COLUMN IF NOT EXISTS search_vector tsvector;
 
