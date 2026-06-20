@@ -92,6 +92,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .merge(routes::locks::router())
         .layer(general_limiter);
 
+    let x_request_id = axum::http::HeaderName::from_static("x-request-id");
+
     Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .merge(docs::portal::router())
@@ -104,6 +106,16 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .layer(TraceLayer::new_for_http())
         .layer(middleware::compression::compression_layer())
         .layer(middleware::timeout::timeout_layer_from_env())
+        .layer(axum::middleware::from_fn(
+            middleware::request_id::propagate_request_id,
+        ))
+        .layer(tower_http::request_id::SetRequestIdLayer::new(
+            x_request_id.clone(),
+            tower_http::request_id::MakeRequestUuid,
+        ))
+        .layer(tower_http::request_id::PropagateRequestIdLayer::new(
+            x_request_id,
+        ))
         .layer(axum::middleware::from_fn(
             middleware::rate_limiter::whitelist_middleware,
         ))

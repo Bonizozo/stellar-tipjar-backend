@@ -33,17 +33,17 @@ pub enum AppError {
     Internal,
 }
 
+/// The standard error envelope returned by every endpoint:
+/// `{ error: string, code: string, status: number, details?: object, request_id?: string }`.
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
-    pub error: ErrorBody,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ErrorBody {
+    pub error: String,
     pub code: &'static str,
-    pub message: String,
+    pub status: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 impl AppError {
@@ -99,7 +99,8 @@ impl AppError {
         }
     }
 
-    fn status(&self) -> StatusCode {
+    /// Maps every `AppError` variant to its HTTP status code.
+    pub fn status_code(&self) -> StatusCode {
         match self {
             Self::Database(err) => match err {
                 DatabaseError::NotFound { .. } => StatusCode::NOT_FOUND,
@@ -123,68 +124,55 @@ impl AppError {
         }
     }
 
-    fn body(&self) -> ErrorBody {
+    /// The stable machine-readable error code for this variant. See
+    /// `status_code()` for the corresponding HTTP status.
+    pub fn code(&self) -> &'static str {
+        self.code_message_details().0
+    }
+
+    fn code_message_details(&self) -> (&'static str, String, Option<serde_json::Value>) {
         match self {
             Self::Database(err) => {
                 if matches!(err, DatabaseError::QueryFailed) {
-                    ErrorBody {
-                        code: err.code(),
-                        message: "Internal server error".to_string(),
-                        details: None,
-                    }
+                    (err.code(), "Internal server error".to_string(), None)
                 } else {
-                    ErrorBody {
-                        code: err.code(),
-                        message: err.message(),
-                        details: Some(err.details()),
-                    }
+                    (err.code(), err.message(), Some(err.details()))
                 }
             }
-            Self::Stellar(err) => ErrorBody {
-                code: err.code(),
-                message: err.message(),
-                details: Some(err.details()),
-            },
-            Self::Validation(err) => ErrorBody {
-                code: err.code(),
-                message: err.message(),
-                details: Some(err.details()),
-            },
-            Self::CreatorNotFound { username } => ErrorBody {
-                code: "CREATOR_NOT_FOUND",
-                message: "Creator not found".to_string(),
-                details: Some(serde_json::json!({ "username": username })),
-            },
-            Self::Unauthorized { message } => ErrorBody {
-                code: "UNAUTHORIZED",
-                message: message.clone(),
-                details: None,
-            },
-            Self::Forbidden { message } => ErrorBody {
-                code: "FORBIDDEN",
-                message: message.clone(),
-                details: None,
-            },
-            Self::Conflict { code, message } => ErrorBody {
-                code,
-                message: message.clone(),
-                details: None,
-            },
-            Self::ServiceUnavailable { message } => ErrorBody {
-                code: "SERVICE_UNAVAILABLE",
-                message: message.clone(),
-                details: None,
-            },
-            Self::RateLimited { message, retry_after_secs } => ErrorBody {
-                code: "RATE_LIMIT_EXCEEDED",
-                message: message.clone(),
-                details: retry_after_secs.map(|s| serde_json::json!({ "retry_after_secs": s })),
-            },
-            Self::Internal => ErrorBody {
-                code: "INTERNAL_ERROR",
-                message: "Internal server error".to_string(),
-                details: None,
-            },
+            Self::Stellar(err) => (err.code(), err.message(), Some(err.details())),
+            Self::Validation(err) => (err.code(), err.message(), Some(err.details())),
+            Self::CreatorNotFound { username } => (
+                "CREATOR_NOT_FOUND",
+                "Creator not found".to_string(),
+                Some(serde_json::json!({ "username": username })),
+            ),
+            Self::Unauthorized { message } => ("UNAUTHORIZED", message.clone(), None),
+            Self::Forbidden { message } => ("FORBIDDEN", message.clone(), None),
+            Self::Conflict { code, message } => (code, message.clone(), None),
+            Self::ServiceUnavailable { message } => {
+                ("SERVICE_UNAVAILABLE", message.clone(), None)
+            }
+            Self::RateLimited {
+                message,
+                retry_after_secs,
+            } => (
+                "RATE_LIMIT_EXCEEDED",
+                message.clone(),
+                retry_after_secs.map(|s| serde_json::json!({ "retry_after_secs": s })),
+            ),
+            Self::Internal => ("INTERNAL_ERROR", "Internal server error".to_string(), None),
+        }
+    }
+
+    fn to_error_response(&self) -> ErrorResponse {
+        let status = self.status_code();
+        let (code, message, details) = self.code_message_details();
+        ErrorResponse {
+            error: message,
+            code,
+            status: status.as_u16(),
+            details,
+            request_id: crate::middleware::request_id::current_request_id(),
         }
     }
 }
@@ -214,7 +202,7 @@ impl From<anyhow::Error> for AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let status = self.status();
+        let status = self.status_code();
         if status.is_server_error() {
             tracing::error!(error = %self, "Request failed");
         } else {
@@ -224,8 +212,8 @@ impl IntoResponse for AppError {
         // For rate-limited errors, inject a Retry-After header.
         if let Self::RateLimited { retry_after_secs, .. } = &self {
             let retry = *retry_after_secs;
-            let body = self.body();
-            let mut resp = (status, Json(ErrorResponse { error: body })).into_response();
+            let body = self.to_error_response();
+            let mut resp = (status, Json(body)).into_response();
             if let Some(secs) = retry {
                 if let Ok(v) = secs.to_string().parse() {
                     resp.headers_mut().insert("Retry-After", v);
@@ -234,8 +222,8 @@ impl IntoResponse for AppError {
             return resp;
         }
 
-        let body = self.body();
-        (status, Json(ErrorResponse { error: body })).into_response()
+        let body = self.to_error_response();
+        (status, Json(body)).into_response()
     }
 }
 
@@ -255,8 +243,9 @@ mod tests {
 
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["error"]["code"], "INVALID_REQUEST");
-        assert_eq!(json["error"]["message"], "bad input");
+        assert_eq!(json["code"], "INVALID_REQUEST");
+        assert_eq!(json["error"], "bad input");
+        assert_eq!(json["status"], 400);
     }
 
     #[tokio::test]
@@ -266,7 +255,8 @@ mod tests {
 
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["error"]["code"], "INTERNAL_ERROR");
-        assert_eq!(json["error"]["message"], "Internal server error");
+        assert_eq!(json["code"], "INTERNAL_ERROR");
+        assert_eq!(json["error"], "Internal server error");
+        assert_eq!(json["status"], 500);
     }
 }

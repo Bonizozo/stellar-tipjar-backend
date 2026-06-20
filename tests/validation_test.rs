@@ -17,7 +17,7 @@ async fn test_username_too_short_rejected() {
         .await;
     resp.assert_status(StatusCode::BAD_REQUEST);
     let body = resp.json::<serde_json::Value>();
-    assert_eq!(body["error"]["code"], "VALIDATION_ERROR");
+    assert_eq!(body["code"], "VALIDATION_ERROR");
 
     common::cleanup_test_db(&pool).await;
 }
@@ -76,7 +76,7 @@ async fn test_invalid_email_rejected() {
         .await;
     resp.assert_status(StatusCode::BAD_REQUEST);
     let body = resp.json::<serde_json::Value>();
-    assert_eq!(body["error"]["code"], "VALIDATION_ERROR");
+    assert_eq!(body["code"], "VALIDATION_ERROR");
 
     common::cleanup_test_db(&pool).await;
 }
@@ -175,7 +175,7 @@ async fn test_malformed_json_rejected() {
         .await;
     resp.assert_status(StatusCode::BAD_REQUEST);
     let body = resp.json::<serde_json::Value>();
-    assert_eq!(body["error"]["code"], "INVALID_JSON");
+    assert_eq!(body["code"], "INVALID_JSON");
 
     common::cleanup_test_db(&pool).await;
 }
