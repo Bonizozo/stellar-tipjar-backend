@@ -12,3 +12,7 @@ DROP INDEX IF EXISTS idx_creators_display_name_trgm;
 DROP INDEX IF EXISTS idx_creators_username_trgm;
 DROP INDEX IF EXISTS idx_creators_search_vector;
 ALTER TABLE creators DROP COLUMN IF EXISTS search_vector;
+DROP INDEX IF EXISTS idx_tips_creator_id;
+ALTER TABLE tips DROP COLUMN IF EXISTS creator_id;
+ALTER TABLE creators DROP COLUMN IF EXISTS bio;
+ALTER TABLE creators DROP COLUMN IF EXISTS display_name;

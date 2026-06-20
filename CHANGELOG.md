@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Database Migrations** — Renumbered duplicate migration version numbers (many migration files independently reused the same version prefix, e.g. two `0003_*` and four `0029_*` files), which made `sqlx::migrate!` panic on a fresh database with a duplicate-primary-key error. Also fixed several migrations that referenced columns/tables never created (`creators.display_name`, `creators.bio`, `tips.creator_id`), a `CREATE INDEX` with an invalid subquery predicate, a stray `git` typo that broke a migration's SQL, and a table name collision between two unrelated `audit_logs` tables (renamed the generic one to `event_audit_logs`). `compose.yml` / `docker-compose.services.yml` now use a PostGIS-enabled Postgres image so the creator-locations migration can run. Closes #307
+
 ### Added
 
 - **Rate Limiting and Request Throttling** — IP-based rate limiting via `tower_governor` with separate limits for read/write endpoints, IP whitelist, and JSON 429 responses with `Retry-After` header. Closes #107

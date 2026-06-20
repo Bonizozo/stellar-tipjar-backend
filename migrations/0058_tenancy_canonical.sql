@@ -2,13 +2,15 @@
 CREATE TABLE IF NOT EXISTS tenants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL UNIQUE,
-    slug VARCHAR(100) NOT NULL UNIQUE,
     max_creators INTEGER NOT NULL DEFAULT 100,
     max_tips_per_day INTEGER NOT NULL DEFAULT 10000,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- tenants may already exist from an earlier migration without these columns.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS slug VARCHAR(100) UNIQUE;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- Ensure tenant_configs table exists
 CREATE TABLE IF NOT EXISTS tenant_configs (

@@ -24,5 +24,4 @@ ALTER TABLE creators ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(
 
 -- Create index for tenant queries
 CREATE INDEX IF NOT EXISTS idx_creators_tenant_id ON creators(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_tips_creator_tenant ON tips(creator_id) WHERE creator_id IN (SELECT id FROM creators WHERE tenant_id IS NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_tenants_name ON tenants(name);
