@@ -3,7 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     middleware,
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use sha2::{Digest, Sha256};
@@ -14,6 +14,7 @@ use crate::controllers::admin_controller;
 use crate::db::connection::AppState;
 use crate::middleware::admin_auth::require_admin;
 use crate::models::admin::{AuditLogResponse, DeleteCreatorRequest};
+use crate::moderation::ModerationConfig;
 
 #[derive(serde::Deserialize)]
 pub struct AuditQuery {
@@ -35,6 +36,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Moderation endpoints
         .route("/admin/moderation/queue", get(moderation_queue))
         .route("/admin/moderation/stats", get(moderation_stats))
+        .route("/admin/moderation/config", get(moderation_get_config).patch(moderation_update_config))
         .route("/admin/moderation/flag", post(moderation_flag))
         .route("/admin/moderation/:id/approve", post(moderation_approve))
         .route("/admin/moderation/:id/reject", post(moderation_reject))
@@ -170,6 +172,49 @@ async fn moderation_stats(State(state): State<Arc<AppState>>) -> impl IntoRespon
                 .into_response()
         }
     }
+}
+
+/// GET /admin/moderation/config — return the current runtime moderation configuration.
+async fn moderation_get_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let cfg = state.moderation.config();
+    (StatusCode::OK, Json(serde_json::json!(cfg))).into_response()
+}
+
+/// PATCH /admin/moderation/config — update threshold and/or enabled flag at runtime.
+///
+/// Body fields (all optional — omitted fields keep their current value):
+/// - `enabled`: bool
+/// - `threshold`: f32 in [0.0, 1.0]
+#[derive(serde::Deserialize)]
+struct UpdateModerationConfigBody {
+    enabled: Option<bool>,
+    threshold: Option<f32>,
+}
+
+async fn moderation_update_config(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<UpdateModerationConfigBody>,
+) -> impl IntoResponse {
+    // Validate threshold range when provided.
+    if let Some(t) = body.threshold {
+        if !(0.0..=1.0).contains(&t) {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": "threshold must be between 0.0 and 1.0" })),
+            )
+                .into_response();
+        }
+    }
+
+    let mut cfg = state.moderation.config();
+    if let Some(enabled) = body.enabled {
+        cfg.enabled = enabled;
+    }
+    if let Some(threshold) = body.threshold {
+        cfg.threshold = threshold;
+    }
+    state.moderation.update_config(cfg.clone());
+    (StatusCode::OK, Json(serde_json::json!(cfg))).into_response()
 }
 
 async fn moderation_approve(
