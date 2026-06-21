@@ -56,6 +56,31 @@ All configuration is provided through environment variables. Copy `.env.example`
 
 Logging verbosity is controlled by the `RUST_LOG` environment variable (defaults to `stellar_tipjar_backend=debug,tower_http=debug`).
 
+### Content Moderation
+
+Tip messages and comments are screened by a rule-based engine and (optionally) the Anthropic Claude API. Two environment variables control the behaviour:
+
+| Variable | Default | Description |
+|---|---|---|
+| `MODERATION_ENABLED` | `true` | Set to `false` or `0` to disable all moderation. Useful in development/test environments where you don't want content checks blocking requests. |
+| `MODERATION_THRESHOLD` | `0.90` | Confidence threshold (0.0–1.0). Content whose highest-confidence violation or AI score meets or exceeds this value is hard-blocked with a `422` response. |
+
+These values can also be changed **at runtime** without a restart via the admin API:
+
+```
+# Inspect current configuration
+GET /api/v1/admin/moderation/config
+
+# Update threshold and/or enabled flag
+PATCH /api/v1/admin/moderation/config
+Content-Type: application/json
+X-Admin-Key: <admin-key>
+
+{ "threshold": 0.85, "enabled": true }
+```
+
+Both `enabled` and `threshold` in the PATCH body are optional — omit a field to keep its current value. Changes take effect immediately for all subsequent requests.
+
 ## Running the Server
 
 ```bash

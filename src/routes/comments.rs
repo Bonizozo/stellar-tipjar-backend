@@ -33,7 +33,8 @@ async fn create_comment(
         .moderation
         .check_content(&body.body, ContentType::TipMessage, None)
         .await;
-    if moderation.has_high_confidence_violation(0.90) {
+    let threshold = state.moderation.block_threshold();
+    if moderation.has_high_confidence_violation(threshold) {
         return Err(AppError::bad_request("Comment was rejected by content moderation"));
     }
 
