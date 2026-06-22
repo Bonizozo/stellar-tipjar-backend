@@ -2,7 +2,7 @@
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use std::sync::Arc;
@@ -11,14 +11,19 @@ use crate::controllers::creator_controller;
 use crate::controllers::tip_controller;
 use crate::db::connection::AppState;
 use crate::errors::{AppError, ValidationError};
-use crate::models::creator::{CreateCreatorRequest, CreatorResponse};
+use crate::models::creator::{CreateCreatorRequest, CreatorResponse, UpdateCreatorWalletRequest};
 use crate::models::pagination::PaginationParams;
 use crate::models::tip::{TipFilters, TipResponse, TipSortParams};
 use crate::search::SearchQuery;
 
 /// Write routes: POST /creators — subject to stricter rate limiting.
 pub fn write_router() -> Router<Arc<AppState>> {
-    Router::new().route("/creators", post(create_creator))
+    Router::new()
+        .route("/creators", post(create_creator))
+        .route(
+            "/creators/:username/wallet",
+            patch(update_creator_wallet),
+        )
 }
 
 /// Read routes: GET /creators/:username, GET /creators/:username/tips — general rate limiting.
@@ -97,6 +102,32 @@ pub async fn get_creator_tips(
     let result = tip_controller::get_tips_paginated(&state, Some(&username), params, filters, sort)
         .await?;
     let response = result.map(TipResponse::from);
+    Ok((StatusCode::OK, Json(serde_json::json!(response))).into_response())
+}
+
+/// Update a creator's wallet address with proof of ownership from the new address.
+#[utoipa::path(
+    patch,
+    path = "/creators/{username}/wallet",
+    tag = "creators",
+    params(
+        ("username" = String, Path, description = "Creator's unique username")
+    ),
+    request_body = UpdateCreatorWalletRequest,
+    responses(
+        (status = 200, description = "Wallet updated successfully", body = CreatorResponse),
+        (status = 400, description = "Invalid request or signature"),
+        (status = 404, description = "Creator not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn update_creator_wallet(
+    State(state): State<Arc<AppState>>,
+    Path(username): Path<String>,
+    crate::validation::ValidatedJson(body): crate::validation::ValidatedJson<UpdateCreatorWalletRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let creator = creator_controller::update_creator_wallet_address(&state, &username, body).await?;
+    let response: CreatorResponse = creator.into();
     Ok((StatusCode::OK, Json(serde_json::json!(response))).into_response())
 }
 
