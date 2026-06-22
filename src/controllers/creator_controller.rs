@@ -1,3 +1,5 @@
+use base64::{engine::general_purpose, Engine as _};
+use ed25519_dalek::{PublicKey, Signature, Verifier};
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -6,10 +8,11 @@ use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
 use crate::errors::{AppError, AppResult, ValidationError};
 use crate::metrics::collectors::CREATORS_REGISTERED_TOTAL;
-use crate::models::creator::{CreateCreatorRequest, Creator};
+use crate::models::creator::{CreateCreatorRequest, Creator, UpdateCreatorWalletRequest};
 use crate::moderation::ContentType;
 use crate::search::SearchQuery;
 use sqlx::PgPool;
+use validator::Validate;
 
 #[tracing::instrument(skip(state), fields(username = %req.username))]
 pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppResult<Creator> {
@@ -165,6 +168,103 @@ pub async fn get_creator_or_not_found(state: &AppState, username: &str) -> AppRe
 
 /// Search creators by username using PostgreSQL full-text search with trigram
 /// fuzzy fallback. Results are ranked by ts_rank descending.
+pub async fn update_creator_wallet_address(
+    state: &AppState,
+    username: &str,
+    req: UpdateCreatorWalletRequest,
+) -> AppResult<Creator> {
+    req.validate().map_err(|e| AppError::Validation(ValidationError::InvalidRequest {
+        message: e.to_string(),
+    }))?;
+
+    let existing_creator = get_creator_or_not_found(state, username).await?;
+    verify_wallet_signature(&req.new_wallet_address, &req.signature, req.new_wallet_address.as_bytes())?;
+
+    let query = r#"
+        UPDATE creators
+        SET wallet_address = $1
+        WHERE username = $2
+        RETURNING id, username, wallet_address, email, password_hash, totp_secret, totp_enabled, backup_code_hashes, created_at
+        "#;
+
+    let start = Instant::now();
+    let creator = sqlx::query_as::<_, Creator>(query)
+        .bind(&req.new_wallet_address)
+        .bind(username)
+        .fetch_one(&state.db)
+        .await?;
+    let duration = start.elapsed();
+
+    QueryLogger::log_query(query, duration);
+    state.performance.track_query(query, duration);
+    tracing::info!(duration_ms = duration.as_millis(), username = %username, "Creator wallet address updated");
+
+    if let Some(conn) = state.redis.as_ref() {
+        let mut conn = conn.clone();
+        let _ = redis_client::set(
+            &mut conn,
+            &keys::creator(&creator.username),
+            &creator,
+            redis_client::TTL_CREATOR,
+        )
+        .await;
+    }
+
+    if let Some(ref inv) = state.invalidator {
+        let _ = inv.invalidate_pattern("search:creators:*").await;
+        let _ = inv
+            .invalidate_pattern(&keys::http_response_pattern("/creators/"))
+            .await;
+    }
+
+    {
+        let db = state.db.clone();
+        let username = creator.username.clone();
+        let creator_id = creator.id.to_string();
+        let before_data = serde_json::json!({ "wallet_address": existing_creator.wallet_address });
+        let after_data = serde_json::json!({ "wallet_address": creator.wallet_address });
+        tokio::spawn(async move {
+            let _ = crate::controllers::audit_log_controller::log(
+                &db,
+                "creator.wallet_address.updated",
+                Some(&username),
+                "creator",
+                Some(&creator_id),
+                "update",
+                Some(before_data),
+                Some(after_data),
+                serde_json::json!({}),
+                None,
+                None,
+            )
+            .await;
+        });
+    }
+
+    Ok(creator)
+}
+
+fn verify_wallet_signature(
+    public_key: &str,
+    signature: &str,
+    message: &[u8],
+) -> AppResult<()> {
+    let public_key_bytes = crate::validation::stellar::decode_stellar_public_key(public_key)
+        .map_err(|_| AppError::bad_request("Invalid Stellar public key"))?;
+    let public_key = PublicKey::from_bytes(&public_key_bytes)
+        .map_err(|_| AppError::bad_request("Invalid Stellar public key"))?;
+    let signature_bytes = general_purpose::STANDARD
+        .decode(signature)
+        .map_err(|_| AppError::bad_request("Invalid signature encoding"))?;
+    let signature = Signature::from_bytes(&signature_bytes)
+        .map_err(|_| AppError::bad_request("Invalid signature"))?;
+    public_key
+        .verify(message, &signature)
+        .map_err(|_| AppError::bad_request("Wallet signature verification failed"))?;
+    Ok(())
+}
+
+#[tracing::instrument(skip(state), fields(username = %username))]
 pub async fn search_creators(pool: &PgPool, query: &SearchQuery) -> AppResult<Vec<Creator>> {
     let term = query.q.trim().to_string();
     if term.is_empty() {

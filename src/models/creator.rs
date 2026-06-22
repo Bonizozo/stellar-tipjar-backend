@@ -53,6 +53,19 @@ pub struct CreateCreatorRequest {
     pub email: Option<String>,
 }
 
+/// Request body used to update a creator's Stellar wallet address.
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct UpdateCreatorWalletRequest {
+    /// New Stellar wallet address (public key) to associate with the creator.
+    #[validate(custom(function = "crate::validation::stellar::validate_stellar_address"))]
+    pub new_wallet_address: String,
+
+    /// Base64-encoded ed25519 signature proving ownership of the new wallet.
+    /// The signature must verify against the new wallet address string.
+    #[validate(length(min = 1, message = "Signature must be provided"))]
+    pub signature: String,
+}
+
 /// Creator profile response
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CreatorResponse {
