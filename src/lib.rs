@@ -67,7 +67,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     let general_limiter = middleware::rate_limiter::general_limiter();
     let write_limiter = middleware::rate_limiter::write_limiter();
 
-    // Write endpoints get a stricter per-IP limit.
+    // Write endpoints get a stricter per-IP limit and JSON content-type enforcement.
     let write_routes = Router::new()
         .merge(routes::auth::router())
         .merge(routes::teams::router())
@@ -77,6 +77,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .merge(routes::goals::router())
         .merge(routes::refunds::public_router())
         .merge(routes::tx_pool::router())
+        .layer(axum::middleware::from_fn(
+            middleware::body_limit::require_json_content_type,
+        ))
         .layer(write_limiter);
 
     // Read endpoints use the general limit and intelligent response caching.
@@ -123,5 +126,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
             Arc::clone(&state),
             middleware::usage_tracker::track_api_usage,
         ))
+        .layer(middleware::body_limit::body_limit_layer_from_env())
         .with_state(state)
 }

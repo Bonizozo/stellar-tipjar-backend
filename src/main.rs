@@ -364,6 +364,9 @@ async fn main() -> anyhow::Result<()> {
                         .merge(routes::scheduled_tips::router())
                         .merge(routes::tx_pool::router())
                         .merge(routes::v1::router())
+                        .layer(axum::middleware::from_fn(
+                            middleware::body_limit::require_json_content_type,
+                        ))
                         .layer(write_limiter_v1),
                 )
                 .merge(
@@ -416,6 +419,9 @@ async fn main() -> anyhow::Result<()> {
                     .merge(routes::scheduled_tips::router())
                     .merge(routes::tx_pool::router())
                     .merge(routes::v2::router())
+                    .layer(axum::middleware::from_fn(
+                        middleware::body_limit::require_json_content_type,
+                    ))
                     .layer(write_limiter_v2),
             )
             .merge(
@@ -490,6 +496,7 @@ async fn main() -> anyhow::Result<()> {
         ))
         .layer(axum::middleware::from_fn(middleware::cache::cache_control))
         .layer(middleware::timeout::timeout_layer_from_env())
+        .layer(middleware::body_limit::body_limit_layer_from_env())
         // Redis distributed throttle (shared across instances, fail-open when Redis unavailable).
         .layer(axum::middleware::from_fn(
             middleware::rate_limiter::redis_throttle_middleware,
