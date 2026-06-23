@@ -2,7 +2,7 @@
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, patch, post},
+    routing::{get, patch, post, put},
     Json, Router,
 };
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use crate::controllers::creator_controller;
 use crate::controllers::tip_controller;
 use crate::db::connection::AppState;
 use crate::errors::{AppError, ValidationError};
-use crate::models::creator::{CreateCreatorRequest, CreatorResponse, UpdateCreatorWalletRequest};
+use crate::models::creator::{CreateCreatorRequest, CreatorResponse, UpdateCreatorProfileRequest, UpdateCreatorWalletRequest};
 use crate::models::pagination::PaginationParams;
 use crate::models::tip::{TipFilters, TipResponse, TipSortParams};
 use crate::search::SearchQuery;
@@ -23,6 +23,10 @@ pub fn write_router() -> Router<Arc<AppState>> {
         .route(
             "/creators/:username/wallet",
             patch(update_creator_wallet),
+        )
+        .route(
+            "/creators/:username",
+            put(update_creator_profile),
         )
 }
 
@@ -127,6 +131,32 @@ pub async fn update_creator_wallet(
     crate::validation::ValidatedJson(body): crate::validation::ValidatedJson<UpdateCreatorWalletRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let creator = creator_controller::update_creator_wallet_address(&state, &username, body).await?;
+    let response: CreatorResponse = creator.into();
+    Ok((StatusCode::OK, Json(serde_json::json!(response))).into_response())
+}
+
+/// Update a creator's profile (bio, display_name, avatar_url, social_links, categories, tags)
+#[utoipa::path(
+    put,
+    path = "/creators/{username}/profile",
+    tag = "creators",
+    params(
+        ("username" = String, Path, description = "Creator's unique username")
+    ),
+    request_body = UpdateCreatorProfileRequest,
+    responses(
+        (status = 200, description = "Profile updated successfully", body = CreatorResponse),
+        (status = 400, description = "Validation error"),
+        (status = 404, description = "Creator not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn update_creator_profile(
+    State(state): State<Arc<AppState>>,
+    Path(username): Path<String>,
+    crate::validation::ValidatedJson(body): crate::validation::ValidatedJson<UpdateCreatorProfileRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let creator = creator_controller::update_creator_profile(&state, &username, body).await?;
     let response: CreatorResponse = creator.into();
     Ok((StatusCode::OK, Json(serde_json::json!(response))).into_response())
 }

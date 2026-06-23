@@ -1,0 +1,4 @@
+ALTER TABLE creators DROP COLUMN IF EXISTS avatar_url;
+ALTER TABLE creators DROP COLUMN IF EXISTS social_links;
+ALTER TABLE creators DROP COLUMN IF EXISTS categories;
+ALTER TABLE creators DROP COLUMN IF EXISTS tags;

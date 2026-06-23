@@ -10,7 +10,7 @@ use crate::models::{
         AuthResponse, LoginRequest, RecoverTwoFactorRequest, RefreshRequest, RegisterRequest,
         TwoFactorSetupResponse, VerifyTwoFactorRequest, VerifyTwoFactorResponse,
     },
-    creator::{CreateCreatorRequest, CreatorResponse},
+    creator::{CreateCreatorRequest, CreatorResponse, UpdateCreatorProfileRequest},
     pagination::{PaginatedResponse, PaginationParams},
     tenant::{CreateTenantRequest, TenantResponse, UpdateTenantRequest},
     tip::{RecordTipRequest, ReportMessageRequest, TipFilters, TipResponse, TipSortParams},
@@ -138,6 +138,8 @@ All errors follow a consistent envelope:
         crate::routes::creators::get_creator,
         crate::routes::creators::get_creator_tips,
         crate::routes::creators::search_creators,
+        crate::routes::creators::update_creator_wallet,
+        crate::routes::creators::update_creator_profile,
         // Tips
         crate::routes::tips::record_tip,
         crate::routes::tips::list_tips,
@@ -173,6 +175,7 @@ All errors follow a consistent envelope:
             // Creators
             CreateCreatorRequest,
             CreatorResponse,
+            UpdateCreatorProfileRequest,
             // Tips
             RecordTipRequest,
             ReportMessageRequest,

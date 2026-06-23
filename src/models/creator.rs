@@ -31,6 +31,38 @@ pub struct Creator {
     #[serde(skip_serializing)]
     pub backup_code_hashes: Vec<EncryptedString>,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    #[sqlx(default)]
+    pub bio: Option<String>,
+    #[serde(default)]
+    #[sqlx(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    #[sqlx(default)]
+    pub avatar_url: Option<String>,
+    #[serde(default)]
+    #[sqlx(default)]
+    pub is_verified: bool,
+    #[serde(default)]
+    #[sqlx(default)]
+    pub social_links: serde_json::Value,
+    #[serde(default)]
+    #[sqlx(default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    #[sqlx(default)]
+    pub tags: Vec<String>,
+}
+
+/// A social link entry stored inside `Creator.social_links` (JSONB array).
+#[derive(Debug, Clone, Serialize, Deserialize, Validate, ToSchema)]
+pub struct SocialLink {
+    /// Platform name (e.g. "twitter", "github", "website")
+    #[validate(length(min = 1, max = 50, message = "Platform must be 1–50 chars"))]
+    pub platform: String,
+    /// URL or handle
+    #[validate(length(min = 1, max = 500, message = "URL must be 1–500 chars"))]
+    pub url: String,
 }
 
 /// Request body for creating a new creator
@@ -51,6 +83,27 @@ pub struct CreateCreatorRequest {
     /// Optional email for tip notifications
     #[validate(email(message = "Invalid email address"))]
     pub email: Option<String>,
+
+    /// Optional biography (max 1000 chars)
+    #[validate(length(max = 1000, message = "Bio must be at most 1000 characters"))]
+    pub bio: Option<String>,
+
+    /// Optional display name (max 100 chars)
+    #[validate(length(max = 100, message = "Display name must be at most 100 characters"))]
+    pub display_name: Option<String>,
+
+    /// Optional avatar URL (max 500 chars)
+    #[validate(length(max = 500, message = "Avatar URL must be at most 500 characters"))]
+    pub avatar_url: Option<String>,
+
+    /// Optional list of social links
+    pub social_links: Option<Vec<SocialLink>>,
+
+    /// Optional categories
+    pub categories: Option<Vec<String>>,
+
+    /// Optional tags
+    pub tags: Option<Vec<String>>,
 }
 
 /// Request body used to update a creator's Stellar wallet address.
@@ -74,6 +127,13 @@ pub struct CreatorResponse {
     pub wallet_address: String,
     pub email: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub bio: Option<String>,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub is_verified: bool,
+    pub social_links: serde_json::Value,
+    pub categories: Vec<String>,
+    pub tags: Vec<String>,
 }
 
 impl From<Creator> for CreatorResponse {
@@ -84,6 +144,39 @@ impl From<Creator> for CreatorResponse {
             wallet_address: c.wallet_address,
             email: c.email,
             created_at: c.created_at,
+            bio: c.bio,
+            display_name: c.display_name,
+            avatar_url: c.avatar_url,
+            is_verified: c.is_verified,
+            social_links: c.social_links,
+            categories: c.categories,
+            tags: c.tags,
         }
     }
+}
+
+/// Request body for updating creator profile fields
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct UpdateCreatorProfileRequest {
+    /// Optional biography (max 1000 chars)
+    #[validate(length(max = 1000, message = "Bio must be at most 1000 characters"))]
+    pub bio: Option<String>,
+
+    /// Optional display name (max 100 chars)
+    #[validate(length(max = 100, message = "Display name must be at most 100 characters"))]
+    pub display_name: Option<String>,
+
+    /// Optional avatar URL (max 500 chars)
+    #[validate(length(max = 500, message = "Avatar URL must be at most 500 characters"))]
+    pub avatar_url: Option<String>,
+
+    /// Optional list of social links
+    #[validate]
+    pub social_links: Option<Vec<SocialLink>>,
+
+    /// Optional categories
+    pub categories: Option<Vec<String>>,
+
+    /// Optional tags
+    pub tags: Option<Vec<String>>,
 }
