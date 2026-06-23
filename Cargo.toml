@@ -25,7 +25,7 @@ chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tower-http = { version = "0.5", features = ["cors", "timeout", "trace", "compression-gzip", "request-id"] }
+tower-http = { version = "0.5", features = ["cors", "timeout", "trace", "compression-gzip", "request-id", "limit"] }
 tower_governor = { version = "0.4", features = ["axum"] }
 governor = "0.6"
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
