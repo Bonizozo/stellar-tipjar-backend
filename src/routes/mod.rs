@@ -29,6 +29,7 @@ pub mod monitoring;
 pub mod notifications;
 pub mod portfolio;
 pub mod profiling;
+pub mod rate_limit_analytics;
 pub mod receipts;
 pub mod refunds;
 pub mod scheduled_tips;

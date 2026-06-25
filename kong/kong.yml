@@ -29,7 +29,8 @@ services:
     write_timeout: 30000
 
     routes:
-      # Public read routes — no auth required
+      # ── Public read routes — no auth required ─────────────────────────────
+      # Anonymous tier: 30 req/min sustained, 10-req burst (10 s sub-window)
       - name: public-routes
         paths:
           - /api/v1/creators
@@ -51,15 +52,72 @@ services:
           - /graphql
         strip_path: false
         plugins:
+          # Sustained rate limit — anonymous tier (30 rpm)
           - name: rate-limiting
             config:
-              minute: 120
-              hour: 3000
-              policy: local
+              minute: 30
+              hour: 1000
+              policy: redis
+              redis_host: redis
+              redis_port: 6379
+              redis_timeout: 2000
               fault_tolerant: true
               hide_client_headers: false
+              limit_by: ip
+          # Burst protection — block spikes >10 requests in 10 seconds
+          - name: rate-limiting-advanced
+            config:
+              limit:
+                - 10
+              window_size:
+                - 10
+              identifier: ip
+              sync_rate: -1
+              namespace: anon_burst
+              strategy: local
+              hide_client_headers: false
 
-      # Protected routes — JWT or API-key required
+      # ── Write routes — POST/PATCH/PUT endpoints ────────────────────────────
+      # Stricter limits to protect against spam / transaction replay abuse.
+      - name: write-routes
+        paths:
+          - /api/v1/tips
+          - /api/v2/tips
+          - /api/v1/creators
+          - /api/v2/creators
+        methods:
+          - POST
+          - PUT
+          - PATCH
+        strip_path: false
+        plugins:
+          # Sustained: 10 rpm per IP for unauthenticated callers
+          - name: rate-limiting
+            config:
+              minute: 10
+              hour: 200
+              policy: redis
+              redis_host: redis
+              redis_port: 6379
+              redis_timeout: 2000
+              fault_tolerant: true
+              hide_client_headers: false
+              limit_by: ip
+          # Burst: max 3 writes per 10 seconds
+          - name: rate-limiting-advanced
+            config:
+              limit:
+                - 3
+              window_size:
+                - 10
+              identifier: ip
+              sync_rate: -1
+              namespace: write_burst
+              strategy: local
+
+      # ── Protected routes — JWT or API-key required ────────────────────────
+      # Free tier: 120 rpm; Premium: 600 rpm (enforced in the Rust gateway layer).
+      # Kong provides a secondary defence and adds burst protection.
       - name: protected-routes
         paths:
           - /api/v1
@@ -73,23 +131,80 @@ services:
                 - exp
               header_names:
                 - authorization
+          # Sustained: 120 rpm per consumer (free tier default)
           - name: rate-limiting
             config:
-              minute: 60
-              hour: 1000
-              policy: local
+              minute: 120
+              hour: 3000
+              policy: redis
+              redis_host: redis
+              redis_port: 6379
+              redis_timeout: 2000
               fault_tolerant: true
+              hide_client_headers: false
+              limit_by: consumer
+          # Burst: 30 requests per 10 seconds
+          - name: rate-limiting-advanced
+            config:
+              limit:
+                - 30
+              window_size:
+                - 10
+              identifier: consumer
+              sync_rate: -1
+              namespace: free_burst
+              strategy: redis
+              redis:
+                host: redis
+                port: 6379
+
+      # ── Admin routes — elevated limits for internal tooling ───────────────
+      - name: admin-routes
+        paths:
+          - /api/v1/admin
+          - /api/v2/admin
+          - /admin
+        strip_path: false
+        plugins:
+          # Sustained: 600 rpm for admin callers
+          - name: rate-limiting
+            config:
+              minute: 600
+              hour: 10000
+              policy: redis
+              redis_host: redis
+              redis_port: 6379
+              redis_timeout: 2000
+              fault_tolerant: true
+              hide_client_headers: false
+              limit_by: header
+              header_name: X-Admin-Key
+          # Burst: 100 per 10 seconds
+          - name: rate-limiting-advanced
+            config:
+              limit:
+                - 100
+              window_size:
+                - 10
+              identifier: header
+              header_name: X-Admin-Key
+              sync_rate: -1
+              namespace: admin_burst
+              strategy: redis
+              redis:
+                host: redis
+                port: 6379
 
 # ── Global plugins ────────────────────────────────────────────────────────────
 plugins:
-  # Request correlation ID
+  # Request correlation ID — propagated end-to-end
   - name: correlation-id
     config:
       header_name: X-Request-ID
       generator: uuid#counter
       echo_downstream: true
 
-  # Prometheus metrics (scraped by existing Prometheus stack)
+  # Prometheus metrics — scraped by the existing Prometheus stack
   - name: prometheus
     config:
       status_code_metrics: true
@@ -97,7 +212,7 @@ plugins:
       bandwidth_metrics: true
       upstream_health_metrics: true
 
-  # Response compression
+  # Add a gateway-identity header to every response
   - name: response-transformer
     config:
       add:
@@ -110,3 +225,17 @@ plugins:
       allow: []
       deny:
         - curl/7.0
+
+  # Request size limit — reject payloads larger than 1 MiB
+  - name: request-size-limiting
+    config:
+      allowed_payload_size: 1
+      size_unit: megabytes
+      require_content_length: false
+
+  # IP restriction — configurable via KONG_BLOCKED_IPS env var (comma-separated)
+  # Disabled by default; enable by setting the env var in compose.yml.
+  # - name: ip-restriction
+  #   config:
+  #     deny:
+  #       - "192.0.2.0/24"

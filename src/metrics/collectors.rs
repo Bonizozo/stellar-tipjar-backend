@@ -183,6 +183,38 @@ lazy_static! {
         "webhook_dlq_total",
         "Total webhooks moved to dead letter queue"
     ).unwrap();
+
+    // ── Rate Limiting ─────────────────────────────────────────────────────────
+    pub static ref RATE_LIMIT_REQUESTS_TOTAL: CounterVec = register_counter_vec!(
+        "gateway_rate_limit_requests_total",
+        "Total requests evaluated by the gateway rate limiter, by tier and path",
+        &["tier", "path"]
+    ).unwrap();
+
+    pub static ref RATE_LIMIT_EXCEEDED_TOTAL: CounterVec = register_counter_vec!(
+        "gateway_rate_limit_exceeded_total",
+        "Total requests blocked by the gateway rate limiter, by tier, kind, and path",
+        &["tier", "kind", "path"]
+    ).unwrap();
+
+    pub static ref RATE_LIMIT_BURST_CONSUMED_TOTAL: CounterVec = register_counter_vec!(
+        "gateway_rate_limit_burst_consumed_total",
+        "Total burst token consumption events, by tier",
+        &["tier"]
+    ).unwrap();
+
+    // ── Quota Management ──────────────────────────────────────────────────────
+    pub static ref QUOTA_EXCEEDED_TOTAL: CounterVec = register_counter_vec!(
+        "gateway_quota_exceeded_total",
+        "Total requests rejected because the client quota was exhausted, by tier and period",
+        &["tier", "period"]
+    ).unwrap();
+
+    pub static ref QUOTA_USAGE_RATIO: GaugeVec = register_gauge_vec!(
+        "gateway_quota_usage_ratio",
+        "Current quota usage as a ratio (0–1) by tier and period",
+        &["tier", "period"]
+    ).unwrap();
 }
 
 /// Aggregated snapshot used by the `/metrics/summary` endpoint.

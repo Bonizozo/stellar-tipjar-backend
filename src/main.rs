@@ -332,9 +332,27 @@ async fn main() -> anyhow::Result<()> {
     //   • Gateway-level metrics (latency header + structured log)
     //   • Request-ID propagation to response
     //   • Caller identity header (dev/staging only)
+    //   • Advanced per-identity rate limiting with burst handling (gateway_rate_limit)
+    //   • Per-client daily/monthly quota enforcement (quota_enforcement)
     let gateway_auth_layer = axum::middleware::from_fn_with_state(
         Arc::clone(&state),
         gateway::gateway_auth,
+    );
+    let gateway_rate_limit_layer_v1 = axum::middleware::from_fn_with_state(
+        Arc::clone(&state),
+        gateway::gateway_rate_limit,
+    );
+    let quota_enforcement_layer_v1 = axum::middleware::from_fn_with_state(
+        Arc::clone(&state),
+        gateway::quota_enforcement,
+    );
+    let gateway_rate_limit_layer_v2 = axum::middleware::from_fn_with_state(
+        Arc::clone(&state),
+        gateway::gateway_rate_limit,
+    );
+    let quota_enforcement_layer_v2 = axum::middleware::from_fn_with_state(
+        Arc::clone(&state),
+        gateway::quota_enforcement,
     );
 
     // Versioned API Routes (Merged from Main)
@@ -350,6 +368,7 @@ async fn main() -> anyhow::Result<()> {
                 .merge(routes::refunds::admin_router(Arc::clone(&state)))
                 .merge(routes::audit_logs::router(Arc::clone(&state)))
                 .merge(routes::export::router(Arc::clone(&state)))
+                .merge(routes::rate_limit_analytics::router(Arc::clone(&state)))
                 .merge(routes::deprecation::router())
                 .merge(routes::tenants::router())
                 .merge(
@@ -394,6 +413,8 @@ async fn main() -> anyhow::Result<()> {
         .layer(axum::middleware::from_fn(gateway::propagate_request_id_to_response))
         .layer(axum::middleware::from_fn(gateway::transform_request))
         .layer(axum::middleware::from_fn(gateway::version_negotiation))
+        .layer(quota_enforcement_layer_v1)
+        .layer(gateway_rate_limit_layer_v1)
         .layer(gateway_auth_layer.clone());
 
     let v2 = Router::new().nest(
@@ -444,6 +465,8 @@ async fn main() -> anyhow::Result<()> {
     .layer(axum::middleware::from_fn(gateway::propagate_request_id_to_response))
     .layer(axum::middleware::from_fn(gateway::transform_request))
     .layer(axum::middleware::from_fn(gateway::version_negotiation))
+    .layer(quota_enforcement_layer_v2)
+    .layer(gateway_rate_limit_layer_v2)
     .layer(gateway_auth_layer);
 
     let x_request_id = axum::http::HeaderName::from_static("x-request-id");
