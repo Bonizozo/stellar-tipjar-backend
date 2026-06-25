@@ -1,17 +1,23 @@
+pub mod analytics;
 pub mod api_gateway;
 pub mod authentication;
 pub mod cache_middleware;
 pub mod config;
 pub mod context;
 pub mod middleware;
+pub mod quota_manager;
+pub mod rate_limiter;
 pub mod request_transformer;
 pub mod versioning;
 
+pub use analytics::{get_summary as get_rate_limit_analytics, record_event as record_rate_limit_event, LimitKind, RateLimitAnalyticsSummary};
 pub use api_gateway::ApiGateway;
 pub use authentication::gateway_auth;
 pub use cache_middleware::{gateway_cache_middleware, cache_invalidation_middleware, GatewayCacheConfig, GatewayCacheState, CacheMetrics};
 pub use config::GatewayConfig;
 pub use context::GatewayIdentity;
 pub use middleware::{gateway_metrics, inject_identity_header, propagate_request_id_to_response, require_scope};
+pub use quota_manager::{quota_enforcement, get_daily_quotas, upsert_client_quota, QuotaPeriod, QuotaSummary};
+pub use rate_limiter::{gateway_rate_limit, CallerTier};
 pub use request_transformer::transform_request;
 pub use versioning::{version_negotiation, version_routing, ApiVersionContext, VersionResolution, VersionSource};
