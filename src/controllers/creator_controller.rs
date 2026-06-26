@@ -27,6 +27,22 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppR
         }));
     }
 
+    // Check for duplicate email before inserting
+    if let Some(ref email) = req.email {
+        let exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM creators WHERE email = $1)",
+        )
+        .bind(email)
+        .fetch_one(&state.db)
+        .await?;
+        if exists {
+            return Err(AppError::Conflict {
+                code: "DUPLICATE_EMAIL",
+                message: "A creator with this email already exists".to_string(),
+            });
+        }
+    }
+
     let query = r#"
         INSERT INTO creators (id, username, wallet_address, email, created_at, bio, display_name, avatar_url, social_links, categories, tags)
         VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7, $8::jsonb, $9, $10)
