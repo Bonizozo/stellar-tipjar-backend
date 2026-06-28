@@ -391,6 +391,7 @@ async fn main() -> anyhow::Result<()> {
                 .merge(
                     Router::new()
                         .merge(routes::creators::read_router())
+                        .merge(routes::campaigns::router())
                         .merge(routes::health::router())
                         .merge(routes::notifications::router())
                         .merge(routes::leaderboard::router())

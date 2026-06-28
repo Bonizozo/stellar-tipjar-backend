@@ -3,7 +3,7 @@ use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::errors::AppResult;
-use crate::models::campaign::{Campaign, CampaignMatchResult};
+use crate::models::campaign::{Campaign, CampaignContribution, CampaignMatchResult, CampaignResponse};
 
 /// Find the highest-value active campaign for a creator and lock it for the duration of the tip update.
 pub async fn find_active_campaign_for_creator(
@@ -78,6 +78,18 @@ pub async fn apply_tip_matching_campaign(
 
     sqlx::query(
         r#"
+        INSERT INTO campaign_contributions (campaign_id, tip_id, matched_amount)
+        VALUES ($1, $2, $3)
+        "#,
+    )
+    .bind(campaign.id)
+    .bind(tip_id)
+    .bind(&matched_amount_str)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        r#"
         UPDATE campaigns
         SET remaining_budget = (remaining_budget::numeric - $1::numeric)::text
         WHERE id = $2
@@ -93,4 +105,62 @@ pub async fn apply_tip_matching_campaign(
         sponsor_name: campaign.sponsor_name,
         matched_amount: matched_amount_str,
     }))
+}
+
+pub async fn list_campaigns_for_creator(
+    db: &sqlx::PgPool,
+    creator_username: &str,
+) -> AppResult<Vec<CampaignResponse>> {
+    let query = r#"
+        SELECT c.id,
+               c.sponsor_name,
+               c.creator_username,
+               c.match_ratio,
+               c.per_tip_cap,
+               c.total_budget,
+               c.remaining_budget,
+               COALESCE(cc.total_matched_amount, '0') AS total_matched_amount,
+               LEAST(
+                   COALESCE(cc.total_matched_amount::numeric, 0) / c.total_budget::numeric * 100.0,
+                   100.0
+               ) AS progress_pct,
+               c.active,
+               c.starts_at,
+               c.ends_at,
+               c.created_at
+        FROM campaigns c
+        LEFT JOIN (
+            SELECT campaign_id, SUM(matched_amount::numeric)::text AS total_matched_amount
+            FROM campaign_contributions
+            GROUP BY campaign_id
+        ) cc ON c.id = cc.campaign_id
+        WHERE c.creator_username = $1
+        ORDER BY c.created_at DESC
+        "#;
+
+    let campaigns = sqlx::query_as::<_, CampaignResponse>(query)
+        .bind(creator_username)
+        .fetch_all(db)
+        .await?;
+
+    Ok(campaigns)
+}
+
+pub async fn get_campaign_contributions(
+    db: &sqlx::PgPool,
+    campaign_id: Uuid,
+) -> AppResult<Vec<CampaignContribution>> {
+    let query = r#"
+        SELECT id, campaign_id, tip_id, matched_amount, created_at
+        FROM campaign_contributions
+        WHERE campaign_id = $1
+        ORDER BY created_at DESC
+        "#;
+
+    let contributions = sqlx::query_as::<_, CampaignContribution>(query)
+        .bind(campaign_id)
+        .fetch_all(db)
+        .await?;
+
+    Ok(contributions)
 }
