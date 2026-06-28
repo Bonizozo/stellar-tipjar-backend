@@ -38,8 +38,7 @@ pub async fn record_tip_with_context(
                 .moderation
                 .check_content(msg, ContentType::TipMessage, None)
                 .await;
-            let threshold = state.moderation.block_threshold();
-            if moderation.has_high_confidence_violation(threshold) {
+            if moderation.has_high_confidence_violation(0.90) {
                 TIPS_FAILED_TOTAL
                     .with_label_values(&["moderation_rejected"])
                     .inc();
