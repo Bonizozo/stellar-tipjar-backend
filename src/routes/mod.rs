@@ -10,6 +10,7 @@ pub mod cdn;
 pub mod collaboration;
 pub mod comments;
 pub mod creators;
+pub mod campaigns;
 pub mod currency;
 pub mod deprecation;
 pub mod deployment;
