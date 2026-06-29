@@ -16,12 +16,16 @@ impl TipService {
     }
 
     /// Record a new tip and trigger a notification email to the creator receiver.
+    ///
+    /// # Note on field naming
+    /// Tracing fields use the exact struct field names from [`RecordTipRequest`]
+    /// so that trace analysis tools can rely on a single source of truth.
     #[tracing::instrument(
         name = "tip_service.record_tip",
         skip(self, state, req),
         fields(
-            tip.creator_username = %req.creator_username,
-            tip.amount_xlm       = %req.amount_xlm,
+            tip.username = %req.username,
+            tip.amount   = %req.amount,
         )
     )]
     pub async fn record_tip(&self, state: Arc<AppState>, req: RecordTipRequest) -> AppResult<Tip> {
