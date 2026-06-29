@@ -7,7 +7,7 @@ use crate::errors::{AppError, AppResult};
 use crate::middleware;
 use crate::models::auth::{
     AuthResponse, LoginRequest, RefreshRequest, RegisterRequest, Claims,
-    RecoverTwoFactorRequest, TwoFactorSetupResponse, VerifyTwoFactorRequest,
+    RecoverTwoFactorRequest, TwoFactorSetupResponse, VerifyTwoFactorRequest, DisableTwoFactorRequest,
     VerifyTwoFactorResponse,
 };
 use crate::models::creator::Creator;
@@ -16,8 +16,10 @@ use crate::validation::ValidatedJson;
 
 pub fn router() -> Router<Arc<AppState>> {
     let protected = Router::new()
-        .route("/auth/2fa/setup", post(setup_2fa))
-        .route("/auth/2fa/verify", post(verify_2fa))
+        .route("/auth/totp/enroll", post(totp_enroll))
+        .route("/auth/totp/verify", post(totp_verify))
+        .route("/auth/totp/disable", post(totp_disable))
+        .route("/auth/backup-codes", post(regenerate_backup_codes))
         .layer(axum::middleware::from_fn(middleware::auth::require_auth));
 
     Router::new()
@@ -196,14 +198,15 @@ pub async fn refresh(
 
 #[utoipa::path(
     post,
-    path = "/auth/2fa/setup",
+    path = "/auth/totp/enroll",
     tag = "auth",
     responses(
         (status = 200, description = "2FA setup initiated", body = TwoFactorSetupResponse),
-        (status = 401, description = "Unauthorized")
+        (status = 401, description = "Unauthorized"),
+        (status = 409, description = "2FA already enabled")
     )
 )]
-pub async fn setup_2fa(
+pub async fn totp_enroll(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -229,11 +232,13 @@ pub async fn setup_2fa(
         tracing::error!(error = %e, "2FA secret generation failed");
         AppError::internal()
     })?;
+    
+    use crate::crypto::encryption::EncryptedString;
 
-    let creator = sqlx::query_as::<_, Creator>(
+    let _ = sqlx::query_as::<_, Creator>(
         "UPDATE creators SET totp_secret = $1 WHERE username = $2 RETURNING id, username, wallet_address, email, password_hash, totp_secret, totp_enabled, backup_code_hashes, created_at",
     )
-    .bind(&secret)
+    .bind(EncryptedString::new(secret.clone()))
     .bind(&claims.sub)
     .fetch_one(&state.db)
     .await
@@ -259,7 +264,7 @@ pub async fn setup_2fa(
 
 #[utoipa::path(
     post,
-    path = "/auth/2fa/verify",
+    path = "/auth/totp/verify",
     tag = "auth",
     request_body = VerifyTwoFactorRequest,
     responses(
@@ -268,7 +273,7 @@ pub async fn setup_2fa(
         (status = 409, description = "2FA already enabled")
     )
 )]
-pub async fn verify_2fa(
+pub async fn totp_verify(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     ValidatedJson(body): ValidatedJson<VerifyTwoFactorRequest>,
@@ -284,6 +289,13 @@ pub async fn verify_2fa(
         AppError::from(e)
     })?;
 
+    if creator.totp_enabled {
+        return Err(AppError::Conflict {
+            code: "TWO_FACTOR_ALREADY_ENABLED",
+            message: "Two-factor authentication is already enabled".to_string(),
+        });
+    }
+
     let secret = creator
         .totp_secret
         .as_ref()
@@ -298,16 +310,143 @@ pub async fn verify_2fa(
         .iter()
         .map(|code| auth_service::hash_backup_code(code))
         .collect::<AppResult<Vec<String>>>()?;
+        
+    use crate::crypto::encryption::EncryptedString;
+    
+    let encrypted_hashes: Vec<EncryptedString> = backup_hashes.into_iter().map(EncryptedString::new).collect();
 
     sqlx::query(
         "UPDATE creators SET totp_enabled = TRUE, backup_code_hashes = $1 WHERE username = $2",
     )
-    .bind(&backup_hashes)
+    .bind(&encrypted_hashes)
     .bind(&claims.sub)
     .execute(&state.db)
     .await
     .map_err(|e| {
         tracing::error!(error = %e, "2FA verification persist failed");
+        AppError::from(e)
+    })?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!(VerifyTwoFactorResponse { backup_codes })),
+    )
+        .into_response())
+}
+
+#[utoipa::path(
+    post,
+    path = "/auth/totp/disable",
+    tag = "auth",
+    request_body = DisableTwoFactorRequest,
+    responses(
+        (status = 200, description = "TOTP disabled successfully"),
+        (status = 401, description = "Unauthorized or Invalid password"),
+        (status = 409, description = "TOTP not enabled")
+    )
+)]
+pub async fn totp_disable(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    ValidatedJson(body): ValidatedJson<DisableTwoFactorRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let creator = sqlx::query_as::<_, Creator>(
+        "SELECT id, username, wallet_address, email, password_hash, totp_secret, totp_enabled, backup_code_hashes, created_at FROM creators WHERE username = $1",
+    )
+    .bind(&claims.sub)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "2FA disable lookup failed");
+        AppError::from(e)
+    })?;
+
+    if !creator.totp_enabled {
+        return Err(AppError::Conflict {
+            code: "TWO_FACTOR_NOT_ENABLED",
+            message: "Two-factor authentication is not enabled".to_string(),
+        });
+    }
+    
+    let valid = auth_service::verify_password(&body.password, &creator.password_hash).map_err(|e| {
+        tracing::error!(error = %e, "Password verification error");
+        AppError::internal()
+    })?;
+    
+    if !valid {
+        return Err(AppError::unauthorized("Invalid password"));
+    }
+
+    use crate::crypto::encryption::EncryptedString;
+    let empty_hashes: Vec<EncryptedString> = vec![];
+    let empty_secret: Option<EncryptedString> = None;
+
+    sqlx::query(
+        "UPDATE creators SET totp_enabled = FALSE, totp_secret = $1, backup_code_hashes = $2 WHERE username = $3",
+    )
+    .bind(&empty_secret)
+    .bind(&empty_hashes)
+    .bind(&claims.sub)
+    .execute(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "2FA disable persist failed");
+        AppError::from(e)
+    })?;
+
+    Ok(StatusCode::OK.into_response())
+}
+
+#[utoipa::path(
+    post,
+    path = "/auth/backup-codes",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Backup codes regenerated", body = VerifyTwoFactorResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 409, description = "TOTP not enabled")
+    )
+)]
+pub async fn regenerate_backup_codes(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<impl IntoResponse, AppError> {
+    let creator = sqlx::query_as::<_, Creator>(
+        "SELECT id, username, wallet_address, email, password_hash, totp_secret, totp_enabled, backup_code_hashes, created_at FROM creators WHERE username = $1",
+    )
+    .bind(&claims.sub)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "Backup codes lookup failed");
+        AppError::from(e)
+    })?;
+
+    if !creator.totp_enabled {
+        return Err(AppError::Conflict {
+            code: "TWO_FACTOR_NOT_ENABLED",
+            message: "Two-factor authentication is not enabled".to_string(),
+        });
+    }
+    
+    let backup_codes = auth_service::generate_backup_codes();
+    let backup_hashes = backup_codes
+        .iter()
+        .map(|code| auth_service::hash_backup_code(code))
+        .collect::<AppResult<Vec<String>>>()?;
+        
+    use crate::crypto::encryption::EncryptedString;
+    let encrypted_hashes: Vec<EncryptedString> = backup_hashes.into_iter().map(EncryptedString::new).collect();
+
+    sqlx::query(
+        "UPDATE creators SET backup_code_hashes = $1 WHERE username = $2",
+    )
+    .bind(&encrypted_hashes)
+    .bind(&claims.sub)
+    .execute(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "Backup codes persist failed");
         AppError::from(e)
     })?;
 
