@@ -93,3 +93,10 @@ pub struct Claims {
     pub exp: usize,
     pub iat: usize,
 }
+
+/// Disable TOTP for the authenticated creator.
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct DisableTwoFactorRequest {
+    #[validate(length(min = 1, message = "Password is required"))]
+    pub password: String,
+}
