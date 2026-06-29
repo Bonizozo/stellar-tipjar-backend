@@ -2,6 +2,13 @@
 
 A REST API backend for a Stellar-based tip jar. Creators register with a username and Stellar wallet address, and supporters send tips by submitting verified on-chain Stellar transactions.
 
+## Related Repositories
+
+This backend is one part of the Stellar Tip Jar project:
+
+- [stellar-tipjar-frontend](https://github.com/Bonizozo/stellar-tipjar-frontend) — Next.js web app that consumes this API
+- [stellar-tipjar-contracts](https://github.com/Bonizozo/stellar-tipjar-contracts) — Soroban smart contract this API integrates with on-chain
+
 ## Table of Contents
 
 - [Features](#features)
