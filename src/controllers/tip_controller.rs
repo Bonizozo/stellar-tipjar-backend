@@ -110,18 +110,7 @@ pub async fn record_tip_with_context(
     QueryLogger::log_query("INSERT tips + tip_logs (transaction)", duration);
     state.performance.track_query("tip_atomic_record", duration);
 
-    // Centralized cache invalidation for tips and leaderboards
-    if let Some(ref inv) = state.invalidator {
-        let tips_pattern = keys::creator_tips_pattern(&tip.creator_username);
-        let _ = inv.invalidate_pattern(&tips_pattern).await;
-        let _ = inv.invalidate_pattern("leaderboard:*").await;
-        let _ = inv
-            .invalidate_pattern(&keys::http_response_pattern("/tips"))
-            .await;
-        let _ = inv
-            .invalidate_pattern(&keys::http_response_pattern("/creators/"))
-            .await;
-    }
+    invalidate_tip_derived_caches(state, &tip.creator_username).await;
 
     // Main branch added Webhooks
     crate::webhooks::trigger_webhooks(
@@ -162,6 +151,28 @@ pub async fn record_tip_with_context(
     }
 
     Ok(tip)
+}
+
+pub async fn invalidate_tip_derived_caches(state: &AppState, username: &str) {
+    // Centralized cache invalidation for tips, stats, and leaderboards.
+    if let Some(ref inv) = state.invalidator {
+        let tips_pattern = keys::creator_tips_pattern(username);
+        let stats_pattern = keys::creator_stats_pattern(username);
+        let _ = inv.invalidate_pattern(&tips_pattern).await;
+        let _ = inv.invalidate_pattern(&stats_pattern).await;
+        let _ = inv.invalidate_pattern("leaderboard:*").await;
+        let _ = inv
+            .invalidate_pattern(&keys::http_response_pattern("/tips"))
+            .await;
+        let _ = inv
+            .invalidate_pattern(&keys::http_response_pattern("/creators/"))
+            .await;
+    }
+
+    if let Some(conn) = state.redis.as_ref() {
+        let mut conn = conn.clone();
+        redis_client::del_pattern(&mut conn, &keys::creator_stats_pattern(username)).await;
+    }
 }
 
 /// Lower-level tip recording that executes within an existing transaction.

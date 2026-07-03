@@ -11,6 +11,16 @@ pub fn creator_tips_pattern(username: &str) -> String {
     format!("creator:{}:tips:*", username)
 }
 
+/// Cache key for a creator's aggregate tip stats. TTL: 5 minutes.
+pub fn creator_stats(username: &str) -> String {
+    format!("creator:{}:stats", username)
+}
+
+/// Base pattern for a creator's stats cache entries.
+pub fn creator_stats_pattern(username: &str) -> String {
+    format!("creator:{}:stats*", username)
+}
+
 /// Cache key for a creator's tip list. TTL: 1 minute.
 pub fn creator_tips(
     username: &str,
@@ -76,5 +86,11 @@ mod tests {
         let key = creator_tips("alice", &params, &filters, &sort);
         assert!(key.starts_with("creator:alice:tips:"));
         assert!(key.contains("created_at"));
+    }
+
+    #[test]
+    fn creator_stats_key_is_scoped_to_creator() {
+        assert_eq!(creator_stats("alice"), "creator:alice:stats");
+        assert_eq!(creator_stats_pattern("alice"), "creator:alice:stats*");
     }
 }

@@ -65,7 +65,7 @@ impl TipService {
         requests: Vec<RecordTipRequest>,
     ) -> AppResult<Vec<Tip>> {
         let pool = state.db.clone();
-        with_db_retry(&pool, 3, |pool| {
+        let tips = with_db_retry(&pool, 3, |pool| {
             let requests = requests.clone();
             let state = state.clone();
             Box::pin(async move {
@@ -102,6 +102,12 @@ impl TipService {
                 .await
             })
         })
-        .await
+        .await?;
+
+        for tip in &tips {
+            tip_controller::invalidate_tip_derived_caches(state, &tip.creator_username).await;
+        }
+
+        Ok(tips)
     }
 }

@@ -14,9 +14,18 @@ use crate::models::stats::StatsQuery;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
+        .route("/creators/:username/stats", get(get_stats))
         .route("/creators/:username/stats/summary", get(get_summary))
         .route("/creators/:username/stats/daily", get(get_daily))
         .route("/creators/:username/stats/aggregate", post(aggregate))
+}
+
+async fn get_stats(
+    State(state): State<Arc<AppState>>,
+    Path(username): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let stats = stats_controller::get_creator_stats(&state, &username).await?;
+    Ok((StatusCode::OK, Json(stats)))
 }
 
 async fn get_summary(
