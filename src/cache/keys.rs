@@ -23,8 +23,8 @@ pub fn creator_tips(
     format!(
         "creator:{}:tips:{}:{}:{}:{}",
         username,
-        params.page,
-        params.per_page,
+        params.active_cursor().unwrap_or("first"),
+        params.limit,
         filter_key,
         sort_key
     )
@@ -40,10 +40,7 @@ pub fn http_response(method: &str, path: &str, query: &str) -> String {
     let query_digest = if query.is_empty() {
         String::from("none")
     } else {
-        format!(
-            "{:x}",
-            sha2::Sha256::digest(query.as_bytes())
-        )
+        format!("{:x}", sha2::Sha256::digest(query.as_bytes()))
     };
     format!("http:{}:{}:{}", method, path, query_digest)
 }
@@ -61,7 +58,7 @@ mod tests {
 
     #[test]
     fn creator_tips_key_is_deterministic() {
-        let params = PaginationParams { page: 1, per_page: 20 };
+        let params = PaginationParams::default();
         let filters = TipFilters {
             min_amount: None,
             max_amount: None,
