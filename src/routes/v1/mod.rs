@@ -74,7 +74,7 @@ async fn get_creator_tips(
     Path(username): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     use axum::extract::Query;
-    let params = PaginationParams { page: 1, limit: 20 };
+    let params = PaginationParams::default();
     let result = tip_controller::get_tips_paginated(
         &state,
         Some(&username),
@@ -84,7 +84,7 @@ async fn get_creator_tips(
     )
     .await?;
     let tips: Vec<TipResponseV1> = result
-        .data
+        .items
         .into_iter()
         .map(|t| TipResponseV1 {
             id: t.id,

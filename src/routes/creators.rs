@@ -1,6 +1,6 @@
- use axum::{
+use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
     routing::{get, patch, post, put},
     Json, Router,
@@ -11,7 +11,9 @@ use crate::controllers::creator_controller;
 use crate::controllers::tip_controller;
 use crate::db::connection::AppState;
 use crate::errors::{AppError, ValidationError};
-use crate::models::creator::{CreateCreatorRequest, CreatorResponse, UpdateCreatorProfileRequest, UpdateCreatorWalletRequest};
+use crate::models::creator::{
+    CreateCreatorRequest, CreatorResponse, UpdateCreatorProfileRequest, UpdateCreatorWalletRequest,
+};
 use crate::models::pagination::PaginationParams;
 use crate::models::tip::{TipFilters, TipResponse, TipSortParams};
 use crate::search::SearchQuery;
@@ -20,14 +22,8 @@ use crate::search::SearchQuery;
 pub fn write_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/creators", post(create_creator))
-        .route(
-            "/creators/:username/wallet",
-            patch(update_creator_wallet),
-        )
-        .route(
-            "/creators/:username",
-            put(update_creator_profile),
-        )
+        .route("/creators/:username/wallet", patch(update_creator_wallet))
+        .route("/creators/:username", put(update_creator_profile))
 }
 
 /// Read routes: GET /creators/:username, GET /creators/:username/tips — general rate limiting.
@@ -103,10 +99,19 @@ pub async fn get_creator_tips(
     Query(filters): Query<TipFilters>,
     Query(sort): Query<TipSortParams>,
 ) -> Result<impl IntoResponse, AppError> {
-    let result = tip_controller::get_tips_paginated(&state, Some(&username), params, filters, sort)
-        .await?;
+    let uses_offset = params.uses_offset();
+    let result =
+        tip_controller::get_tips_paginated(&state, Some(&username), params, filters, sort).await?;
     let response = result.map(TipResponse::from);
-    Ok((StatusCode::OK, Json(serde_json::json!(response))).into_response())
+    let mut headers = HeaderMap::new();
+    if uses_offset {
+        headers.insert("Deprecation", HeaderValue::from_static("true"));
+        headers.insert(
+            "X-Deprecation-Warning",
+            HeaderValue::from_static("Offset pagination is deprecated; use signed keyset cursors."),
+        );
+    }
+    Ok((headers, StatusCode::OK, Json(serde_json::json!(response))).into_response())
 }
 
 /// Update a creator's wallet address with proof of ownership from the new address.
@@ -128,9 +133,12 @@ pub async fn get_creator_tips(
 pub async fn update_creator_wallet(
     State(state): State<Arc<AppState>>,
     Path(username): Path<String>,
-    crate::validation::ValidatedJson(body): crate::validation::ValidatedJson<UpdateCreatorWalletRequest>,
+    crate::validation::ValidatedJson(body): crate::validation::ValidatedJson<
+        UpdateCreatorWalletRequest,
+    >,
 ) -> Result<impl IntoResponse, AppError> {
-    let creator = creator_controller::update_creator_wallet_address(&state, &username, body).await?;
+    let creator =
+        creator_controller::update_creator_wallet_address(&state, &username, body).await?;
     let response: CreatorResponse = creator.into();
     Ok((StatusCode::OK, Json(serde_json::json!(response))).into_response())
 }
@@ -154,7 +162,9 @@ pub async fn update_creator_wallet(
 pub async fn update_creator_profile(
     State(state): State<Arc<AppState>>,
     Path(username): Path<String>,
-    crate::validation::ValidatedJson(body): crate::validation::ValidatedJson<UpdateCreatorProfileRequest>,
+    crate::validation::ValidatedJson(body): crate::validation::ValidatedJson<
+        UpdateCreatorProfileRequest,
+    >,
 ) -> Result<impl IntoResponse, AppError> {
     let creator = creator_controller::update_creator_profile(&state, &username, body).await?;
     let response: CreatorResponse = creator.into();

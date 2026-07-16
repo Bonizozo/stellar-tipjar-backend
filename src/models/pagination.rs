@@ -1,94 +1,188 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use chrono::{DateTime, TimeZone, Utc};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use utoipa::{IntoParams, ToSchema};
+use uuid::Uuid;
 
-const DEFAULT_PAGE: i64 = 1;
+use crate::errors::AppError;
+
+type HmacSha256 = Hmac<Sha256>;
+
 const DEFAULT_LIMIT: i64 = 20;
 const MAX_LIMIT: i64 = 100;
+const DEFAULT_MAX_OFFSET: i64 = 10_000;
 
-fn default_page() -> i64 {
-    DEFAULT_PAGE
-}
 fn default_limit() -> i64 {
     DEFAULT_LIMIT
 }
+fn default_max_offset() -> i64 {
+    std::env::var("PAGINATION_MAX_OFFSET")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_MAX_OFFSET)
+}
+fn cursor_secret() -> String {
+    std::env::var("PAGINATION_CURSOR_SECRET")
+        .or_else(|_| std::env::var("JWT_SECRET"))
+        .unwrap_or_else(|_| "development-pagination-secret-change-me".to_string())
+}
 
-/// Query parameters for offset-based pagination.
-#[derive(Debug, Deserialize, IntoParams)]
+#[derive(Debug, Clone, Deserialize, IntoParams)]
 pub struct PaginationParams {
-    /// Page number, starting at 1 (default: 1)
-    #[serde(default = "default_page")]
-    pub page: i64,
-    /// Items per page, max 100 (default: 20)
+    /// Page size, max 100 (default: 20).
     #[serde(default = "default_limit")]
     pub limit: i64,
-    /// Cursor for cursor-based pagination. This is a base64 encoded string
-    /// representing a composite cursor based on `created_at` timestamp and `id`.
-    /// Format (base64 of): "<timestamp>|<uuid>" (unix seconds for timestamp).
+    /// Opaque signed cursor returned as `next_cursor` or `prev_cursor`.
     #[serde(default)]
     pub cursor: Option<String>,
-    /// When using cursor pagination, set to true to fetch the previous page.
+    /// Cursor after which to fetch results. Alias for `cursor`.
     #[serde(default)]
-    pub previous: Option<bool>,
+    pub after: Option<String>,
+    /// Cursor before which to fetch results.
+    #[serde(default)]
+    pub before: Option<String>,
+    /// Deprecated offset page number retained only for compatibility.
+    #[serde(default)]
+    pub page: Option<i64>,
+    /// Deprecated raw offset retained only for compatibility.
+    #[serde(default)]
+    pub offset: Option<i64>,
+}
+
+impl Default for PaginationParams {
+    fn default() -> Self {
+        Self {
+            limit: DEFAULT_LIMIT,
+            cursor: None,
+            after: None,
+            before: None,
+            page: None,
+            offset: None,
+        }
+    }
 }
 
 impl PaginationParams {
-    /// Clamp limit to [1, MAX_LIMIT] and page to >= 1.
     pub fn validated(mut self) -> Self {
-        self.page = self.page.max(1);
         self.limit = self.limit.clamp(1, MAX_LIMIT);
         self
     }
-
+    pub fn direction(&self) -> CursorDirection {
+        if self.before.is_some() {
+            CursorDirection::Before
+        } else {
+            CursorDirection::After
+        }
+    }
+    pub fn active_cursor(&self) -> Option<&str> {
+        self.before
+            .as_deref()
+            .or(self.after.as_deref())
+            .or(self.cursor.as_deref())
+    }
+    pub fn uses_offset(&self) -> bool {
+        self.page.is_some() || self.offset.is_some()
+    }
     pub fn offset(&self) -> i64 {
-        (self.page - 1) * self.limit
+        let requested = self
+            .offset
+            .unwrap_or_else(|| self.page.map(|p| (p.max(1) - 1) * self.limit).unwrap_or(0));
+        requested.clamp(0, default_max_offset())
     }
 }
 
-/// Paginated response envelope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CursorDirection {
+    After,
+    Before,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct KeysetCursor {
+    pub created_at: DateTime<Utc>,
+    pub id: Uuid,
+}
+
+impl KeysetCursor {
+    pub fn new(created_at: DateTime<Utc>, id: Uuid) -> Self {
+        Self { created_at, id }
+    }
+
+    pub fn encode(&self) -> String {
+        let payload = format!("{}|{}", self.created_at.timestamp_micros(), self.id);
+        let mut mac = HmacSha256::new_from_slice(cursor_secret().as_bytes())
+            .expect("HMAC accepts any key length");
+        mac.update(payload.as_bytes());
+        let sig = hex::encode(mac.finalize().into_bytes());
+        URL_SAFE_NO_PAD.encode(format!("{payload}|{sig}"))
+    }
+
+    pub fn decode(token: &str) -> Result<Self, AppError> {
+        let decoded = URL_SAFE_NO_PAD
+            .decode(token)
+            .map_err(|_| AppError::bad_request("Invalid cursor format"))?;
+        let s = String::from_utf8(decoded)
+            .map_err(|_| AppError::bad_request("Invalid cursor encoding"))?;
+        let parts: Vec<&str> = s.split('|').collect();
+        if parts.len() != 3 {
+            return Err(AppError::bad_request("Invalid cursor structure"));
+        }
+        let payload = format!("{}|{}", parts[0], parts[1]);
+        let mut mac = HmacSha256::new_from_slice(cursor_secret().as_bytes())
+            .expect("HMAC accepts any key length");
+        mac.update(payload.as_bytes());
+        let expected = hex::encode(mac.finalize().into_bytes());
+        if expected != parts[2] {
+            return Err(AppError::bad_request("Invalid cursor signature"));
+        }
+        let micros = parts[0]
+            .parse::<i64>()
+            .map_err(|_| AppError::bad_request("Invalid cursor timestamp"))?;
+        let id =
+            Uuid::parse_str(parts[1]).map_err(|_| AppError::bad_request("Invalid cursor id"))?;
+        let created_at = Utc
+            .timestamp_micros(micros)
+            .single()
+            .ok_or_else(|| AppError::bad_request("Invalid cursor timestamp"))?;
+        Ok(Self { created_at, id })
+    }
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PaginatedResponse<T: Serialize> {
-    pub data: Vec<T>,
-    /// Total number of matching records.
-    pub total: i64,
-    /// Current page number.
-    pub page: i64,
-    /// Items per page.
-    pub limit: i64,
-    /// Total number of pages.
-    pub total_pages: i64,
-    /// Whether a next page exists.
-    pub has_next: bool,
-    /// Whether a previous page exists.
-    pub has_prev: bool,
-    /// The active cursor value when using cursor-based pagination.
-    pub cursor: Option<String>,
+    pub items: Vec<T>,
+    pub next_cursor: Option<String>,
+    pub prev_cursor: Option<String>,
+    pub has_more: bool,
 }
 
 impl<T: Serialize> PaginatedResponse<T> {
-    pub fn new(data: Vec<T>, total: i64, params: &PaginationParams) -> Self {
-        let total_pages = ((total as f64) / (params.limit as f64)).ceil() as i64;
+    pub fn keyset(
+        mut items: Vec<T>,
+        limit: i64,
+        mut cursor_for: impl FnMut(&T) -> KeysetCursor,
+    ) -> Self {
+        let has_more = items.len() > limit as usize;
+        if has_more {
+            items.truncate(limit as usize);
+        }
+        let next_cursor = items.last().map(&mut cursor_for).map(|c| c.encode());
+        let prev_cursor = items.first().map(&mut cursor_for).map(|c| c.encode());
         Self {
-            has_next: params.page < total_pages,
-            has_prev: params.page > 1,
-            data,
-            total,
-            page: params.page,
-            limit: params.limit,
-            total_pages,
-            cursor: params.cursor.clone(),
+            items,
+            next_cursor,
+            prev_cursor,
+            has_more,
         }
     }
-
     pub fn map<U: Serialize, F: Fn(T) -> U>(self, f: F) -> PaginatedResponse<U> {
         PaginatedResponse {
-            data: self.data.into_iter().map(f).collect(),
-            total: self.total,
-            page: self.page,
-            limit: self.limit,
-            total_pages: self.total_pages,
-            has_next: self.has_next,
-            has_prev: self.has_prev,
-            cursor: self.cursor,
+            items: self.items.into_iter().map(f).collect(),
+            next_cursor: self.next_cursor,
+            prev_cursor: self.prev_cursor,
+            has_more: self.has_more,
         }
     }
 }
