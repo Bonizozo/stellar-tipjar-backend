@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -88,9 +88,18 @@ pub async fn list_tips(
     Query(filters): Query<TipFilters>,
     Query(sort): Query<TipSortParams>,
 ) -> Result<impl IntoResponse, AppError> {
+    let uses_offset = params.uses_offset();
     let result = tip_controller::get_tips_paginated(&state, None, params, filters, sort).await?;
     let response = result.map(TipResponse::from);
-    Ok((StatusCode::OK, Json(serde_json::json!(response))).into_response())
+    let mut headers = HeaderMap::new();
+    if uses_offset {
+        headers.insert("Deprecation", HeaderValue::from_static("true"));
+        headers.insert(
+            "X-Deprecation-Warning",
+            HeaderValue::from_static("Offset pagination is deprecated; use signed keyset cursors."),
+        );
+    }
+    Ok((headers, StatusCode::OK, Json(serde_json::json!(response))).into_response())
 }
 
 /// Report a tip message for moderation review

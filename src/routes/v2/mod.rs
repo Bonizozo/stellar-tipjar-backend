@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -14,7 +14,7 @@ use crate::controllers::{creator_controller, tip_controller};
 use crate::db::connection::AppState;
 use crate::errors::AppError;
 use crate::models::creator::CreateCreatorRequest;
-use crate::models::pagination::{PaginatedResponse, PaginationParams};
+use crate::models::pagination::PaginationParams;
 use crate::models::tip::{RecordTipRequest, TipFilters, TipResponse, TipSortParams};
 
 /// Enriched creator shape — v2 includes timestamps and email.
@@ -73,9 +73,18 @@ async fn get_creator_tips(
     Query(filters): Query<TipFilters>,
     Query(sort): Query<TipSortParams>,
 ) -> Result<impl IntoResponse, AppError> {
+    let uses_offset = params.uses_offset();
     let result =
         tip_controller::get_tips_paginated(&state, Some(&username), params, filters, sort).await?;
-    Ok(Json(result.map(TipResponse::from)))
+    let mut headers = HeaderMap::new();
+    if uses_offset {
+        headers.insert("Deprecation", HeaderValue::from_static("true"));
+        headers.insert(
+            "X-Deprecation-Warning",
+            HeaderValue::from_static("Offset pagination is deprecated; use signed keyset cursors."),
+        );
+    }
+    Ok((headers, Json(result.map(TipResponse::from))))
 }
 
 async fn record_tip(
@@ -119,6 +128,15 @@ async fn list_tips(
     Query(filters): Query<TipFilters>,
     Query(sort): Query<TipSortParams>,
 ) -> Result<impl IntoResponse, AppError> {
+    let uses_offset = params.uses_offset();
     let result = tip_controller::get_tips_paginated(&state, None, params, filters, sort).await?;
-    Ok(Json(result.map(TipResponse::from)))
+    let mut headers = HeaderMap::new();
+    if uses_offset {
+        headers.insert("Deprecation", HeaderValue::from_static("true"));
+        headers.insert(
+            "X-Deprecation-Warning",
+            HeaderValue::from_static("Offset pagination is deprecated; use signed keyset cursors."),
+        );
+    }
+    Ok((headers, Json(result.map(TipResponse::from))))
 }
