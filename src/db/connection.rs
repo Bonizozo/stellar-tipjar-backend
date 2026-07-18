@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
 
+use crate::services::stellar_service::TipVerifier;
+use crate::queue::VerificationQueue;
 use super::performance::PerformanceMonitor;
 use super::replica::ReplicaManager;
 use crate::cache::{CacheInvalidator, MultiLayerCache};
@@ -18,7 +20,10 @@ use crate::ws::TipEvent;
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
-    pub stellar: StellarService,
+    /// Injectable on-chain verifier (production: StellarService, tests: MockTipVerifier).
+    pub verifier: Arc<dyn TipVerifier>,
+    /// Background verification job queue.
+    pub queue: VerificationQueue,
     pub performance: Arc<PerformanceMonitor>,
     pub redis: Option<ConnectionManager>,
     pub broadcast_tx: broadcast::Sender<TipEvent>,

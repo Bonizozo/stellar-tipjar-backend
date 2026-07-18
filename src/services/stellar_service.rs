@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -7,13 +8,87 @@ use super::circuit_breaker::CircuitBreaker;
 use super::retry::{with_retry, RetryConfig};
 use crate::errors::{AppError, AppResult, StellarError};
 
+// ─────────────────────────── Horizon Response Types ─────────────────────────
+
+/// Full Horizon transaction response with all fields needed for tip verification.
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct HorizonTransactionResponse {
     pub id: String,
     pub hash: String,
     pub successful: bool,
+    /// The Stellar account that submitted (signed) the transaction.
+    pub source_account: String,
+    /// Base64-encoded XDR memo value; may be absent.
+    #[serde(default)]
+    pub memo: Option<String>,
+    /// Memo type: "none", "text", "id", "hash", "return"
+    #[serde(default)]
+    pub memo_type: Option<String>,
 }
+
+/// A single operation embedded in a transaction (from the Horizon operations endpoint).
+#[allow(dead_code)]
+#[derive(Debug, Clone, Deserialize)]
+pub struct HorizonOperation {
+    #[serde(rename = "type")]
+    pub op_type: String,
+    /// Payment destination, if this is a payment operation.
+    #[serde(default)]
+    pub to: Option<String>,
+    /// Amount as a string (e.g. "10.5000000"), if present.
+    #[serde(default)]
+    pub amount: Option<String>,
+    /// Asset type: "native" for XLM.
+    #[serde(default)]
+    pub asset_type: Option<String>,
+}
+
+/// Horizon paginated response wrapper for operations.
+#[derive(Debug, Deserialize)]
+pub struct HorizonOperationsPage {
+    #[serde(rename = "_embedded")]
+    pub embedded: HorizonOperationsEmbedded,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HorizonOperationsEmbedded {
+    pub records: Vec<HorizonOperation>,
+}
+
+// ─────────────────────────── TipVerifier Trait ──────────────────────────────
+
+/// All the fields the verifier must check to approve a tip.
+#[derive(Debug, Clone)]
+pub struct TipVerifyRequest {
+    /// The Stellar transaction hash to look up.
+    pub transaction_hash: String,
+    /// Claimed payment amount in stroops (1 XLM = 10,000,000 stroops).
+    /// Must be compared as integers – no floating-point arithmetic.
+    pub amount_stroops: i64,
+    /// Creator's Stellar wallet address (payment destination).
+    pub destination: String,
+    /// Optional memo that the tipper was supposed to include.
+    pub expected_memo: Option<String>,
+    /// Claimed source account (tipper's Stellar address).
+    pub source_account: String,
+}
+
+/// The outcome of tip verification.
+#[derive(Debug, Clone, PartialEq)]
+pub enum VerifyOutcome {
+    Confirmed,
+    Rejected { reason: String },
+}
+
+/// Injectable verifier abstraction.  
+/// Production code uses `StellarService`; tests inject `MockTipVerifier`.
+#[async_trait]
+pub trait TipVerifier: Send + Sync + 'static {
+    async fn verify_tip(&self, req: &TipVerifyRequest) -> AppResult<VerifyOutcome>;
+}
+
+// ─────────────────────────── StellarService ─────────────────────────────────
 
 #[allow(dead_code)]
 #[derive(Debug, Serialize)]
@@ -37,7 +112,10 @@ pub struct StellarService {
 impl StellarService {
     pub fn new(rpc_url: String, network: String) -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(Duration::from_secs(10))
+                .build()
+                .expect("failed to build reqwest client"),
             rpc_url,
             network,
             retry_config: RetryConfig::default(),
@@ -45,26 +123,25 @@ impl StellarService {
         }
     }
 
-    /// Verify that a transaction exists and was successful on the Stellar network.
-    ///
-    /// Uses retry with exponential backoff for transient network errors and a
-    /// circuit breaker to avoid hammering a failing Horizon server.
-    pub async fn verify_transaction(&self, transaction_hash: &str) -> AppResult<bool> {
-        if !self.circuit_breaker.allow_request() {
-            tracing::warn!(
-                "Circuit breaker open; skipping verification for {}",
-                transaction_hash
-            );
-            return Err(AppError::Stellar(StellarError::CircuitBreakerOpen));
-        }
-
-        let horizon_base = if self.network == "mainnet" {
+    fn horizon_base(&self) -> &'static str {
+        if self.network == "mainnet" {
             "https://horizon.stellar.org"
         } else {
             "https://horizon-testnet.stellar.org"
-        };
+        }
+    }
 
-        let url = format!("{}/transactions/{}", horizon_base, transaction_hash);
+    /// Low-level: fetch a transaction record from Horizon with retry + circuit-breaker.
+    async fn fetch_transaction(
+        &self,
+        hash: &str,
+    ) -> AppResult<Option<HorizonTransactionResponse>> {
+        if !self.circuit_breaker.allow_request() {
+            tracing::warn!("Circuit breaker open; skipping Horizon call for {}", hash);
+            return Err(AppError::Stellar(StellarError::CircuitBreakerOpen));
+        }
+
+        let url = format!("{}/transactions/{}", self.horizon_base(), hash);
         let client = self.client.clone();
         let cb = self.circuit_breaker.clone();
 
@@ -78,17 +155,22 @@ impl StellarService {
                     .await
                     .map_err(|_| AppError::Stellar(StellarError::NetworkUnavailable))?;
 
-                if resp.status().is_success() {
-                    let tx: HorizonTransactionResponse = resp.json().await.map_err(|_| {
-                        AppError::Stellar(StellarError::InvalidTransaction {
-                            reason: "Malformed Horizon response".to_string(),
-                        })
-                    })?;
-                    Ok(tx.successful)
-                } else if resp.status().as_u16() == 404 {
-                    Ok(false)
-                } else {
-                    Err(AppError::Stellar(StellarError::NetworkUnavailable))
+                match resp.status().as_u16() {
+                    200 => {
+                        let tx: HorizonTransactionResponse = resp.json().await.map_err(|_| {
+                            AppError::Stellar(StellarError::InvalidTransaction {
+                                reason: "Malformed Horizon response".to_string(),
+                            })
+                        })?;
+                        Ok(Some(tx))
+                    }
+                    404 => Ok(None),
+                    429 | 500..=599 => {
+                        Err(AppError::Stellar(StellarError::NetworkUnavailable))
+                    }
+                    other => Err(AppError::Stellar(StellarError::InvalidTransaction {
+                        reason: format!("Unexpected Horizon status: {}", other),
+                    })),
                 }
             }
         })
@@ -100,6 +182,69 @@ impl StellarService {
         }
 
         result
+    }
+
+    /// Fetch the list of operations for a transaction from Horizon.
+    async fn fetch_operations(
+        &self,
+        hash: &str,
+    ) -> AppResult<Vec<HorizonOperation>> {
+        let url = format!("{}/transactions/{}/operations", self.horizon_base(), hash);
+        let client = self.client.clone();
+
+        let result = with_retry(&self.retry_config, || {
+            let client = client.clone();
+            let url = url.clone();
+            async move {
+                let resp = client
+                    .get(&url)
+                    .send()
+                    .await
+                    .map_err(|_| AppError::Stellar(StellarError::NetworkUnavailable))?;
+
+                if resp.status().is_success() {
+                    let page: HorizonOperationsPage = resp.json().await.map_err(|_| {
+                        AppError::Stellar(StellarError::InvalidTransaction {
+                            reason: "Malformed Horizon operations response".to_string(),
+                        })
+                    })?;
+                    Ok(page.embedded.records)
+                } else {
+                    Err(AppError::Stellar(StellarError::NetworkUnavailable))
+                }
+            }
+        })
+        .await;
+
+        result
+    }
+
+    /// Legacy helper kept for backward compatibility – returns true if transaction
+    /// exists and is successful. Does not verify amounts or destinations.
+    pub async fn verify_transaction(&self, transaction_hash: &str) -> AppResult<bool> {
+        let tx = self.fetch_transaction(transaction_hash).await?;
+        Ok(tx.map(|t| t.successful).unwrap_or(false))
+    }
+
+    /// Convert XLM amount string (e.g. "10.5000000") to stroops (integer).
+    /// Horizon always returns 7 decimal places.
+    pub fn xlm_to_stroops(amount_str: &str) -> AppResult<i64> {
+        // Parse as a decimal with exactly 7 decimal places.
+        let parts: Vec<&str> = amount_str.split('.').collect();
+        let whole: i64 = parts[0].parse().map_err(|_| {
+            AppError::Stellar(StellarError::InvalidTransaction {
+                reason: format!("Could not parse amount whole part: {}", amount_str),
+            })
+        })?;
+        let fractional_str = parts.get(1).copied().unwrap_or("0");
+        // Pad or truncate to exactly 7 digits
+        let padded = format!("{:0<7}", fractional_str);
+        let fractional: i64 = padded[..7].parse().map_err(|_| {
+            AppError::Stellar(StellarError::InvalidTransaction {
+                reason: format!("Could not parse amount fractional part: {}", amount_str),
+            })
+        })?;
+        Ok(whole * 10_000_000 + fractional)
     }
 
     /// Get the current health of the Stellar network connection.
@@ -124,5 +269,93 @@ impl StellarService {
             .map_err(|_| AppError::Stellar(StellarError::NetworkUnavailable))?;
 
         Ok(response)
+    }
+}
+
+// ────────────────── TipVerifier implementation for StellarService ────────────
+
+#[async_trait]
+impl TipVerifier for StellarService {
+    /// Full on-chain verification:
+    /// 1. Transaction exists and succeeded.
+    /// 2. Source account matches claimed tipper.
+    /// 3. A payment operation exists with:
+    ///    - asset_type = "native" (XLM)
+    ///    - destination = creator wallet
+    ///    - amount (in stroops) == claimed amount (integer comparison)
+    /// 4. Memo matches expected_memo if provided.
+    async fn verify_tip(&self, req: &TipVerifyRequest) -> AppResult<VerifyOutcome> {
+        // ── Step 1: Fetch transaction ──────────────────────────────────────
+        let tx = match self.fetch_transaction(&req.transaction_hash).await? {
+            None => {
+                return Ok(VerifyOutcome::Rejected {
+                    reason: "Transaction not found on Stellar network".to_string(),
+                });
+            }
+            Some(tx) => tx,
+        };
+
+        if !tx.successful {
+            return Ok(VerifyOutcome::Rejected {
+                reason: "Transaction did not succeed on the Stellar network".to_string(),
+            });
+        }
+
+        // ── Step 2: Source account ─────────────────────────────────────────
+        if tx.source_account != req.source_account {
+            return Ok(VerifyOutcome::Rejected {
+                reason: format!(
+                    "Source account mismatch: expected {}, got {}",
+                    req.source_account, tx.source_account
+                ),
+            });
+        }
+
+        // ── Step 3: Memo ───────────────────────────────────────────────────
+        if let Some(expected) = &req.expected_memo {
+            let actual = tx.memo.as_deref().unwrap_or("");
+            if actual != expected.as_str() {
+                return Ok(VerifyOutcome::Rejected {
+                    reason: format!(
+                        "Memo mismatch: expected '{}', got '{}'",
+                        expected, actual
+                    ),
+                });
+            }
+        }
+
+        // ── Step 4: Operations ─────────────────────────────────────────────
+        let operations = self.fetch_operations(&req.transaction_hash).await?;
+
+        let matching_payment = operations.iter().find(|op| {
+            op.op_type == "payment"
+                && op.asset_type.as_deref() == Some("native")
+                && op.to.as_deref() == Some(req.destination.as_str())
+        });
+
+        match matching_payment {
+            None => Ok(VerifyOutcome::Rejected {
+                reason: format!(
+                    "No native payment to {} found in transaction",
+                    req.destination
+                ),
+            }),
+            Some(op) => {
+                // Amount comparison in stroops – no float arithmetic
+                let on_chain_amount_str = op.amount.as_deref().unwrap_or("0");
+                let on_chain_stroops = Self::xlm_to_stroops(on_chain_amount_str)?;
+
+                if on_chain_stroops != req.amount_stroops {
+                    Ok(VerifyOutcome::Rejected {
+                        reason: format!(
+                            "Amount mismatch: expected {} stroops, on-chain {}",
+                            req.amount_stroops, on_chain_stroops
+                        ),
+                    })
+                } else {
+                    Ok(VerifyOutcome::Confirmed)
+                }
+            }
+        }
     }
 }
