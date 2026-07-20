@@ -14,9 +14,10 @@ use crate::errors::{AppError, ValidationError};
 /// on the deserialized body, returning a structured 400 on failure.
 pub struct ValidatedJson<T>(pub T);
 
+#[async_trait::async_trait]
 impl<T, S> FromRequest<S> for ValidatedJson<T>
 where
-    T: DeserializeOwned + Validate,
+    T: DeserializeOwned + Validate + Send,
     S: Send + Sync,
     Json<T>: FromRequest<S, Rejection = JsonRejection>,
 {
@@ -32,7 +33,7 @@ where
             })?;
 
         value.validate().map_err(|errors| {
-            // Flatten validator errors into a simple field -> [messages] map.
+            // Flatten validator errors into a simple field → [messages] map.
             let fields: serde_json::Map<String, serde_json::Value> = errors
                 .field_errors()
                 .iter()

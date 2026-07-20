@@ -16,7 +16,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/tips", post(record_tip))
 }
 
-/// Record a new tip (verifies transaction on the Stellar network first)
+/// Record a new tip (verifies transaction on the Stellar network first).
 #[utoipa::path(
     post,
     path = "/tips",
@@ -31,8 +31,6 @@ pub fn router() -> Router<Arc<AppState>> {
 )]
 pub async fn record_tip(
     State(state): State<Arc<AppState>>,
-    Json(body): Json<RecordTipRequest>,
-) -> impl IntoResponse {
     crate::validation::ValidatedJson(body): crate::validation::ValidatedJson<RecordTipRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     match state
@@ -49,20 +47,6 @@ pub async fn record_tip(
         Ok(true) => {}
     }
 
-    match tip_controller::record_tip(&state, body).await {
-        Ok(tip) => {
-            let response: TipResponse = tip.into();
-            (StatusCode::CREATED, Json(serde_json::json!(response))).into_response()
-        }
-        Err(e) => {
-            tracing::error!("Failed to record tip: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "Failed to record tip" })),
-            )
-                .into_response()
-        }
-    }
     let tip = tip_controller::record_tip(&state, body).await?;
     let response: TipResponse = tip.into();
     Ok((StatusCode::CREATED, Json(serde_json::json!(response))).into_response())

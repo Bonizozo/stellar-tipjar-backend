@@ -62,7 +62,13 @@ pub async fn trigger_webhooks(
             
             let url = webhook.url.clone();
             let secret = webhook.secret.clone();
-            let event_value = serde_json::to_value(event).unwrap();
+            let event_value = match serde_json::to_value(event) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(error = %e, "Failed to serialize webhook event");
+                    continue;
+                }
+            };
 
             tokio::spawn(async move {
                 if let Err(e) = sender::send_webhook_with_retry(url, secret, event_value).await {

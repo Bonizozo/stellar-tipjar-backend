@@ -2,16 +2,14 @@ use axum::http::{HeaderValue, Method};
 use std::time::Duration;
 use tower_http::cors::CorsLayer;
 
-/// Builds a [`CorsLayer`] from environment variables.
+use crate::config::CorsConfig;
+
+/// Builds a [`CorsLayer`] from a validated [`CorsConfig`].
 ///
-/// | Variable            | Default                        | Description                              |
-/// |---------------------|--------------------------------|------------------------------------------|
-/// `CORS_ALLOWED_ORIGINS` | `*` (any)                    | Comma-separated list of allowed origins  |
-/// `CORS_MAX_AGE_SECS`    | `3600`                       | Preflight cache duration in seconds      |
-///
-/// When `CORS_ALLOWED_ORIGINS` is set to specific origins, `allow_credentials(true)` is
-/// enabled automatically (required by the CORS spec for credentialed requests).
-pub fn cors_layer_from_env() -> CorsLayer {
+/// This is the sole public API — no direct env reads occur here.
+/// All values are taken from `AppConfig::cors` which is validated once at
+/// startup via `AppConfig::from_env()`.
+pub fn cors_layer(cfg: &CorsConfig) -> CorsLayer {
     let methods = [
         Method::GET,
         Method::POST,
@@ -20,31 +18,22 @@ pub fn cors_layer_from_env() -> CorsLayer {
         Method::OPTIONS,
     ];
 
-    let max_age: u64 = std::env::var("CORS_MAX_AGE_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(3600);
-
-    let origins_env = std::env::var("CORS_ALLOWED_ORIGINS").unwrap_or_default();
-    let origins: Vec<HeaderValue> = origins_env
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .filter_map(|s| s.parse().ok())
-        .collect();
-
     let layer = CorsLayer::new()
         .allow_methods(methods)
         .allow_headers(tower_http::cors::Any)
-        .max_age(Duration::from_secs(max_age));
+        .max_age(Duration::from_secs(cfg.max_age_secs));
+
+    let origins: Vec<HeaderValue> = cfg
+        .allowed_origins
+        .iter()
+        .filter_map(|s| s.parse().ok())
+        .collect();
 
     if origins.is_empty() {
-        // No specific origins configured — allow any (no credentials)
+        // No specific origins → allow any (no credentials)
         layer.allow_origin(tower_http::cors::Any)
     } else {
-        layer
-            .allow_origin(origins)
-            .allow_credentials(true)
+        layer.allow_origin(origins).allow_credentials(true)
     }
 }
 
@@ -52,24 +41,39 @@ pub fn cors_layer_from_env() -> CorsLayer {
 mod tests {
     use super::*;
 
+    fn wildcard_cfg() -> CorsConfig {
+        CorsConfig {
+            allowed_origins: vec![],
+            max_age_secs: 3600,
+        }
+    }
+
+    fn specific_origins_cfg() -> CorsConfig {
+        CorsConfig {
+            allowed_origins: vec![
+                "http://localhost:3000".into(),
+                "https://example.com".into(),
+            ],
+            max_age_secs: 600,
+        }
+    }
+
     #[test]
-    fn builds_with_wildcard_when_no_env() {
-        std::env::remove_var("CORS_ALLOWED_ORIGINS");
-        std::env::remove_var("CORS_MAX_AGE_SECS");
-        let _layer = cors_layer_from_env(); // must not panic
+    fn builds_with_wildcard_when_no_origins() {
+        let _layer = cors_layer(&wildcard_cfg()); // must not panic
     }
 
     #[test]
     fn builds_with_specific_origins() {
-        std::env::set_var("CORS_ALLOWED_ORIGINS", "http://localhost:3000,https://example.com");
-        let _layer = cors_layer_from_env();
-        std::env::remove_var("CORS_ALLOWED_ORIGINS");
+        let _layer = cors_layer(&specific_origins_cfg()); // must not panic
     }
 
     #[test]
     fn respects_custom_max_age() {
-        std::env::set_var("CORS_MAX_AGE_SECS", "600");
-        let _layer = cors_layer_from_env();
-        std::env::remove_var("CORS_MAX_AGE_SECS");
+        let cfg = CorsConfig {
+            allowed_origins: vec![],
+            max_age_secs: 600,
+        };
+        let _layer = cors_layer(&cfg); // must not panic
     }
 }

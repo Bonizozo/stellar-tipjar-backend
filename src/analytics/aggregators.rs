@@ -1,5 +1,4 @@
 use sqlx::PgPool;
-use chrono::{DateTime, Utc};
 
 use crate::errors::AppResult;
 

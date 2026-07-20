@@ -63,7 +63,10 @@ where
         }
     }
 
-    Err(last_err.expect("at least one attempt was made"))
+    // SAFETY: The loop runs at least once (attempt 0), so `last_err` is always
+    // `Some` when we reach this point.  Invariant: at least one iteration ran.
+    #[allow(clippy::expect_used)]
+    Err(last_err.expect("retry loop invariant: at least one attempt was made"))
 }
 
 #[cfg(test)]

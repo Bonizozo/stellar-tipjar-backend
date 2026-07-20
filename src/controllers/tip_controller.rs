@@ -35,12 +35,6 @@ pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Ti
         let _ = redis_client::del(&mut conn, &[tips_key.as_str()]).await;
     }
 
-    // Main branch added Webhooks
-    crate::webhooks::trigger_webhooks(
-        state.db.clone(),
-        "tip.recorded",
-        serde_json::to_value(&tip).unwrap()
-    ).await;
     // Notify external services via webhook.
     let payload = serde_json::to_value(&tip).map_err(|e| {
         tracing::error!(error = %e, "Failed to serialize tip webhook payload");
@@ -83,11 +77,19 @@ pub async fn record_tip_in_tx(
         .execute(&mut **tx)
         .await?;
 
-    // Broadcast to WebSocket (Main branch feature)
+    // Broadcast to WebSocket (Main branch feature).
+    // Amount is stored as a decimal string (e.g. "10.5 XLM"); we convert to
+    // stroops for the wire event, falling back to 0 on any parse error so the
+    // broadcast never blocks the happy path.
+    let amount_stroops: u64 = tip
+        .amount
+        .parse::<f64>()
+        .map(|xlm| (xlm * 10_000_000.0) as u64)
+        .unwrap_or(0);
     let event = crate::ws::TipEvent {
         creator_id: tip.creator_username.clone(),
         tipper_id: req.transaction_hash.clone(),
-        amount: tip.amount.parse::<u64>().unwrap_or(0),
+        amount: amount_stroops,
         timestamp: tip.created_at.timestamp(),
     };
     crate::ws::broadcast_tip(&state.broadcast_tx, event).await;

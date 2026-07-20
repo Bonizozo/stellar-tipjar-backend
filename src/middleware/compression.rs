@@ -11,10 +11,11 @@ pub fn compression_layer() -> CompressionLayer<impl Predicate + Clone> {
     let predicate = SizeAbove::new(1024)      // Only compress responses > 1KB
         .and(NotForContentType::IMAGES); // Don't compress images
 
+    // Note: tower-http 0.5 supports gzip and brotli; the per-algorithm
+    // `.deflate(true)` toggle was removed in this version.
     CompressionLayer::new()
         .gzip(true)
         .br(true)
-        .deflate(true)
         .quality(CompressionLevel::Default)
         .compress_when(predicate)
 }

@@ -6,6 +6,18 @@ pub struct EventStore {
     pool: PgPool,
 }
 
+/// Row type returned by the INSERT … RETURNING query.
+#[derive(sqlx::FromRow)]
+struct SequenceRow {
+    sequence_number: i64,
+}
+
+/// Row type returned by event SELECT queries.
+#[derive(sqlx::FromRow)]
+struct EventDataRow {
+    event_data: serde_json::Value,
+}
+
 impl EventStore {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -13,15 +25,20 @@ impl EventStore {
 
     /// Persist a single event and return its sequence number.
     pub async fn append(&self, event: &Event) -> Result<i64, sqlx::Error> {
-        let data = serde_json::to_value(event).expect("Event must be serializable");
-        let row = sqlx::query!(
+        let data = serde_json::to_value(event).map_err(|e| {
+            tracing::error!(error = %e, "Failed to serialize event");
+            // Map serde error to a database encode error so callers get a typed error.
+            sqlx::Error::Encode(Box::new(e))
+        })?;
+
+        let row = sqlx::query_as::<_, SequenceRow>(
             r#"INSERT INTO events (aggregate_id, event_type, event_data)
                VALUES ($1, $2, $3)
                RETURNING sequence_number"#,
-            event.aggregate_id(),
-            event.event_type(),
-            data,
         )
+        .bind(event.aggregate_id())
+        .bind(event.event_type())
+        .bind(data)
         .fetch_one(&self.pool)
         .await?;
 
@@ -30,12 +47,12 @@ impl EventStore {
 
     /// Load all events for a specific aggregate (e.g. a creator's UUID).
     pub async fn load(&self, aggregate_id: Uuid) -> Result<Vec<Event>, sqlx::Error> {
-        let rows = sqlx::query!(
+        let rows = sqlx::query_as::<_, EventDataRow>(
             r#"SELECT event_data FROM events
                WHERE aggregate_id = $1
                ORDER BY sequence_number"#,
-            aggregate_id,
         )
+        .bind(aggregate_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -47,12 +64,12 @@ impl EventStore {
 
     /// Replay all events from a given sequence number onward.
     pub async fn replay_from(&self, from_sequence: i64) -> Result<Vec<Event>, sqlx::Error> {
-        let rows = sqlx::query!(
+        let rows = sqlx::query_as::<_, EventDataRow>(
             r#"SELECT event_data FROM events
                WHERE sequence_number >= $1
                ORDER BY sequence_number"#,
-            from_sequence,
         )
+        .bind(from_sequence)
         .fetch_all(&self.pool)
         .await?;
 

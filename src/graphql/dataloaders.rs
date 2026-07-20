@@ -7,6 +7,7 @@ pub struct CreatorLoader {
     pub pool: PgPool,
 }
 
+#[async_trait::async_trait]
 impl Loader<String> for CreatorLoader {
     type Value = Creator;
     type Error = Arc<sqlx::Error>;
@@ -28,6 +29,7 @@ pub struct TipLoader {
     pub pool: PgPool,
 }
 
+#[async_trait::async_trait]
 impl Loader<String> for TipLoader {
     type Value = Vec<Tip>;
     type Error = Arc<sqlx::Error>;

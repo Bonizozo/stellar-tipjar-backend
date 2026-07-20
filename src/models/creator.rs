@@ -1,14 +1,30 @@
 use chrono::{DateTime, Utc};
-use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use utoipa::ToSchema;
 use uuid::Uuid;
 use validator::Validate;
 
-lazy_static! {
-    /// Alphanumeric + underscores/hyphens only.
-    static ref USERNAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap();
+/// Returns the compiled alphanumeric + underscore/hyphen username regex.
+///
+/// Uses `OnceLock` so the regex is compiled exactly once.
+/// The `#[allow]` is justified: the pattern is a compile-time constant
+/// string that is syntactically valid — `Regex::new` only returns `Err`
+/// for invalid patterns, which can never occur here.
+/// Invariant: `Regex::new` on a known-good literal is always `Ok`.
+fn username_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    #[allow(clippy::expect_used)]
+    RE.get_or_init(|| {
+        Regex::new(r"^[a-zA-Z0-9_-]+$")
+            .expect("USERNAME_REGEX invariant: regex literal is always valid")
+    })
+}
+
+// Re-export so that `*USERNAME_REGEX` continues to work in the validator attribute.
+lazy_static::lazy_static! {
+    pub(crate) static ref USERNAME_REGEX: &'static Regex = username_regex();
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

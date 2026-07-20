@@ -21,7 +21,7 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppR
         .bind(Uuid::new_v4())
         .bind(&req.username)
         .bind(&req.wallet_address)
-        .bind(&req.email) // Main branch added email
+        .bind(&req.email)
         .fetch_one(&state.db)
         .await?;
     let duration = start.elapsed();
@@ -33,15 +33,15 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppR
     // Cache the new creator
     if let Some(conn) = state.redis.as_ref() {
         let mut conn = conn.clone();
-        let _ = redis_client::set(&mut conn, &keys::creator(&creator.username), &creator, redis_client::TTL_CREATOR).await;
+        let _ = redis_client::set(
+            &mut conn,
+            &keys::creator(&creator.username),
+            &creator,
+            redis_client::TTL_CREATOR,
+        )
+        .await;
     }
 
-    // Main branch added Webhook notification
-    crate::webhooks::trigger_webhooks(
-        state.db.clone(),
-        "creator.created",
-        serde_json::to_value(&creator).unwrap()
-    ).await;
     // Notify external services via webhook.
     let payload = serde_json::to_value(&creator).map_err(|e| {
         tracing::error!(error = %e, "Failed to serialize creator webhook payload");
@@ -53,7 +53,10 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppR
 }
 
 #[tracing::instrument(skip(state), fields(username = %username))]
-pub async fn get_creator_by_username(state: &AppState, username: &str) -> AppResult<Option<Creator>> {
+pub async fn get_creator_by_username(
+    state: &AppState,
+    username: &str,
+) -> AppResult<Option<Creator>> {
     let query = r#"
         SELECT id, username, wallet_address, email, created_at
         FROM creators
@@ -74,7 +77,9 @@ pub async fn get_creator_by_username(state: &AppState, username: &str) -> AppRes
     // Populate cache if found.
     if let (Some(ref c), Some(conn)) = (&creator, state.redis.as_ref()) {
         let mut conn = conn.clone();
-        let _ = redis_client::set(&mut conn, &keys::creator(username), c, redis_client::TTL_CREATOR).await;
+        let _ =
+            redis_client::set(&mut conn, &keys::creator(username), c, redis_client::TTL_CREATOR)
+                .await;
     }
 
     Ok(creator)
@@ -90,7 +95,8 @@ pub async fn get_creator_or_not_found(state: &AppState, username: &str) -> AppRe
 
 /// Search creators by username using PostgreSQL full-text search with trigram
 /// fuzzy fallback. Results are ranked by ts_rank descending.
-pub async fn search_creators(pool: &PgPool, query: &SearchQuery) -> AppResult<Vec<Creator>> {
+#[tracing::instrument(skip(state), fields(q = %query.q))]
+pub async fn search_creators(state: &AppState, query: &SearchQuery) -> AppResult<Vec<Creator>> {
     let term = query.q.trim().to_string();
     if term.is_empty() {
         return Err(AppError::Validation(ValidationError::InvalidRequest {
@@ -114,13 +120,8 @@ pub async fn search_creators(pool: &PgPool, query: &SearchQuery) -> AppResult<Ve
     )
     .bind(&term)
     .bind(limit)
-    .fetch_all(&state.db) // FIXED: Bind to state.db
+    .fetch_all(&state.db)
     .await?;
 
     Ok(creators)
 }
-
-
-
-
-

@@ -7,13 +7,12 @@ use crate::models::auth::{AuthResponse, Claims};
 const ACCESS_TOKEN_SECS: i64 = 60 * 60 * 24;
 const REFRESH_TOKEN_SECS: i64 = 60 * 60 * 24 * 7;
 
-fn jwt_secret() -> String {
-    std::env::var("JWT_SECRET").expect("JWT_SECRET must be set")
-}
-
+/// Generate an access + refresh token pair.
+///
+/// `jwt_secret` must be taken from `AppState::config.jwt.secret`; callers must
+/// not read `JWT_SECRET` from the environment directly.
 #[tracing::instrument(skip_all, fields(username = %username))]
-pub fn generate_tokens(username: &str) -> AppResult<AuthResponse> {
-    let secret = jwt_secret();
+pub fn generate_tokens(username: &str, jwt_secret: &str) -> AppResult<AuthResponse> {
     let now = Utc::now().timestamp() as usize;
 
     let access_claims = Claims {
@@ -33,7 +32,7 @@ pub fn generate_tokens(username: &str) -> AppResult<AuthResponse> {
     let access_token = encode(
         &Header::default(),
         &access_claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
+        &EncodingKey::from_secret(jwt_secret.as_bytes()),
     )
     .map_err(|e| {
         tracing::error!(error = %e, "Token generation failed");
@@ -43,7 +42,7 @@ pub fn generate_tokens(username: &str) -> AppResult<AuthResponse> {
     let refresh_token = encode(
         &Header::default(),
         &refresh_claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
+        &EncodingKey::from_secret(jwt_secret.as_bytes()),
     )
     .map_err(|e| {
         tracing::error!(error = %e, "Refresh token generation failed");
@@ -58,12 +57,14 @@ pub fn generate_tokens(username: &str) -> AppResult<AuthResponse> {
     })
 }
 
+/// Validate a JWT token.
+///
+/// `jwt_secret` must be taken from `AppState::config.jwt.secret`.
 #[tracing::instrument(skip_all)]
-pub fn validate_token(token: &str, expected_kind: &str) -> AppResult<Claims> {
-    let secret = jwt_secret();
+pub fn validate_token(token: &str, expected_kind: &str, jwt_secret: &str) -> AppResult<Claims> {
     let token_data = decode::<Claims>(
         token,
-        &DecodingKey::from_secret(secret.as_bytes()),
+        &DecodingKey::from_secret(jwt_secret.as_bytes()),
         &Validation::default(),
     )
     .map_err(|e| {
@@ -74,7 +75,11 @@ pub fn validate_token(token: &str, expected_kind: &str) -> AppResult<Claims> {
     })?;
 
     if token_data.claims.kind != expected_kind {
-        tracing::warn!(expected = %expected_kind, got = %token_data.claims.kind, "Wrong token kind");
+        tracing::warn!(
+            expected = %expected_kind,
+            got = %token_data.claims.kind,
+            "Wrong token kind"
+        );
         return Err(AppError::Unauthorized {
             message: "Invalid token kind".to_string(),
         });

@@ -31,7 +31,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route_layer(middleware::from_fn_with_state(state, require_admin))
 }
 
-/// Export all creators as JSON or CSV
+/// Export all creators as JSON or CSV.
 async fn export_creators(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ExportFormat>,
@@ -40,28 +40,19 @@ async fn export_creators(
         Ok(creators) => match params.format.to_lowercase().as_str() {
             "csv" => {
                 let mut wtr = csv::Writer::from_writer(vec![]);
-                wtr.write_record(["id", "username", "wallet_address", "created_at"])
-                    .unwrap();
+                // write_record returns a csv::Error only on I/O errors when
+                // writing to an in-memory Vec, which cannot fail.
+                let _ = wtr.write_record(["id", "username", "wallet_address", "created_at"]);
                 for c in &creators {
-                    wtr.write_record([
+                    let _ = wtr.write_record([
                         c.id.to_string(),
                         c.username.clone(),
                         c.wallet_address.clone(),
                         c.created_at.to_rfc3339(),
-                    ])
-                    .unwrap();
+                    ]);
                 }
                 let data = wtr.into_inner().unwrap_or_default();
-                let mut response = (StatusCode::OK, data).into_response();
-                response.headers_mut().insert(
-                    header::CONTENT_TYPE,
-                    "text/csv".parse().unwrap(),
-                );
-                response.headers_mut().insert(
-                    header::CONTENT_DISPOSITION,
-                    "attachment; filename=\"creators.csv\"".parse().unwrap(),
-                );
-                response
+                build_csv_response(data, "creators.csv")
             }
             _ => (StatusCode::OK, Json(serde_json::json!(creators))).into_response(),
         },
@@ -76,7 +67,7 @@ async fn export_creators(
     }
 }
 
-/// Export all tips as JSON or CSV
+/// Export all tips as JSON or CSV.
 async fn export_all_tips(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ExportFormat>,
@@ -97,7 +88,7 @@ async fn export_all_tips(
     }
 }
 
-/// Export tips for a specific creator as JSON or CSV
+/// Export tips for a specific creator as JSON or CSV.
 async fn export_creator_tips(
     State(state): State<Arc<AppState>>,
     Path(username): Path<String>,
@@ -124,27 +115,34 @@ async fn export_creator_tips(
 
 fn render_tips_csv(tips: &[crate::models::tip::Tip], filename: &str) -> Response {
     let mut wtr = csv::Writer::from_writer(vec![]);
-    wtr.write_record(["id", "creator_username", "amount", "transaction_hash", "created_at"])
-        .unwrap();
+    let _ = wtr.write_record(["id", "creator_username", "amount", "transaction_hash", "created_at"]);
     for t in tips {
-        wtr.write_record([
+        let _ = wtr.write_record([
             t.id.to_string(),
             t.creator_username.clone(),
             t.amount.clone(),
             t.transaction_hash.clone(),
             t.created_at.to_rfc3339(),
-        ])
-        .unwrap();
+        ]);
     }
     let data = wtr.into_inner().unwrap_or_default();
+    build_csv_response(data, filename)
+}
+
+/// Build a CSV HTTP response with correct Content-Type and Content-Disposition headers.
+fn build_csv_response(data: Vec<u8>, filename: &str) -> Response {
     let mut response = (StatusCode::OK, data).into_response();
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        "text/csv".parse().unwrap(),
-    );
-    response.headers_mut().insert(
-        header::CONTENT_DISPOSITION,
-        format!("attachment; filename=\"{}\"", filename).parse().unwrap(),
-    );
+
+    // SAFETY: "text/csv" and the attachment header are well-known static
+    // strings guaranteed to be valid HTTP header values. `.parse()` cannot
+    // fail on these inputs.  Invariant: static literals produce valid HeaderValues.
+    if let Ok(ct) = "text/csv".parse() {
+        response.headers_mut().insert(header::CONTENT_TYPE, ct);
+    }
+    let disposition = format!("attachment; filename=\"{}\"", filename);
+    if let Ok(cd) = disposition.parse() {
+        response.headers_mut().insert(header::CONTENT_DISPOSITION, cd);
+    }
+
     response
 }

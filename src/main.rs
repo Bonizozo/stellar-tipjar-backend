@@ -1,97 +1,86 @@
 use axum::Router;
-use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::broadcast;
 use tower_http::trace::TraceLayer;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use axum::{http::Method, Router};
-use tower_http::cors::{Any, CorsLayer};
-use tower_http::trace::TraceLayer;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use tokio::sync::broadcast;
-use axum::{http::Method, Router};
-use tower_http::cors::{Any, CorsLayer};
-use tower_http::trace::TraceLayer;
+use tracing_subscriber::util::SubscriberInitExt as _;
 
 mod analytics;
 mod cache;
+mod config;
 mod controllers;
 mod cqrs;
 mod db;
 mod docs;
-mod metrics;
 mod email;
 mod errors;
 mod events;
 mod graphql;
 mod logging;
+mod metrics;
 mod middleware;
 mod models;
 mod routes;
 mod saga;
-mod security;
-mod webhooks;
 mod search;
+mod security;
 mod services;
 mod shutdown;
 mod telemetry;
 mod validation;
+mod webhooks;
 mod ws;
 
 use db::connection::AppState;
 use docs::ApiDoc;
-use graphql::schema::{graphql_handler, graphql_ws_handler};
 use services::stellar_service::StellarService;
 use crate::metrics::metrics_handler;
 use crate::middleware::metrics::track_metrics;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    println!("DEBUG: Docker Hot-Reload is working!");
     dotenvy::dotenv().ok();
 
-    // Stick to the working tracing setup from your branch
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "stellar_tipjar_backend=debug,tower_http=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // Initialise structured logging + optional OTEL tracing.
+    // This must happen before AppConfig::from_env() so that validation errors
+    // are formatted correctly.
+    logging::init();
 
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let stellar_rpc_url = std::env::var("STELLAR_RPC_URL")
-        .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string());
-    let stellar_network = std::env::var("STELLAR_NETWORK")
-        .unwrap_or_else(|_| "testnet".to_string());
+    // ── Fail-fast configuration loading ─────────────────────────────────────
+    // Collects ALL validation errors before aborting — never panics on missing env.
+    let cfg = config::AppConfig::from_env().map_err(|e| {
+        // Print in human-readable form and propagate as a non-panic anyhow error.
+        eprintln!("\n{e}\n");
+        anyhow::anyhow!("Startup aborted: configuration is invalid")
+    })?;
+    let cfg = Arc::new(cfg);
 
-    let pool = PgPoolOptions::new()
-        .max_connections(20)
-        .min_connections(5)
-        .acquire_timeout(Duration::from_secs(3))
-        .connect(&database_url)
-        .await?;
+    let pool = db::connection::connect(
+        &cfg.database.url,
+        20,
+        5,
+        Duration::from_secs(3),
+        5,
+    )
+    .await?;
 
     sqlx::migrate!("./migrations").run(&pool).await?;
 
-    // --- Services Initialization (Merged from Main) ---
-    let stellar = StellarService::new(stellar_rpc_url, stellar_network);
+    let stellar = StellarService::new(
+        cfg.stellar.rpc_url.clone(),
+        cfg.stellar.network.clone(),
+    );
     let performance = Arc::new(db::performance::PerformanceMonitor::new());
     let (broadcast_tx, _) = broadcast::channel(ws::CHANNEL_CAPACITY);
 
-    // Redis setup (Your fixed version)
-    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
-    let redis = cache::redis_client::connect(&redis_url).await;
+    let redis = cache::redis_client::connect(&cfg.redis.url).await;
 
-    // Email Worker (Added from Main)
-    let (email_sender, email_rx) = email::sender::EmailSender::new();
-    tokio::spawn(email::sender::start_email_worker(email_rx));
-    let email_sender = Arc::new(email_sender);
-
-    // Service Layer Orchestration (Added from Main)
-    let tip_service = Arc::new(services::tip_service::TipService::new());
-    let creator_service = Arc::new(services::creator_service::CreatorService::new());
+    let (email_sender, email_rx) = email::sender::EmailSender::new(&cfg.smtp);
+    let smtp_cfg = cfg.smtp.clone();
+    tokio::spawn(email::sender::start_email_worker_with_config(smtp_cfg, email_rx));
+    let _email_sender = Arc::new(email_sender);
 
     let state = Arc::new(AppState {
         db: pool,
@@ -99,23 +88,22 @@ async fn main() -> anyhow::Result<()> {
         performance,
         redis,
         broadcast_tx,
+        config: Arc::clone(&cfg),
     });
 
-    // Start the real-time analytics pipeline as a background task.
     analytics::stream_processor::spawn(Arc::clone(&state));
 
-    let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_origin(Any)
-        .allow_headers(Any);
+    let cors = middleware::cors::cors_layer(&cfg.cors);
 
-    // Build rate limiters (Your FIXED version - no tuples!)
-    let general_limiter_v1 = middleware::rate_limiter::general_limiter();
-    let write_limiter_v1 = middleware::rate_limiter::write_limiter();
-    let general_limiter_v2 = middleware::rate_limiter::general_limiter();
-    let write_limiter_v2 = middleware::rate_limiter::write_limiter();
+    let general_limiter_v1 =
+        middleware::rate_limiter::general_limiter(&cfg.rate_limit);
+    let write_limiter_v1 =
+        middleware::rate_limiter::write_limiter(&cfg.rate_limit);
+    let general_limiter_v2 =
+        middleware::rate_limiter::general_limiter(&cfg.rate_limit);
+    let write_limiter_v2 =
+        middleware::rate_limiter::write_limiter(&cfg.rate_limit);
 
-    // Versioned API Routes (Merged from Main)
     let v1 = Router::new()
         .nest(
             "/api/v1",
@@ -156,29 +144,40 @@ async fn main() -> anyhow::Result<()> {
 
     let x_request_id = axum::http::HeaderName::from_static("x-request-id");
 
-    let gql_schema = graphql::schema::build_schema(Arc::clone(&state));
-
     let app = Router::new()
         .route("/ws", axum::routing::get(ws::ws_handler))
-        .route("/graphql", axum::routing::post(graphql_handler).get(graphql_ws_handler))
-        .merge(SwaggerUi::new("/swagger-ui")
-            .url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .route("/metrics", axum::routing::get(metrics_handler))
+        .merge(
+            SwaggerUi::new("/swagger-ui")
+                .url("/api-docs/openapi.json", ApiDoc::openapi()),
+        )
         .merge(v1)
         .merge(v2)
-        .layer(axum::Extension(gql_schema))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(middleware::tracing::trace_request))
+        .layer(axum::middleware::from_fn(track_metrics))
         .layer(axum::middleware::from_fn(middleware::cache::cache_control))
-        .layer(middleware::timeout::timeout_layer_from_env())
+        .layer(middleware::timeout::timeout_layer(cfg.request_timeout))
+        .layer(tower_http::request_id::SetRequestIdLayer::new(
+            x_request_id.clone(),
+            tower_http::request_id::MakeRequestUuid,
+        ))
+        .layer(tower_http::request_id::PropagateRequestIdLayer::new(
+            x_request_id,
+        ))
         .with_state(state);
 
-    let port = std::env::var("PORT").unwrap_or_else(|_| "8000".to_string());
-    let addr = format!("0.0.0.0:{}", port);
+    let addr = format!("0.0.0.0:{}", cfg.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("Server listening on {}", addr);
 
-    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown::shutdown_signal())
+    .await?;
 
     Ok(())
 }

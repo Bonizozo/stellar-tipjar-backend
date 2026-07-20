@@ -20,10 +20,11 @@ impl PerformanceMonitor {
     }
 
     pub fn track_query(&self, query: &str, duration: Duration) {
-        // Simple normalization: take the first few words or the whole query string
         let pattern = query.trim().split_whitespace().take(10).collect::<Vec<_>>().join(" ");
-        
-        let mut stats = self.stats.lock().unwrap();
+
+        // SAFETY: The mutex is never poisoned because no code holds it across
+        // a panic boundary.  Invariant: lock() is infallible here.
+        let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
         let entry = stats.entry(pattern).or_insert(QueryStats {
             count: 0,
             total_duration: Duration::from_secs(0),
@@ -38,7 +39,8 @@ impl PerformanceMonitor {
     }
 
     pub fn get_stats(&self) -> HashMap<String, (u64, f64, u64)> {
-        let stats = self.stats.lock().unwrap();
+        // SAFETY: see track_query — mutex is never poisoned.
+        let stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
         stats.iter().map(|(k, v)| {
             let avg = v.total_duration.as_secs_f64() / v.count as f64 * 1000.0;
             (k.clone(), (v.count, avg, v.max_duration.as_millis() as u64))

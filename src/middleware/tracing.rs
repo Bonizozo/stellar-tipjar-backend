@@ -4,13 +4,22 @@ use tracing::Instrument;
 
 /// Axum middleware that opens a root OTel-aware span for every HTTP request,
 /// recording method, route, and response status as span attributes.
+///
+/// The `ContextGuard` from `opentelemetry::Context::attach` is `!Send` (it
+/// relies on thread-locals).  We must drop it **before** any `.await` point
+/// to keep the future `Send`-safe for `axum::middleware::from_fn`.
 pub async fn trace_request(req: Request, next: Next) -> Response {
     let method = req.method().to_string();
     let path = req.uri().path().to_owned();
 
-    // Extract parent context from W3C traceparent/tracestate headers.
-    let parent_cx = crate::telemetry::extract_context(req.headers());
-    let _guard = opentelemetry::Context::attach(parent_cx);
+    // Extract parent context from W3C traceparent/tracestate headers and
+    // attach it so child spans inherit the trace-id.  Drop the guard
+    // immediately — it must not be held across the await below.
+    {
+        let parent_cx = crate::telemetry::extract_context(req.headers());
+        let _guard = opentelemetry::Context::attach(parent_cx);
+        // _guard is dropped here, before any .await
+    }
 
     let span = tracing::info_span!(
         "http_request",

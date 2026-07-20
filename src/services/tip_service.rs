@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::controllers::{tip_controller, creator_controller};
+use crate::controllers::tip_controller;
 use crate::db::connection::AppState;
 use crate::errors::{AppError, AppResult};
 use crate::models::tip::{RecordTipRequest, Tip};
@@ -41,7 +41,7 @@ impl TipService {
                 .await
                 .map_err(AppError::from)?;
 
-            match tip_controller::record_tip_in_tx(&mut tx, &req).await {
+            match tip_controller::record_tip_in_tx(state, &mut tx, &req).await {
                 Ok(tip) => {
                     results.push(tip);
                     crate::db::transaction::release_savepoint(&mut tx, &sp)

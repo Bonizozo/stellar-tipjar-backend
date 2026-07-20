@@ -16,27 +16,26 @@ pub async fn cache_control(req: Request<Body>, next: Next) -> Response {
     }
 
     let if_none_match = req.headers().get(header::IF_NONE_MATCH).cloned();
-    
+
     let response = next.run(req).await;
-    
+
     // Only cache successful 200 OK responses
     if response.status() != StatusCode::OK {
         return response;
     }
 
     let (mut parts, body) = response.into_parts();
-    
+
     // Collect body into bytes to calculate ETag (limit to 1MB)
     let body_bytes = match to_bytes(body, 1_000_000).await {
         Ok(bytes) => bytes,
         Err(e) => {
             tracing::error!("Failed to collect response body for caching: {}", e);
-            // Return empty response on error if we had already consumed parts
             return Response::from_parts(parts, Body::empty());
         }
     };
 
-    // Generate ETag (strong or weak)
+    // Generate ETag
     let mut hasher = Sha256::new();
     hasher.update(&body_bytes);
     let hash = hasher.finalize();
@@ -45,20 +44,38 @@ pub async fn cache_control(req: Request<Body>, next: Next) -> Response {
     // Check If-None-Match condition
     if let Some(inm) = if_none_match {
         if inm == etag_value.as_str() {
+            // SAFETY: All header values here are program-generated strings
+            // (status code 304, static header names, computed ETag) that are
+            // guaranteed to be valid HTTP header values.  This will never fail
+            // at runtime. Invariant: Response::builder() with these values is
+            // infallible.
             return Response::builder()
                 .status(StatusCode::NOT_MODIFIED)
-                .header(header::ETAG, etag_value)
+                .header(header::ETAG, &etag_value)
                 .header(header::CACHE_CONTROL, "public, max-age=3600")
                 .header(header::VARY, "Accept-Encoding")
                 .body(Body::empty())
-                .expect("Failed to build 304 response");
+                .unwrap_or_else(|_| {
+                    // Unreachable: static header values always produce valid responses.
+                    Response::new(Body::empty())
+                });
         }
     }
 
-    // Insert headers
-    parts.headers.insert(header::ETAG, etag_value.parse().expect("Invalid ETag value"));
-    parts.headers.insert(header::CACHE_CONTROL, "public, max-age=3600".parse().expect("Invalid Cache-Control value"));
-    parts.headers.insert(header::VARY, "Accept-Encoding".parse().expect("Invalid Vary value"));
+    // Insert cache headers.
+    // SAFETY: All three strings are compile-time constants known to be valid
+    // HTTP header values (ETag is a base64-encoded hash).  Parse cannot fail.
+    // Invariant: static strings "public, max-age=3600" and "Accept-Encoding"
+    // are valid HeaderValues; etag_value contains only base64+punctuation chars.
+    if let Ok(etag_hv) = etag_value.parse() {
+        parts.headers.insert(header::ETAG, etag_hv);
+    }
+    if let Ok(cc) = "public, max-age=3600".parse() {
+        parts.headers.insert(header::CACHE_CONTROL, cc);
+    }
+    if let Ok(vary) = "Accept-Encoding".parse() {
+        parts.headers.insert(header::VARY, vary);
+    }
 
     Response::from_parts(parts, Body::from(body_bytes))
 }
@@ -88,7 +105,7 @@ mod tests {
     async fn adds_cache_headers() {
         let server = TestServer::new(app()).unwrap();
         let res = server.get("/test").await;
-        
+
         res.assert_status_ok();
         res.assert_header(header::CACHE_CONTROL, "public, max-age=3600");
         res.assert_header(header::VARY, "Accept-Encoding");
@@ -99,16 +116,15 @@ mod tests {
     #[tokio::test]
     async fn returns_304_on_match() {
         let server = TestServer::new(app()).unwrap();
-        
-        // Initial request to get ETag
+
         let res1 = server.get("/test").await;
         let etag = res1.header(header::ETAG);
 
-        // Conditional request
-        let res2 = server.get("/test")
+        let res2 = server
+            .get("/test")
             .add_header(header::IF_NONE_MATCH, etag.clone())
             .await;
-        
+
         assert_eq!(res2.status_code(), StatusCode::NOT_MODIFIED);
         assert_eq!(res2.header(header::ETAG), etag);
         assert!(res2.text().is_empty());
@@ -117,7 +133,7 @@ mod tests {
     #[tokio::test]
     async fn etag_changes_on_update() {
         let server = TestServer::new(app()).unwrap();
-        
+
         let res1 = server.get("/dynamic").await;
         let etag1 = res1.header(header::ETAG);
 

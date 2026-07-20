@@ -10,8 +10,7 @@ use uuid::Uuid;
 
 use crate::db::connection::AppState;
 use crate::errors::AppError;
-use crate::models::auth::{AuthResponse, LoginRequest, RefreshRequest, RegisterRequest};
-use crate::models::creator::Creator;
+use crate::models::auth::{LoginRequest, RefreshRequest, RegisterRequest};
 use crate::services::auth_service;
 use crate::validation::ValidatedJson;
 
@@ -20,6 +19,12 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/auth/register", post(register))
         .route("/auth/login", post(login))
         .route("/auth/refresh", post(refresh))
+}
+
+/// Internal struct returned by the INSERT during registration.
+#[derive(sqlx::FromRow)]
+struct RegisteredCreator {
+    pub username: String,
 }
 
 /// Register a new creator account
@@ -38,17 +43,16 @@ async fn register(
     State(state): State<Arc<AppState>>,
     ValidatedJson(body): ValidatedJson<RegisterRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let password_hash = auth_service::hash_password(&body.password)
-        .map_err(|e| {
-            tracing::error!(error = %e, "Password hashing failed");
-            AppError::internal()
-        })?;
+    let password_hash = auth_service::hash_password(&body.password).map_err(|e| {
+        tracing::error!(error = %e, "Password hashing failed");
+        AppError::internal()
+    })?;
 
-    let creator = sqlx::query_as::<_, Creator>(
+    let creator = sqlx::query_as::<_, RegisteredCreator>(
         r#"
         INSERT INTO creators (id, username, wallet_address, password_hash, created_at)
         VALUES ($1, $2, $3, $4, NOW())
-        RETURNING id, username, wallet_address, password_hash, created_at
+        RETURNING username
         "#,
     )
     .bind(Uuid::new_v4())
@@ -70,12 +74,23 @@ async fn register(
         AppError::from(e)
     })?;
 
-    let tokens = auth_service::generate_tokens(&creator.username).map_err(|e| {
-        tracing::error!(error = %e, "Token generation failed");
-        AppError::internal()
-    })?;
+    let tokens =
+        auth_service::generate_tokens(&creator.username, &state.config.jwt.secret).map_err(
+            |e| {
+                tracing::error!(error = %e, "Token generation failed");
+                AppError::internal()
+            },
+        )?;
 
     Ok((StatusCode::CREATED, Json(serde_json::json!(tokens))).into_response())
+}
+
+/// Internal struct used only for authentication DB queries that need the password hash.
+/// `password_hash` is never serialized or exposed in API responses.
+#[derive(sqlx::FromRow)]
+struct CreatorAuth {
+    pub username: String,
+    pub password_hash: String,
 }
 
 /// Login with username and password
@@ -94,8 +109,8 @@ async fn login(
     State(state): State<Arc<AppState>>,
     ValidatedJson(body): ValidatedJson<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let row = sqlx::query_as::<_, Creator>(
-        "SELECT id, username, wallet_address, password_hash, created_at FROM creators WHERE username = $1",
+    let row = sqlx::query_as::<_, CreatorAuth>(
+        "SELECT username, password_hash FROM creators WHERE username = $1",
     )
     .bind(&body.username)
     .fetch_optional(&state.db)
@@ -110,18 +125,22 @@ async fn login(
         }
     };
 
-    let valid = auth_service::verify_password(&body.password, &creator.password_hash).map_err(|e| {
-        tracing::error!(error = %e, "Password verification error");
-        AppError::internal()
-    })?;
+    let valid =
+        auth_service::verify_password(&body.password, &creator.password_hash).map_err(|e| {
+            tracing::error!(error = %e, "Password verification error");
+            AppError::internal()
+        })?;
     if !valid {
         return Err(AppError::unauthorized("Invalid credentials"));
     }
 
-    let tokens = auth_service::generate_tokens(&creator.username).map_err(|e| {
-        tracing::error!(error = %e, "Token generation failed");
-        AppError::internal()
-    })?;
+    let tokens =
+        auth_service::generate_tokens(&creator.username, &state.config.jwt.secret).map_err(
+            |e| {
+                tracing::error!(error = %e, "Token generation failed");
+                AppError::internal()
+            },
+        )?;
 
     Ok((StatusCode::OK, Json(serde_json::json!(tokens))).into_response())
 }
@@ -137,14 +156,20 @@ async fn login(
         (status = 401, description = "Invalid or expired refresh token")
     )
 )]
-async fn refresh(ValidatedJson(body): ValidatedJson<RefreshRequest>) -> Result<impl IntoResponse, AppError> {
-    let claims = auth_service::validate_token(&body.refresh_token, "refresh")
-        .map_err(|_| AppError::unauthorized("Invalid or expired refresh token"))?;
+async fn refresh(
+    State(state): State<Arc<AppState>>,
+    ValidatedJson(body): ValidatedJson<RefreshRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let claims =
+        auth_service::validate_token(&body.refresh_token, "refresh", &state.config.jwt.secret)
+            .map_err(|_| AppError::unauthorized("Invalid or expired refresh token"))?;
 
-    let tokens = auth_service::generate_tokens(&claims.sub).map_err(|e| {
-        tracing::error!(error = %e, "Token generation failed");
-        AppError::internal()
-    })?;
+    let tokens = auth_service::generate_tokens(&claims.sub, &state.config.jwt.secret).map_err(
+        |e| {
+            tracing::error!(error = %e, "Token generation failed");
+            AppError::internal()
+        },
+    )?;
 
     Ok((StatusCode::OK, Json(serde_json::json!(tokens))).into_response())
 }

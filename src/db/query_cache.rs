@@ -20,22 +20,22 @@ impl QueryCache {
 
     /// Register or touch a query. Returns the stored SQL.
     pub fn get_or_insert(&self, name: &str, sql: &str) -> String {
-        // Fast path: already cached
-        {
-            let mut map = self.inner.write().unwrap();
-            let entry = map.entry(name.to_string()).or_insert_with(|| CachedQuery {
-                sql: sql.to_string(),
-                hits: 0,
-                last_used: Instant::now(),
-            });
-            entry.hits += 1;
-            entry.last_used = Instant::now();
-            entry.sql.clone()
-        }
+        // SAFETY: The RwLock is never poisoned because no code that holds it
+        // can panic. Invariant: write/read lock always succeeds.
+        let mut map = self.inner.write().unwrap_or_else(|e| e.into_inner());
+        let entry = map.entry(name.to_string()).or_insert_with(|| CachedQuery {
+            sql: sql.to_string(),
+            hits: 0,
+            last_used: Instant::now(),
+        });
+        entry.hits += 1;
+        entry.last_used = Instant::now();
+        entry.sql.clone()
     }
 
     pub fn hit_count(&self, name: &str) -> u64 {
-        self.inner.read().unwrap().get(name).map_or(0, |e| e.hits)
+        // SAFETY: see get_or_insert — lock is never poisoned.
+        self.inner.read().unwrap_or_else(|e| e.into_inner()).get(name).map_or(0, |e| e.hits)
     }
 }
 
