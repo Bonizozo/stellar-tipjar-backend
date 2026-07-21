@@ -66,6 +66,8 @@ pub async fn create_test_app(pool: PgPool) -> (Router, String) {
         invalidator: None,
         db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
         lock_service: None,
+        ws_shutdown_tx: tokio::sync::watch::channel(false).0,
+        ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
     });
 
     (create_app(state), "mock_token".into())
@@ -100,6 +102,8 @@ pub async fn create_test_app_with_mock_stellar(
         invalidator: None,
         db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
         lock_service: None,
+        ws_shutdown_tx: tokio::sync::watch::channel(false).0,
+        ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
     });
 
     (create_app(state), "mock_token".into())

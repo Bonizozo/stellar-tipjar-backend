@@ -72,8 +72,10 @@ tracing-opentelemetry = "0.23"
 hostname = "0.4"
 
 [dev-dependencies]
-axum-test = "20.1.0"
-tokio = { version = "1", features = ["full"] }
+# Pinned to the last release compatible with `axum = "0.7"` (20.x+ requires axum 0.8, which
+# conflicts with this crate's axum pin and breaks every axum-test-based test).
+axum-test = { version = "=16.4.1", features = ["ws"] }
+tokio = { version = "1", features = ["full", "test-util"] }
 tower = "0.4"
 httpmock = "0.7"
 proptest = "1.4"
