@@ -9,6 +9,7 @@ use super::performance::PerformanceMonitor;
 use super::replica::ReplicaManager;
 use crate::cache::{CacheInvalidator, MultiLayerCache};
 use crate::crypto::encryption::EncryptionKeyManager;
+use crate::idempotency::IdempotencyService;
 use crate::moderation::ModerationService;
 use crate::services::circuit_breaker::CircuitBreaker;
 use crate::services::distributed_lock::DistributedLockService;
@@ -31,6 +32,10 @@ pub struct AppState {
     pub replicas: Option<Arc<ReplicaManager>>,
     /// Distributed lock service — None when Redis is unavailable.
     pub lock_service: Option<Arc<DistributedLockService>>,
+    /// Idempotency-Key store for mutating endpoints (#342). Always present —
+    /// it degrades to Postgres-only when Redis is unavailable rather than
+    /// being disabled outright, since these are money-adjacent endpoints.
+    pub idempotency: Arc<IdempotencyService>,
 }
 
 impl AppState {

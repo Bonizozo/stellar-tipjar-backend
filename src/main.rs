@@ -20,7 +20,6 @@ mod cqrs;
 mod crypto;
 mod currency;
 mod db;
-mod deduplication;
 mod deployment;
 mod docs;
 mod email;
@@ -29,6 +28,7 @@ mod events;
 mod gateway;
 mod graphql;
 mod health;
+mod idempotency;
 mod indexer;
 mod jobs;
 mod logging;
@@ -164,6 +164,13 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(services::distributed_lock::DistributedLockService::new(conn.clone()))
     });
 
+    // Idempotency-Key store (#342): Redis primary, Postgres fallback table.
+    let idempotency = Arc::new(idempotency::IdempotencyService::new(
+        pool.clone(),
+        redis.clone(),
+        idempotency::IdempotencyConfig::default(),
+    ));
+
     let state = Arc::new(AppState {
         db: pool.clone(),
         stellar,
@@ -180,6 +187,7 @@ async fn main() -> anyhow::Result<()> {
         encryption: Arc::clone(&encryption_manager),
         replicas: replica_manager.clone(),
         lock_service: lock_service.clone(),
+        idempotency,
     });
 
     // Build CommandBus after state is constructed (avoids circular dependency).
@@ -375,12 +383,12 @@ async fn main() -> anyhow::Result<()> {
                     Router::new()
                         .merge(routes::auth::router())
                         .merge(routes::teams::router())
-                        .merge(routes::tips::router())
+                        .merge(routes::tips::router(Arc::clone(&state)))
                         .merge(routes::comments::router())
                         .merge(routes::creators::write_router())
                         .merge(routes::verification::router())
                         .merge(routes::goals::router())
-                        .merge(routes::scheduled_tips::router())
+                        .merge(routes::scheduled_tips::router(Arc::clone(&state)))
                         .merge(routes::tx_pool::router())
                         .merge(routes::v1::router())
                         .layer(axum::middleware::from_fn(
@@ -434,11 +442,11 @@ async fn main() -> anyhow::Result<()> {
                 Router::new()
                     .merge(routes::auth::router())
                     .merge(routes::teams::router())
-                    .merge(routes::tips::router())
+                    .merge(routes::tips::router(Arc::clone(&state)))
                     .merge(routes::creators::write_router())
                     .merge(routes::verification::router())
                     .merge(routes::goals::router())
-                    .merge(routes::scheduled_tips::router())
+                    .merge(routes::scheduled_tips::router(Arc::clone(&state)))
                     .merge(routes::tx_pool::router())
                     .merge(routes::v2::router())
                     .layer(axum::middleware::from_fn(

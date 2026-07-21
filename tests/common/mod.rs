@@ -55,6 +55,12 @@ pub async fn create_test_app(pool: PgPool) -> (Router, String) {
     let (email_sender, _email_rx) = email::sender::EmailSender::new();
     let email_sender = Arc::new(email_sender);
 
+    let idempotency = Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(
+        pool.clone(),
+        redis.clone(),
+        stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
+    ));
+
     let state = Arc::new(AppState {
         db: pool,
         stellar,
@@ -66,6 +72,7 @@ pub async fn create_test_app(pool: PgPool) -> (Router, String) {
         invalidator: None,
         db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
         lock_service: None,
+        idempotency,
     });
 
     (create_app(state), "mock_token".into())
@@ -89,6 +96,12 @@ pub async fn create_test_app_with_mock_stellar(
     let (email_sender, _email_rx) = email::sender::EmailSender::new();
     let email_sender = Arc::new(email_sender);
 
+    let idempotency = Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(
+        pool.clone(),
+        redis.clone(),
+        stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
+    ));
+
     let state = Arc::new(AppState {
         db: pool,
         stellar,
@@ -100,6 +113,7 @@ pub async fn create_test_app_with_mock_stellar(
         invalidator: None,
         db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
         lock_service: None,
+        idempotency,
     });
 
     (create_app(state), "mock_token".into())

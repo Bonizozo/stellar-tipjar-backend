@@ -30,10 +30,16 @@ pub fn admin_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
 }
 
 /// Public refund request routes (no auth required).
-pub fn public_router() -> Router<Arc<AppState>> {
+pub fn public_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/refunds", post(create_refund))
         .route("/refunds/:id", get(get_refund))
+        // Opt-in Idempotency-Key handling (#342): refunds are money-adjacent,
+        // so a client retry after a timeout must not double-refund.
+        .route_layer(middleware::from_fn_with_state(
+            state,
+            crate::idempotency::middleware::idempotency_middleware,
+        ))
 }
 
 async fn create_refund(
