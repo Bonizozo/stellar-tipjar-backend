@@ -1,0 +1,71 @@
+# OpenTelemetry Collector configuration for the Stellar Tipjar backend.
+#
+# Pipeline:
+#   Backend (OTLP gRPC :4317)
+#     → otel-collector (batch processor + attribute enrichment)
+#       → Jaeger (gRPC :14250)          [traces]
+#       → Prometheus exporter (:8889)   [metrics — scraped by Prometheus]
+#
+# Start the full observability stack with:
+#   docker compose --profile observability up
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  # Batch spans for efficient export.
+  batch:
+    timeout: 1s
+    send_batch_size: 512
+
+  # Add a deployment.environment resource attribute if missing.
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: "local"
+        action: insert
+
+  # Memory limiter prevents OOM under high load.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+exporters:
+  # Forward traces to Jaeger via its gRPC endpoint.
+  jaeger:
+    endpoint: jaeger:14250
+    tls:
+      insecure: true
+
+  # Expose collected metrics on :8889 for Prometheus to scrape.
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: otelcol
+
+  # Debug exporter — uncomment to print spans to collector stdout.
+  # debug:
+  #   verbosity: detailed
+
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+  pprof:
+    endpoint: "0.0.0.0:1888"
+
+service:
+  extensions: [health_check, pprof]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]

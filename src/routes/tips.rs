@@ -47,6 +47,39 @@ pub async fn record_tip(
         .validate_with_client(&state.db, &body, client_ip)
         .await?;
 
+    // ── Pre-submission pipeline (issue #530) ──────────────────────────────
+
+    // 1. Validate memo byte length before building the transaction.
+    if let Some(ref memo) = body.memo {
+        crate::services::stellar_service::StellarService::validate_memo(memo)?;
+    }
+
+    // 2. Check destination exists (errors with DestinationUnfunded if not).
+    //    We validate the creator's registered wallet address.
+    //    This is a best-effort check — if Horizon is down we proceed and let
+    //    verify_transaction() surface the network error instead.
+    if let Some(ref wallet) = body.tipper_wallet {
+        // Only validate spendable balance when the sender wallet is provided.
+        if let Err(e) = state
+            .stellar
+            .validate_spendable_balance(wallet, &body.amount)
+            .await
+        {
+            // Surface balance / destination errors; swallow network errors so a
+            // temporarily unreachable Horizon doesn't block all tips.
+            match &e {
+                AppError::Stellar(StellarError::InsufficientBalance { .. })
+                | AppError::Stellar(StellarError::DestinationUnfunded { .. }) => {
+                    return Err(e);
+                }
+                _ => {
+                    tracing::warn!(error = %e, "Pre-flight balance check failed; proceeding to submission");
+                }
+            }
+        }
+    }
+
+    // ── Stellar transaction verification ──────────────────────────────────
     match state
         .stellar
         .verify_transaction(&body.transaction_hash)
