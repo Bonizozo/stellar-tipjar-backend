@@ -102,14 +102,26 @@ pub async fn idempotency_middleware(
                 .and_then(|v| v.to_str().ok())
                 .map(str::to_string);
 
-            let stored = StoredResponse {
-                status: parts.status.as_u16(),
-                content_type,
-                body: body_bytes.to_vec(),
-            };
+            let status = parts.status.as_u16();
 
-            if let Err(e) = state.idempotency.complete(guard, stored).await {
-                tracing::error!(error = %e, "Idempotency: failed to persist completed response");
+            // Only cache a genuinely *completed* outcome: success, or a definitive
+            // client-error rejection (e.g. 422 validation failure) — both are
+            // deterministic and safe to replay forever. A 5xx means the request
+            // never reached a real outcome (transient DB/network failure, etc.),
+            // so it must not be locked in: release without caching, so a client
+            // that correctly retries with the same key actually gets a fresh
+            // execution instead of the same failure replayed for the full TTL.
+            if status < 500 {
+                let stored = StoredResponse {
+                    status,
+                    content_type,
+                    body: body_bytes.to_vec(),
+                };
+                if let Err(e) = state.idempotency.complete(guard, stored).await {
+                    tracing::error!(error = %e, "Idempotency: failed to persist completed response");
+                }
+            } else if let Err(e) = state.idempotency.fail(guard).await {
+                tracing::error!(error = %e, "Idempotency: failed to release lock after server error");
             }
 
             let mut response = Response::from_parts(parts, Body::from(body_bytes));

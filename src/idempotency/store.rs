@@ -321,9 +321,29 @@ impl IdempotencyBackend for PostgresBackend {
         .map_err(|e| IdempotencyError::Backend(e.to_string()))?;
 
         let Some((in_flight, status, content_type, body, existing_fingerprint)) = row else {
-            // Expired (or raced past TTL cleanup) — treat as absent and retry the insert.
+            // Expired: the row is still physically present (nothing ever runs a
+            // periodic cleanup of `expires_at < NOW()` rows), so the INSERT above
+            // hit the unique constraint but this SELECT's `expires_at > NOW()`
+            // filter excluded it — the same expired row would be found "absent"
+            // on every retry forever, recursing without bound. Delete it before
+            // retrying so the retry's INSERT actually succeeds.
+            sqlx::query(
+                "DELETE FROM idempotency_keys WHERE scope_hash = $1 AND expires_at <= NOW()",
+            )
+            .bind(scope_hash)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| IdempotencyError::Backend(e.to_string()))?;
+
             return self
-                .begin(scope_hash, principal, route, idempotency_key, fingerprint, lock_ttl)
+                .begin(
+                    scope_hash,
+                    principal,
+                    route,
+                    idempotency_key,
+                    fingerprint,
+                    lock_ttl,
+                )
                 .await;
         };
 
