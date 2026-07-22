@@ -114,6 +114,18 @@ impl Channel {
         !matches!(self, Channel::Public)
     }
 
+    /// Whether `identity` (the `sub` claim of the caller's JWT, if any) is allowed to
+    /// subscribe to this channel. `Public` allows anyone; `Creator(name)` requires the
+    /// caller's own identity to match `name` — being authenticated as *some* account is
+    /// not sufficient, since any two accounts' tip streams must stay isolated from each
+    /// other.
+    pub fn is_authorized_for(&self, identity: Option<&str>) -> bool {
+        match self {
+            Channel::Public => true,
+            Channel::Creator(name) => identity == Some(name.as_str()),
+        }
+    }
+
     /// Whether `event` should be delivered to a connection subscribed to this channel.
     pub fn matches(&self, event: &TipEvent) -> bool {
         match self {
@@ -155,9 +167,7 @@ impl OpOutcome {
             OpOutcome::Unsubscribed(c) => {
                 serde_json::json!({"op": "unsubscribed", "channel": c.as_wire()}).to_string()
             }
-            OpOutcome::AuthRequired => {
-                error_frame("authentication required for this channel")
-            }
+            OpOutcome::AuthRequired => error_frame("not authorized for this channel"),
             OpOutcome::InvalidChannel => error_frame("invalid channel"),
             OpOutcome::InvalidFrame => error_frame("invalid frame"),
         }
@@ -178,14 +188,17 @@ fn gap_frame(missed: u64) -> String {
 /// subscribe/unsubscribe/auth-gating logic can be unit tested without a live socket.
 #[derive(Debug, Default)]
 struct SubscriptionState {
-    authenticated: bool,
+    /// The `sub` claim of the connection's JWT, if it authenticated at all. Compared
+    /// against a `Channel::Creator`'s own name — being authenticated as *some* account
+    /// does not grant access to *every* creator's channel.
+    identity: Option<String>,
     channels: HashSet<Channel>,
 }
 
 impl SubscriptionState {
-    fn new(authenticated: bool) -> Self {
+    fn new(identity: Option<String>) -> Self {
         Self {
-            authenticated,
+            identity,
             channels: HashSet::new(),
         }
     }
@@ -194,7 +207,9 @@ impl SubscriptionState {
     fn apply_text(&mut self, text: &str) -> OpOutcome {
         match serde_json::from_str::<ClientOp>(text) {
             Ok(ClientOp::Subscribe { channel }) => match Channel::parse(&channel) {
-                Some(c) if c.requires_auth() && !self.authenticated => OpOutcome::AuthRequired,
+                Some(c) if !c.is_authorized_for(self.identity.as_deref()) => {
+                    OpOutcome::AuthRequired
+                }
                 Some(c) => {
                     self.channels.insert(c.clone());
                     OpOutcome::Subscribed(c)
@@ -254,10 +269,9 @@ pub async fn ws_handler(
         .as_deref()
         .and_then(|t| auth_service::validate_token(t, "access").ok());
 
-    if channel.requires_auth() && claims.is_none() {
+    if !channel.is_authorized_for(claims.as_ref().map(|c| c.sub.as_str())) {
         AUTH_FAILURES_TOTAL.with_label_values(&["ws"]).inc();
-        return AppError::unauthorized("authentication required for this channel")
-            .into_response();
+        return AppError::unauthorized("not authorized for this channel").into_response();
     }
 
     // Echo the negotiated subprotocol back so browser WebSocket clients (which cannot set
@@ -286,7 +300,7 @@ async fn handle_socket(
     config: WsConfig,
 ) {
     WS_ACTIVE_CONNECTIONS.inc();
-    let mut subs = SubscriptionState::new(claims.is_some());
+    let mut subs = SubscriptionState::new(claims.map(|c| c.sub));
     subs.channels.insert(initial_channel);
     WS_SUBSCRIPTIONS.add(subs.channels.len() as f64);
 
@@ -489,7 +503,7 @@ mod tests {
 
     #[test]
     fn subscribing_to_public_never_requires_auth() {
-        let mut subs = SubscriptionState::new(false);
+        let mut subs = SubscriptionState::new(None);
         let outcome = subs.apply_text(r#"{"op":"subscribe","channel":"public"}"#);
         assert_eq!(outcome, OpOutcome::Subscribed(Channel::Public));
         assert!(subs.channels.contains(&Channel::Public));
@@ -497,26 +511,38 @@ mod tests {
 
     #[test]
     fn subscribing_to_creator_channel_unauthenticated_is_rejected() {
-        let mut subs = SubscriptionState::new(false);
+        let mut subs = SubscriptionState::new(None);
         let outcome = subs.apply_text(r#"{"op":"subscribe","channel":"creator:alice"}"#);
         assert_eq!(outcome, OpOutcome::AuthRequired);
         assert!(subs.channels.is_empty());
     }
 
     #[test]
-    fn subscribing_to_creator_channel_authenticated_succeeds() {
-        let mut subs = SubscriptionState::new(true);
+    fn subscribing_to_own_creator_channel_succeeds() {
+        let mut subs = SubscriptionState::new(Some("alice".to_string()));
         let outcome = subs.apply_text(r#"{"op":"subscribe","channel":"creator:alice"}"#);
         assert_eq!(
             outcome,
             OpOutcome::Subscribed(Channel::Creator("alice".to_string()))
         );
-        assert!(subs.channels.contains(&Channel::Creator("alice".to_string())));
+        assert!(subs
+            .channels
+            .contains(&Channel::Creator("alice".to_string())));
+    }
+
+    /// The core cross-account isolation guarantee: being authenticated as *some*
+    /// account must not grant access to a *different* creator's channel.
+    #[test]
+    fn subscribing_to_a_different_creators_channel_is_rejected() {
+        let mut subs = SubscriptionState::new(Some("bob".to_string()));
+        let outcome = subs.apply_text(r#"{"op":"subscribe","channel":"creator:alice"}"#);
+        assert_eq!(outcome, OpOutcome::AuthRequired);
+        assert!(subs.channels.is_empty());
     }
 
     #[test]
     fn unsubscribe_removes_channel() {
-        let mut subs = SubscriptionState::new(true);
+        let mut subs = SubscriptionState::new(Some("alice".to_string()));
         subs.apply_text(r#"{"op":"subscribe","channel":"creator:alice"}"#);
         let outcome = subs.apply_text(r#"{"op":"unsubscribe","channel":"creator:alice"}"#);
         assert_eq!(
@@ -528,14 +554,14 @@ mod tests {
 
     #[test]
     fn malformed_channel_string_is_rejected() {
-        let mut subs = SubscriptionState::new(true);
+        let mut subs = SubscriptionState::new(Some("alice".to_string()));
         let outcome = subs.apply_text(r#"{"op":"subscribe","channel":"not-a-channel"}"#);
         assert_eq!(outcome, OpOutcome::InvalidChannel);
     }
 
     #[test]
     fn malformed_json_is_rejected() {
-        let mut subs = SubscriptionState::new(true);
+        let mut subs = SubscriptionState::new(Some("alice".to_string()));
         let outcome = subs.apply_text("not json");
         assert_eq!(outcome, OpOutcome::InvalidFrame);
     }
@@ -812,5 +838,43 @@ mod integration {
             .await;
         let ack: serde_json::Value = ws.receive_json().await;
         assert_eq!(ack["op"], "error");
+    }
+
+    /// A valid token for one creator must not grant access to a different creator's
+    /// channel — being authenticated is not the same as being authorized for this
+    /// specific channel.
+    #[tokio::test]
+    async fn authenticated_creator_cannot_subscribe_to_a_different_creators_channel() {
+        let state = test_state(8, default_config());
+        let server = test_server(Arc::clone(&state));
+        let token = creator_token("bob");
+
+        let mut ws = server
+            .get_websocket("/ws")
+            .add_query_param("token", &token)
+            .await
+            .into_websocket()
+            .await;
+
+        ws.send_json(&serde_json::json!({"op": "subscribe", "channel": "creator:alice"}))
+            .await;
+        let ack: serde_json::Value = ws.receive_json().await;
+        assert_eq!(ack["op"], "error");
+    }
+
+    /// Same isolation guarantee, enforced at upgrade time via `?channel=`.
+    #[tokio::test]
+    async fn authenticated_creator_cannot_upgrade_directly_into_a_different_creators_channel() {
+        let state = test_state(8, default_config());
+        let server = test_server(state);
+        let token = creator_token("bob");
+
+        let response = server
+            .get_websocket("/ws")
+            .add_query_param("token", &token)
+            .add_query_param("channel", "creator:alice")
+            .await;
+
+        response.assert_status_unauthorized();
     }
 }
