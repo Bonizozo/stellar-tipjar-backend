@@ -14,6 +14,8 @@ use crate::controllers::admin_controller;
 use crate::db::connection::AppState;
 use crate::middleware::admin_auth::require_admin;
 use crate::models::admin::{AuditLogResponse, DeleteCreatorRequest};
+use crate::security::token_revocation;
+use crate::services::token_family_service;
 
 #[derive(serde::Deserialize)]
 pub struct AuditQuery {
@@ -32,6 +34,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/admin/stats", get(get_stats))
         .route("/admin/creators/:username", delete(delete_creator))
         .route("/admin/audit-logs", get(get_audit_logs))
+        .route("/admin/sessions/:username/revoke", post(admin_revoke_sessions))
         // Moderation endpoints
         .route("/admin/moderation/queue", get(moderation_queue))
         .route("/admin/moderation/stats", get(moderation_stats))
@@ -123,6 +126,50 @@ async fn get_audit_logs(
                 .into_response()
         }
     }
+}
+
+/// Admin session revocation (#345): revokes every refresh-token family for a
+/// user and bumps their token-version epoch, invalidating outstanding
+/// access tokens too (e.g. account compromise response).
+async fn admin_revoke_sessions(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(username): Path<String>,
+) -> impl IntoResponse {
+    let admin_name = resolve_admin_from_headers(&state, &headers).await;
+
+    let revoked = match token_family_service::revoke_all_for_user(&state.db, &username, "admin_revocation").await {
+        Ok(count) => count,
+        Err(e) => {
+            tracing::error!("Failed to revoke sessions for {}: {}", username, e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Failed to revoke sessions" })),
+            )
+                .into_response();
+        }
+    };
+
+    if let Some(ref redis) = state.redis {
+        token_revocation::bump_epoch(redis, &username).await;
+    }
+
+    let detail = format!("revoked {} session family(ies)", revoked);
+    let _ = admin_controller::write_audit_log(
+        &state.db,
+        &admin_name,
+        "revoke_sessions",
+        Some("creator"),
+        Some(&username),
+        Some(&detail),
+    )
+    .await;
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "revoked_families": revoked })),
+    )
+        .into_response()
 }
 
 // ── Moderation handlers ────────────────────────────────────────────────────────

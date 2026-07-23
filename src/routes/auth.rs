@@ -1,4 +1,10 @@
-use axum::{extract::{Extension, State}, http::StatusCode, response::IntoResponse, routing::post, Json, Router};
+use axum::{
+    extract::{Extension, Path, State},
+    http::{header, HeaderMap, StatusCode},
+    response::IntoResponse,
+    routing::{get, post},
+    Json, Router,
+};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -6,21 +12,27 @@ use crate::db::connection::AppState;
 use crate::errors::{AppError, AppResult};
 use crate::middleware;
 use crate::models::auth::{
-    AuthResponse, LoginRequest, RefreshRequest, RegisterRequest, Claims,
-    RecoverTwoFactorRequest, TwoFactorSetupResponse, VerifyTwoFactorRequest, DisableTwoFactorRequest,
-    VerifyTwoFactorResponse,
+    AuthResponse, ChangePasswordRequest, Claims, LogoutRequest, RecoverTwoFactorRequest,
+    RefreshRequest, RegisterRequest, LoginRequest, SessionListResponse, SessionSummary, TwoFactorSetupResponse,
+    VerifyTwoFactorRequest, DisableTwoFactorRequest, VerifyTwoFactorResponse,
 };
 use crate::models::creator::Creator;
+use crate::security::token_revocation;
 use crate::services::auth_service;
+use crate::services::token_family_service::{self, RotationOutcome};
 use crate::validation::ValidatedJson;
 
-pub fn router() -> Router<Arc<AppState>> {
+pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     let protected = Router::new()
         .route("/auth/totp/enroll", post(totp_enroll))
         .route("/auth/totp/verify", post(totp_verify))
         .route("/auth/totp/disable", post(totp_disable))
         .route("/auth/backup-codes", post(regenerate_backup_codes))
-        .layer(axum::middleware::from_fn(middleware::auth::require_auth));
+        .route("/auth/logout", post(logout))
+        .route("/auth/password/change", post(change_password))
+        .route("/auth/sessions", get(list_sessions).delete(revoke_all_sessions))
+        .route("/auth/sessions/:family_id", axum::routing::delete(revoke_session))
+        .layer(axum::middleware::from_fn_with_state(state, middleware::auth::require_auth));
 
     Router::new()
         .route("/auth/register", post(register))
@@ -28,6 +40,56 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/auth/refresh", post(refresh))
         .route("/auth/2fa/recover", post(recover))
         .merge(protected)
+}
+
+/// Extracts the caller's IP from `X-Forwarded-For` (first hop) for device
+/// metadata on refresh-token families. Best-effort only — not used for any
+/// security decision.
+fn client_ip(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(|s| s.trim().to_string())
+}
+
+fn user_agent(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_owned())
+}
+
+/// Issues a brand-new refresh-token family (login/register/2FA recovery) and
+/// persists its device metadata.
+async fn issue_new_session(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+    username: &str,
+    role: &str,
+) -> AppResult<AuthResponse> {
+    let tv = match &state.redis {
+        Some(redis) => token_revocation::current_epoch(redis, username).await,
+        None => 0,
+    };
+
+    let family_id = Uuid::new_v4();
+    let issued = auth_service::issue_tokens(username, role, family_id, tv)?;
+
+    token_family_service::create_family(
+        &state.db,
+        username,
+        issued.refresh_jti,
+        user_agent(headers).as_deref(),
+        client_ip(headers).as_deref(),
+    )
+    .await?;
+
+    Ok(AuthResponse {
+        access_token: issued.access_token,
+        refresh_token: issued.refresh_token,
+        token_type: "Bearer".to_owned(),
+    })
 }
 
 /// Register a new creator account
@@ -44,6 +106,7 @@ pub fn router() -> Router<Arc<AppState>> {
 )]
 pub async fn register(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     ValidatedJson(body): ValidatedJson<RegisterRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let password_hash = auth_service::hash_password(&body.password).map_err(|e| {
@@ -77,10 +140,7 @@ pub async fn register(
         AppError::from(e)
     })?;
 
-    let tokens = auth_service::generate_tokens(&creator.username, "creator").map_err(|e| {
-        tracing::error!(error = %e, "Token generation failed");
-        AppError::internal()
-    })?;
+    let tokens = issue_new_session(&state, &headers, &creator.username, "creator").await?;
 
     Ok((StatusCode::CREATED, Json(serde_json::json!(tokens))).into_response())
 }
@@ -99,6 +159,7 @@ pub async fn register(
 )]
 pub async fn login(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     ValidatedJson(body): ValidatedJson<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let row = sqlx::query_as::<_, Creator>(
@@ -163,15 +224,14 @@ pub async fn login(
         }
     }
 
-    let tokens = auth_service::generate_tokens(&creator.username, "creator").map_err(|e| {
-        tracing::error!(error = %e, "Token generation failed");
-        AppError::internal()
-    })?;
+    let tokens = issue_new_session(&state, &headers, &creator.username, "creator").await?;
 
     Ok((StatusCode::OK, Json(serde_json::json!(tokens))).into_response())
 }
 
-/// Refresh access token using a valid refresh token
+/// Refresh access token using a valid refresh token. Rotates the refresh
+/// token forward; presenting an already-rotated token is treated as theft
+/// and revokes the entire token family (#345).
 #[utoipa::path(
     post,
     path = "/auth/refresh",
@@ -183,17 +243,201 @@ pub async fn login(
     )
 )]
 pub async fn refresh(
+    State(state): State<Arc<AppState>>,
     ValidatedJson(body): ValidatedJson<RefreshRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let claims = auth_service::validate_token(&body.refresh_token, "refresh")
-        .map_err(|_| AppError::unauthorized("Invalid or expired refresh token"))?;
+    let invalid = || AppError::unauthorized("Invalid or expired refresh token");
 
-    let tokens = auth_service::generate_tokens(&claims.sub, &claims.role).map_err(|e| {
-        tracing::error!(error = %e, "Token generation failed");
-        AppError::internal()
-    })?;
+    let claims = auth_service::validate_token(&body.refresh_token, "refresh").map_err(|_| invalid())?;
 
-    Ok((StatusCode::OK, Json(serde_json::json!(tokens))).into_response())
+    let family_id = claims
+        .family
+        .as_deref()
+        .and_then(|f| Uuid::parse_str(f).ok())
+        .ok_or_else(invalid)?;
+    let presented_jti = Uuid::parse_str(&claims.jti).map_err(|_| invalid())?;
+
+    let tv = match &state.redis {
+        Some(redis) => token_revocation::current_epoch(redis, &claims.sub).await,
+        None => 0,
+    };
+
+    // Mint the replacement pair up front so the new jti can be handed to the
+    // atomic rotate-or-detect-reuse check below. If that check doesn't come
+    // back `Rotated`, these freshly minted tokens are simply discarded.
+    let issued = auth_service::issue_tokens(&claims.sub, &claims.role, family_id, tv)?;
+
+    let outcome =
+        token_family_service::rotate_or_detect_reuse(&state.db, family_id, presented_jti, issued.refresh_jti)
+            .await?;
+
+    match outcome {
+        RotationOutcome::Rotated => {
+            let response = AuthResponse {
+                access_token: issued.access_token,
+                refresh_token: issued.refresh_token,
+                token_type: "Bearer".to_owned(),
+            };
+            Ok((StatusCode::OK, Json(serde_json::json!(response))).into_response())
+        }
+        RotationOutcome::ReuseDetected => {
+            tracing::error!(
+                username = %claims.sub,
+                family_id = %family_id,
+                "Refresh token reuse detected — family revoked"
+            );
+            Err(AppError::unauthorized(
+                "Refresh token reuse detected; this session family has been revoked",
+            ))
+        }
+        RotationOutcome::AlreadyRevoked | RotationOutcome::Expired | RotationOutcome::NotFound => {
+            Err(invalid())
+        }
+    }
+}
+
+/// Logs out the current session: denylists the presented access token and,
+/// if a refresh token is supplied, revokes its token family too.
+#[utoipa::path(
+    post,
+    path = "/auth/logout",
+    tag = "auth",
+    request_body = LogoutRequest,
+    responses(
+        (status = 204, description = "Logged out"),
+        (status = 401, description = "Unauthorized")
+    )
+)]
+pub async fn logout(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    body: Option<Json<LogoutRequest>>,
+) -> Result<impl IntoResponse, AppError> {
+    if let Some(ref redis) = state.redis {
+        let remaining = claims.exp as i64 - chrono::Utc::now().timestamp();
+        token_revocation::revoke_jti(redis, &claims.jti, remaining).await;
+    }
+
+    if let Some(refresh_token) = body.and_then(|b| b.0.refresh_token) {
+        if let Ok(refresh_claims) = auth_service::validate_token(&refresh_token, "refresh") {
+            if refresh_claims.sub == claims.sub {
+                if let Some(family_id) = refresh_claims.family.as_deref().and_then(|f| Uuid::parse_str(f).ok()) {
+                    let _ = token_family_service::revoke_family(&state.db, family_id, "logout").await;
+                }
+            }
+        }
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Changes the authenticated creator's password. Invalidates every
+/// outstanding access token (via the token-version epoch) and revokes all
+/// refresh-token families, forcing re-authentication everywhere.
+#[utoipa::path(
+    post,
+    path = "/auth/password/change",
+    tag = "auth",
+    request_body = ChangePasswordRequest,
+    responses(
+        (status = 204, description = "Password changed; all sessions revoked"),
+        (status = 401, description = "Invalid current password")
+    )
+)]
+pub async fn change_password(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    ValidatedJson(body): ValidatedJson<ChangePasswordRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let creator = sqlx::query_as::<_, Creator>(
+        "SELECT id, username, wallet_address, email, password_hash, totp_secret, totp_enabled, backup_code_hashes, created_at FROM creators WHERE username = $1",
+    )
+    .bind(&claims.sub)
+    .fetch_one(&state.db)
+    .await
+    .map_err(AppError::from)?;
+
+    let valid = auth_service::verify_password(&body.old_password, &creator.password_hash)?;
+    if !valid {
+        return Err(AppError::unauthorized("Invalid current password"));
+    }
+
+    let new_hash = auth_service::hash_password(&body.new_password)?;
+    sqlx::query("UPDATE creators SET password_hash = $1 WHERE username = $2")
+        .bind(&new_hash)
+        .bind(&claims.sub)
+        .execute(&state.db)
+        .await
+        .map_err(AppError::from)?;
+
+    if let Some(ref redis) = state.redis {
+        token_revocation::bump_epoch(redis, &claims.sub).await;
+    }
+    token_family_service::revoke_all_for_user(&state.db, &claims.sub, "password_change").await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Lists the authenticated user's active sessions (refresh-token families).
+#[utoipa::path(
+    get,
+    path = "/auth/sessions",
+    tag = "auth",
+    responses((status = 200, description = "Active sessions", body = SessionListResponse))
+)]
+pub async fn list_sessions(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<impl IntoResponse, AppError> {
+    let families = token_family_service::list_active_for_user(&state.db, &claims.sub).await?;
+    let sessions: Vec<SessionSummary> = families.into_iter().map(Into::into).collect();
+    Ok((StatusCode::OK, Json(serde_json::json!(SessionListResponse { sessions }))).into_response())
+}
+
+/// Revokes a single session (refresh-token family) belonging to the caller.
+#[utoipa::path(
+    delete,
+    path = "/auth/sessions/{family_id}",
+    tag = "auth",
+    responses(
+        (status = 204, description = "Session revoked"),
+        (status = 403, description = "Not the owner of this session"),
+        (status = 404, description = "Session not found")
+    )
+)]
+pub async fn revoke_session(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(family_id): Path<Uuid>,
+) -> Result<impl IntoResponse, AppError> {
+    let family = token_family_service::get_family(&state.db, family_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("Session not found"))?;
+
+    if family.username != claims.sub {
+        return Err(AppError::forbidden("Cannot revoke another user's session"));
+    }
+
+    token_family_service::revoke_family(&state.db, family_id, "user_revoked").await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Revokes every active session for the caller ("log out everywhere").
+#[utoipa::path(
+    delete,
+    path = "/auth/sessions",
+    tag = "auth",
+    responses((status = 204, description = "All sessions revoked"))
+)]
+pub async fn revoke_all_sessions(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<impl IntoResponse, AppError> {
+    token_family_service::revoke_all_for_user(&state.db, &claims.sub, "user_revoked_all").await?;
+    if let Some(ref redis) = state.redis {
+        token_revocation::bump_epoch(redis, &claims.sub).await;
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -232,7 +476,7 @@ pub async fn totp_enroll(
         tracing::error!(error = %e, "2FA secret generation failed");
         AppError::internal()
     })?;
-    
+
     use crate::crypto::encryption::EncryptedString;
 
     let _ = sqlx::query_as::<_, Creator>(
@@ -310,9 +554,9 @@ pub async fn totp_verify(
         .iter()
         .map(|code| auth_service::hash_backup_code(code))
         .collect::<AppResult<Vec<String>>>()?;
-        
+
     use crate::crypto::encryption::EncryptedString;
-    
+
     let encrypted_hashes: Vec<EncryptedString> = backup_hashes.into_iter().map(EncryptedString::new).collect();
 
     sqlx::query(
@@ -367,12 +611,12 @@ pub async fn totp_disable(
             message: "Two-factor authentication is not enabled".to_string(),
         });
     }
-    
+
     let valid = auth_service::verify_password(&body.password, &creator.password_hash).map_err(|e| {
         tracing::error!(error = %e, "Password verification error");
         AppError::internal()
     })?;
-    
+
     if !valid {
         return Err(AppError::unauthorized("Invalid password"));
     }
@@ -428,13 +672,13 @@ pub async fn regenerate_backup_codes(
             message: "Two-factor authentication is not enabled".to_string(),
         });
     }
-    
+
     let backup_codes = auth_service::generate_backup_codes();
     let backup_hashes = backup_codes
         .iter()
         .map(|code| auth_service::hash_backup_code(code))
         .collect::<AppResult<Vec<String>>>()?;
-        
+
     use crate::crypto::encryption::EncryptedString;
     let encrypted_hashes: Vec<EncryptedString> = backup_hashes.into_iter().map(EncryptedString::new).collect();
 
@@ -469,6 +713,7 @@ pub async fn regenerate_backup_codes(
 )]
 pub async fn recover(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     ValidatedJson(body): ValidatedJson<RecoverTwoFactorRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let row = sqlx::query_as::<_, Creator>(
@@ -518,10 +763,7 @@ pub async fn recover(
         AppError::from(e)
     })?;
 
-    let tokens = auth_service::generate_tokens(&creator.username, "creator").map_err(|e| {
-        tracing::error!(error = %e, "Token generation failed");
-        AppError::internal()
-    })?;
+    let tokens = issue_new_session(&state, &headers, &creator.username, "creator").await?;
 
     Ok((StatusCode::OK, Json(serde_json::json!(tokens))).into_response())
 }

@@ -92,6 +92,21 @@ pub struct Claims {
     pub role: String,
     pub exp: usize,
     pub iat: usize,
+    pub nbf: usize,
+    /// Issuer — validated against the configured issuer at decode time.
+    pub iss: String,
+    /// Audience — validated against the configured audience at decode time.
+    pub aud: String,
+    /// Unique token id, used for access-token revocation and refresh reuse detection.
+    pub jti: String,
+    /// Refresh-token family id. Present on refresh tokens only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
+    /// Token version — must be >= the user's current epoch in the revocation
+    /// store or the token is treated as revoked (used by logout-all /
+    /// password-change / admin revocation).
+    #[serde(default)]
+    pub tv: i64,
 }
 
 /// Disable TOTP for the authenticated creator.
@@ -99,4 +114,38 @@ pub struct Claims {
 pub struct DisableTwoFactorRequest {
     #[validate(length(min = 1, message = "Password is required"))]
     pub password: String,
+}
+
+/// Logout the current session; optionally revoke the refresh-token family too.
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct LogoutRequest {
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+}
+
+/// Change the authenticated creator's password. Invalidates all outstanding
+/// access tokens and refresh-token families for the account.
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct ChangePasswordRequest {
+    #[validate(length(min = 1, message = "Current password is required"))]
+    pub old_password: String,
+
+    #[validate(length(min = 8, message = "New password must be at least 8 characters"))]
+    pub new_password: String,
+}
+
+/// A single active session (refresh-token family) belonging to a user.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SessionSummary {
+    pub family_id: uuid::Uuid,
+    pub user_agent: Option<String>,
+    pub ip_address: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub rotated_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SessionListResponse {
+    pub sessions: Vec<SessionSummary>,
 }
