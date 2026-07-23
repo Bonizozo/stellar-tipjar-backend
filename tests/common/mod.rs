@@ -71,6 +71,39 @@ pub async fn create_test_app(pool: PgPool) -> (Router, String) {
     (create_app(state), "mock_token".into())
 }
 
+/// Like [`create_test_app`], but wires up a real Redis connection so tests
+/// can exercise the GCRA-backed distributed rate limiter instead of only its
+/// fail-open no-Redis path. Callers are responsible for pointing `redis_url`
+/// at a reachable Redis instance (e.g. `TEST_REDIS_URL`).
+pub async fn create_test_app_with_redis(pool: PgPool, redis_url: &str) -> (Router, String) {
+    let stellar_network = "testnet".to_string();
+    let stellar_rpc_url = "https://soroban-testnet.stellar.org".to_string();
+
+    let stellar = StellarService::new(stellar_rpc_url, stellar_network);
+    let performance = Arc::new(db::performance::PerformanceMonitor::new());
+    let moderation = Arc::new(ModerationService::new(pool.clone()));
+
+    let redis = cache::redis_client::connect(redis_url).await;
+
+    let (email_sender, _email_rx) = email::sender::EmailSender::new();
+    let email_sender = Arc::new(email_sender);
+
+    let state = Arc::new(AppState {
+        db: pool,
+        stellar,
+        performance,
+        moderation,
+        redis,
+        broadcast_tx: tokio::sync::broadcast::channel(16).0,
+        cache: None,
+        invalidator: None,
+        db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
+        lock_service: None,
+    });
+
+    (create_app(state), "mock_token".into())
+}
+
 pub async fn create_test_app_with_mock_stellar(
     pool: PgPool,
     mock_stellar_url: &str,

@@ -197,10 +197,10 @@ lazy_static! {
         &["tier", "kind", "path"]
     ).unwrap();
 
-    pub static ref RATE_LIMIT_BURST_CONSUMED_TOTAL: CounterVec = register_counter_vec!(
-        "gateway_rate_limit_burst_consumed_total",
-        "Total burst token consumption events, by tier",
-        &["tier"]
+    pub static ref RATE_LIMIT_DEGRADED_TOTAL: CounterVec = register_counter_vec!(
+        "gateway_rate_limit_degraded_total",
+        "Total requests handled in degraded mode (Redis unavailable), by tier, fail policy, and outcome",
+        &["tier", "policy", "outcome"]
     ).unwrap();
 
     // ── Quota Management ──────────────────────────────────────────────────────
