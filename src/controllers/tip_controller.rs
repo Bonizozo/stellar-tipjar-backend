@@ -6,23 +6,32 @@ use crate::controllers::{campaign_controller, team_controller};
 use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
 use crate::db::transaction;
-use crate::errors::{AppError, AppResult};
+use crate::errors::{AppError, AppResult, DatabaseError};
 use crate::metrics::collectors::{
     DB_QUERY_DURATION_SECONDS, TIPS_AMOUNT_XLM, TIPS_CREATED_TOTAL, TIPS_FAILED_TOTAL,
 };
 use crate::models::pagination::{
     CursorDirection, KeysetCursor, PaginatedResponse, PaginationParams,
 };
-use crate::models::tip::{RecordTipRequest, ReportMessageRequest, Tip, TipFilters, TipSortParams};
+use crate::models::tip::{RecordTipRequest, ReportMessageRequest, Tip, TipFilters, TipSortParams, TipStatus};
+use crate::moderation::ContentType;
+use crate::queue::VerificationJob;
+use crate::validation::amount::xlm_to_stroops_str;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TipRecordContext {
     pub ip: Option<IpAddr>,
 }
 
-use crate::moderation::ContentType;
+// ─────────────────────────── record_tip ─────────────────────────────────────
 
-#[tracing::instrument(skip(state), fields(username = %req.username, amount = %req.amount))]
+/// Insert the tip as `pending_verification` and enqueue an async verification job.
+///
+/// Uses `ON CONFLICT DO NOTHING` so duplicate tx_hash submissions from concurrent
+/// clients simply return a `Conflict` error rather than crashing.
+///
+/// No webhooks fire here – they are deferred until `confirm_tip`.
+#[tracing::instrument(skip(state), fields(username = %req.username, amount = %req.amount, tx_hash = %req.transaction_hash))]
 pub async fn record_tip(state: &AppState, req: RecordTipRequest) -> AppResult<Tip> {
     record_tip_with_context(state, req, TipRecordContext::default()).await
 }
@@ -53,246 +62,213 @@ pub async fn record_tip_with_context(
         }
     }
 
-    let mut tx = transaction::begin_transaction(&state.db)
-        .await
-        .map_err(AppError::from)?;
-
     let start = Instant::now();
-    // Pass state into the internal helper to support WebSocket broadcasting
-    let (tip, match_result) =
-        match record_tip_in_tx_with_context(state, &mut tx, &req, context).await {
-            Ok(result) => result,
-            Err(e) => {
-                TIPS_FAILED_TOTAL
-                    .with_label_values(&["record_tip_in_tx"])
-                    .inc();
-                return Err(e);
-            }
-        };
-    tx.commit().await?;
-    let duration = start.elapsed();
+    let tip_id = Uuid::new_v4();
 
-    DB_QUERY_DURATION_SECONDS
-        .with_label_values(&["tip_atomic_record"])
-        .observe(duration.as_secs_f64());
-    TIPS_CREATED_TOTAL.inc();
-    if let Ok(amount) = tip.amount.parse::<f64>() {
-        TIPS_AMOUNT_XLM.observe(amount);
-    }
-
-    if let Some(match_info) = match_result {
-        let db = state.db.clone();
-        let username = tip.creator_username.clone();
-        let tip_id = tip.id;
-        tokio::spawn(async move {
-            use crate::controllers::notification_controller;
-            if let Ok(prefs) = notification_controller::get_preferences(&db, &username).await {
-                if prefs.notify_on_tip {
-                    let payload = serde_json::json!({
-                        "tip_id": tip_id,
-                        "matched_amount": match_info.matched_amount,
-                        "campaign_id": match_info.campaign_id,
-                        "sponsor_name": match_info.sponsor_name,
-                    });
-                    if let Err(e) = notification_controller::create_notification(
-                        &db,
-                        &username,
-                        "campaign_matched",
-                        payload,
-                    )
-                    .await
-                    {
-                        tracing::warn!("Failed to persist campaign match notification: {e}");
-                    }
-                }
-            }
-        });
-    }
-
-    QueryLogger::log_query("INSERT tips + tip_logs (transaction)", duration);
-    state.performance.track_query("tip_atomic_record", duration);
-
-    // Centralized cache invalidation for tips and leaderboards
-    if let Some(ref inv) = state.invalidator {
-        let tips_pattern = keys::creator_tips_pattern(&tip.creator_username);
-        let _ = inv.invalidate_pattern(&tips_pattern).await;
-        let _ = inv.invalidate_pattern("leaderboard:*").await;
-        let _ = inv
-            .invalidate_pattern(&keys::http_response_pattern("/tips"))
-            .await;
-        let _ = inv
-            .invalidate_pattern(&keys::http_response_pattern("/creators/"))
-            .await;
-    }
-
-    // Main branch added Webhooks
-    crate::webhooks::trigger_webhooks(
-        state.db.clone(),
-        "tip.recorded",
-        serde_json::to_value(&tip).unwrap(),
+    let tip = sqlx::query_as::<_, Tip>(
+        r#"
+        INSERT INTO tips
+            (id, creator_username, amount, transaction_hash, tipper_source_account, status, created_at)
+        VALUES
+            ($1, $2, $3, $4, $5, 'pending_verification', NOW())
+        ON CONFLICT (transaction_hash) DO NOTHING
+        RETURNING id, creator_username, amount, transaction_hash, created_at, status, tipper_source_account
+        "#,
     )
-    .await;
-    // Notify external services via webhook.
-    let payload = serde_json::to_value(&tip).map_err(|e| {
-        tracing::error!(error = %e, "Failed to serialize tip webhook payload");
-        crate::errors::AppError::internal()
+    .bind(tip_id)
+    .bind(&req.username)
+    .bind(&req.amount)
+    .bind(&req.transaction_hash)
+    .bind(&req.tipper_source_account)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::Conflict {
+        code: "DUPLICATE_TX_HASH",
+        message: format!(
+            "A tip with transaction hash '{}' has already been submitted",
+            req.transaction_hash
+        ),
     })?;
-    crate::webhooks::trigger_webhooks(state.db.clone(), "tip.recorded", payload).await;
 
-    // Audit log: tip recorded
-    {
-        let db = state.db.clone();
-        let creator = tip.creator_username.clone();
-        let tip_id = tip.id.to_string();
-        let amount = tip.amount.clone();
-        tokio::spawn(async move {
-            let _ = crate::controllers::audit_log_controller::log(
-                &db,
-                "tip.recorded",
-                None,
-                "tip",
-                Some(&tip_id),
-                "create",
-                None,
-                Some(serde_json::json!({ "creator": creator, "amount": amount })),
-                serde_json::json!({}),
-                None,
-                None,
-            )
-            .await;
-        });
+    let duration = start.elapsed();
+    DB_QUERY_DURATION_SECONDS
+        .with_label_values(&["tip_record_pending"])
+        .observe(duration.as_secs_f64());
+    QueryLogger::log_query("INSERT tips (pending_verification)", duration);
+    state.performance.track_query("tip_record_pending", duration);
+
+    // Log the initial insert in the audit table
+    let _ = sqlx::query(
+        "INSERT INTO tip_logs (tip_id, creator_username, action) VALUES ($1, $2, 'submitted')",
+    )
+    .bind(&tip.id)
+    .bind(&tip.creator_username)
+    .execute(&state.db)
+    .await;
+
+    // Parse amount to stroops for the verification job
+    let amount_stroops = xlm_to_stroops_str(&req.amount).map_err(|e| {
+        AppError::Validation(crate::errors::ValidationError::InvalidRequest {
+            message: format!("Invalid tip amount: {}", e),
+        })
+    })?;
+
+    // Fetch creator wallet address for destination verification
+    let destination: String = sqlx::query_scalar(
+        "SELECT wallet_address FROM creators WHERE username = $1",
+    )
+    .bind(&req.username)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::CreatorNotFound {
+        username: req.username.clone(),
+    })?;
+
+    // Enqueue verification job; failure here is best-effort – reconciliation will retry
+    let job = VerificationJob {
+        tip_id: tip.id,
+        transaction_hash: req.transaction_hash.clone(),
+        amount_stroops,
+        destination,
+        expected_memo: req.memo.clone(),
+        source_account: req.tipper_source_account.clone(),
+        attempt: 0,
+    };
+
+    if let Err(e) = state.queue.enqueue(job).await {
+        tracing::error!(
+            tip_id = %tip.id,
+            error = %e,
+            "Failed to enqueue verification job; reconciliation will retry"
+        );
     }
 
-    Ok(tip)
-}
-
-/// Lower-level tip recording that executes within an existing transaction.
-pub async fn record_tip_in_tx(
-    state: &AppState, // Added state parameter to fix scope issue in Main
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    req: &RecordTipRequest,
-) -> AppResult<(Tip, Option<crate::models::campaign::CampaignMatchResult>)> {
-    record_tip_in_tx_with_context(state, tx, req, TipRecordContext::default()).await
-}
-
-pub async fn record_tip_in_tx_with_context(
-    state: &AppState,
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    req: &RecordTipRequest,
-    context: TipRecordContext,
-) -> AppResult<(Tip, Option<crate::models::campaign::CampaignMatchResult>)> {
-    let query_tip = r#"
-        INSERT INTO tips (id, creator_username, amount, transaction_hash, message, message_visibility, tipper_wallet, tipper_ip, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-        RETURNING id, creator_username, amount, transaction_hash, message, message_visibility, created_at
-        "#;
-
-    let tip = sqlx::query_as::<_, Tip>(query_tip)
-        .bind(Uuid::new_v4())
-        .bind(&req.username)
-        .bind(&req.amount)
-        .bind(&req.transaction_hash)
-        .bind(&req.message)
-        .bind(req.message_visibility.as_str())
-        .bind(&req.tipper_wallet)
-        .bind(context.ip.map(|ip| ip.to_string()))
-        .fetch_one(&mut **tx)
-        .await?;
-
-    // Log the action in the database
-    let query_log = r#"
-        INSERT INTO tip_logs (tip_id, creator_username, action)
-        VALUES ($1, $2, 'recorded_atomic')
-        "#;
-
-    sqlx::query(query_log)
-        .bind(&tip.id)
-        .bind(&tip.creator_username)
-        .execute(&mut **tx)
-        .await?;
-
-    // Apply team splits if the recipient belongs to a team.
-    team_controller::record_tip_splits(
-        &state,
-        tip.id,
-        &tip.creator_username,
-        &tip.amount,
-        &mut *tx,
-    )
-    .await?;
-
-    // Broadcast to WebSocket (Main branch feature)
+    // Broadcast real-time event (tip is pending – UI may show a spinner)
     let event = crate::ws::TipEvent {
         creator_id: tip.creator_username.clone(),
-        tipper_id: req.transaction_hash.clone(),
+        tipper_id: req.tipper_source_account.clone(),
         amount: tip.amount.parse::<u64>().unwrap_or(0),
         timestamp: tip.created_at.timestamp(),
     };
     crate::ws::broadcast_tip(&state.broadcast_tx, event).await;
 
-    // Persist notification if creator has tip notifications enabled.
-    {
-        let db = state.db.clone();
-        let username = tip.creator_username.clone();
-        let payload = serde_json::json!({
-            "tip_id": tip.id,
-            "amount": tip.amount,
-            "transaction_hash": tip.transaction_hash,
-            "message": tip.message,
-        });
-        tokio::spawn(async move {
-            use crate::controllers::notification_controller;
-            match notification_controller::get_preferences(&db, &username).await {
-                Ok(prefs) if prefs.notify_on_tip => {
-                    if let Err(e) = notification_controller::create_notification(
-                        &db,
-                        &username,
-                        "tip_received",
-                        payload,
-                    )
-                    .await
-                    {
-                        tracing::warn!("Failed to persist tip notification: {e}");
-                    }
-                }
-                _ => {}
-            }
-        });
+    // Cache invalidation
+    if let Some(conn) = state.redis.as_ref() {
+        let mut conn = conn.clone();
+        let tips_key = keys::creator_tips_pattern(&tip.creator_username);
+        let _ = redis_client::del(&mut conn, &[tips_key.as_str()]).await;
     }
 
-    // Attempt to apply a matching campaign to this tip.
-    let match_result = campaign_controller::apply_tip_matching_campaign(
-        &mut *tx,
-        &tip.creator_username,
-        tip.id,
-        &tip.amount,
-    )
-    .await?;
-
-    // Update tip goals progress and fire milestone notifications
-    {
-        let db = state.db.clone();
-        let username = tip.creator_username.clone();
-        let amount = tip.amount.clone();
-        tokio::spawn(async move {
-            if let Err(e) =
-                crate::controllers::goal_controller::apply_tip_to_goals(&db, &username, &amount)
-                    .await
-            {
-                tracing::warn!("Failed to update goal progress: {e}");
-            }
-        });
+    TIPS_CREATED_TOTAL.inc();
+    if let Ok(amount) = tip.amount.parse::<f64>() {
+        TIPS_AMOUNT_XLM.observe(amount);
     }
 
-    Ok((tip, match_result))
+    Ok(tip)
 }
 
-/// Fetch all tips for a creator without pagination (kept for internal use).
+// ─────────────────────────── confirm_tip ────────────────────────────────────
+
+/// Transition a tip from `pending_verification` to `confirmed`.
+///
+/// Only fires webhooks and updates analytics **after** confirmation.
+pub async fn confirm_tip(state: &AppState, tip_id: Uuid) -> AppResult<()> {
+    let tip = sqlx::query_as::<_, Tip>(
+        r#"
+        UPDATE tips
+        SET    status = 'confirmed'
+        WHERE  id     = $1
+          AND  status = 'pending_verification'
+        RETURNING id, creator_username, amount, transaction_hash, created_at, status, tipper_source_account
+        "#,
+    )
+    .bind(tip_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::Database(DatabaseError::NotFound {
+        entity: "tip",
+        identifier: tip_id.to_string(),
+    }))?;
+
+    // Audit log
+    let _ = sqlx::query(
+        "INSERT INTO tip_logs (tip_id, creator_username, action) VALUES ($1, $2, 'confirmed')",
+    )
+    .bind(tip.id)
+    .bind(&tip.creator_username)
+    .execute(&state.db)
+    .await;
+
+    // Cache invalidation
+    if let Some(conn) = state.redis.as_ref() {
+        let mut conn = conn.clone();
+        let _ = redis_client::del(&mut conn, &[keys::creator_tips_pattern(&tip.creator_username).as_str()]).await;
+    }
+
+    // Webhooks fire ONLY for confirmed tips
+    let payload = serde_json::to_value(&tip).map_err(|e| {
+        tracing::error!(error = %e, "Failed to serialize tip webhook payload");
+        AppError::internal()
+    })?;
+    crate::webhooks::trigger_webhooks(state.db.clone(), "tip.confirmed", payload).await;
+
+    tracing::info!(tip_id = %tip_id, "Tip confirmed and webhooks triggered");
+    Ok(())
+}
+
+// ─────────────────────────── reject_tip ─────────────────────────────────────
+
+/// Transition a tip from `pending_verification` to `rejected` with a reason.
+///
+/// Rejected tips do NOT fire webhooks or update leaderboards.
+pub async fn reject_tip(state: &AppState, tip_id: Uuid, reason: &str) -> AppResult<()> {
+    let tip = sqlx::query_as::<_, Tip>(
+        r#"
+        UPDATE tips
+        SET    status = 'rejected'
+        WHERE  id     = $1
+          AND  status = 'pending_verification'
+        RETURNING id, creator_username, amount, transaction_hash, created_at, status, tipper_source_account
+        "#,
+    )
+    .bind(tip_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::Database(DatabaseError::NotFound {
+        entity: "tip",
+        identifier: tip_id.to_string(),
+    }))?;
+
+    // Audit log with rejection reason
+    let action = format!("rejected: {}", reason);
+    let _ = sqlx::query(
+        "INSERT INTO tip_logs (tip_id, creator_username, action) VALUES ($1, $2, $3)",
+    )
+    .bind(tip.id)
+    .bind(&tip.creator_username)
+    .bind(&action)
+    .execute(&state.db)
+    .await;
+
+    // Cache invalidation
+    if let Some(conn) = state.redis.as_ref() {
+        let mut conn = conn.clone();
+        let _ = redis_client::del(&mut conn, &[keys::creator_tips_pattern(&tip.creator_username).as_str()]).await;
+    }
+
+    tracing::info!(tip_id = %tip_id, reason = %reason, "Tip rejected");
+    Ok(())
+}
+
+// ─────────────────────────── read helpers ───────────────────────────────────
+
+/// Fetch all **confirmed** tips for a creator (for external API responses).
 pub async fn get_tips_for_creator(state: &AppState, username: &str) -> AppResult<Vec<Tip>> {
     let query = r#"
-        SELECT id, creator_username, amount, transaction_hash, message, message_visibility, created_at
+        SELECT id, creator_username, amount, transaction_hash, created_at, status, tipper_source_account
         FROM tips
         WHERE creator_username = $1
+          AND status = 'confirmed'
         ORDER BY created_at DESC
         "#;
 
@@ -306,7 +282,6 @@ pub async fn get_tips_for_creator(state: &AppState, username: &str) -> AppResult
     DB_QUERY_DURATION_SECONDS
         .with_label_values(&["tips_list_by_creator"])
         .observe(duration.as_secs_f64());
-
     QueryLogger::log_query(query, duration);
     state.performance.track_query(query, duration);
 
@@ -386,7 +361,7 @@ pub async fn get_tips_paginated(
 
     let data_sql = if params.uses_offset() {
         format!(
-            "SELECT id, creator_username, amount, transaction_hash, message, message_visibility, created_at \
+            "SELECT id, creator_username, amount, transaction_hash, created_at, status, tipper_source_account \
              FROM tips {where_clause} \
              ORDER BY created_at DESC, id DESC \
              LIMIT ${} OFFSET ${}",
@@ -395,7 +370,7 @@ pub async fn get_tips_paginated(
         )
     } else {
         format!(
-            "SELECT id, creator_username, amount, transaction_hash, message, message_visibility, created_at \
+            "SELECT id, creator_username, amount, transaction_hash, created_at, status, tipper_source_account \
              FROM tips {where_clause} \
              ORDER BY created_at {order}, id {order} \
              LIMIT ${}",
@@ -457,14 +432,14 @@ pub async fn report_tip_message(
 ) -> AppResult<()> {
     // Verify the tip exists and has a message.
     let tip = sqlx::query_as::<_, Tip>(
-        "SELECT id, creator_username, amount, transaction_hash, message, message_visibility, created_at \
+        "SELECT id, creator_username, amount, transaction_hash, created_at, status, tipper_source_account \
          FROM tips WHERE id = $1",
     )
     .bind(tip_id)
     .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| AppError::Database(crate::errors::DatabaseError::NotFound {
-        entity: "tip".to_string(),
+        entity: "tip",
         identifier: tip_id.to_string(),
     }))?;
 
@@ -481,4 +456,36 @@ pub async fn report_tip_message(
         })?;
 
     Ok(())
+}
+
+// ─────────────────── lower-level helper (for bulk operations) ────────────────
+
+/// Lower-level tip recording within an existing transaction.
+/// Retained for `TipService::bulk_record_tips`. Inserts as `pending_verification`.
+pub async fn record_tip_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    req: &RecordTipRequest,
+) -> AppResult<Tip> {
+    let tip = sqlx::query_as::<_, Tip>(
+        r#"
+        INSERT INTO tips
+            (id, creator_username, amount, transaction_hash, tipper_source_account, status, created_at)
+        VALUES ($1, $2, $3, $4, $5, 'pending_verification', NOW())
+        ON CONFLICT (transaction_hash) DO NOTHING
+        RETURNING id, creator_username, amount, transaction_hash, created_at, status, tipper_source_account
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(&req.username)
+    .bind(&req.amount)
+    .bind(&req.transaction_hash)
+    .bind(&req.tipper_source_account)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| AppError::Conflict {
+        code: "DUPLICATE_TX_HASH",
+        message: format!("Duplicate transaction hash: {}", req.transaction_hash),
+    })?;
+
+    Ok(tip)
 }

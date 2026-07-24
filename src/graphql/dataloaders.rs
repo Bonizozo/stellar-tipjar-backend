@@ -37,7 +37,8 @@ impl Loader<String> for TipLoader {
 
     async fn load(&self, keys: &[String]) -> Result<HashMap<String, Vec<Tip>>, Self::Error> {
         let tips = sqlx::query_as::<_, Tip>(
-            "SELECT id, creator_username, amount, transaction_hash, message, created_at FROM tips WHERE creator_username = ANY($1) ORDER BY created_at DESC",
+            "SELECT id, creator_username, amount, transaction_hash, created_at, status, tipper_source_account \
+             FROM tips WHERE creator_username = ANY($1) AND status = 'confirmed' ORDER BY created_at DESC",
         )
         .bind(keys.to_vec())
         .fetch_all(&self.pool)

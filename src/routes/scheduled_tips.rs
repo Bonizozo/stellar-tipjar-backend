@@ -16,11 +16,16 @@ use crate::models::scheduled_tip::{
     CreateScheduledTipRequest, ScheduledTipResponse, UpdateScheduledTipRequest,
 };
 
-pub fn router() -> Router<Arc<AppState>> {
+pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/scheduled-tips", post(create))
         .route("/scheduled-tips/:id", get(get_one).patch(update).delete(cancel))
         .route("/scheduled-tips", get(list))
+        // Opt-in Idempotency-Key handling (#342) for create/update/cancel.
+        .route_layer(axum::middleware::from_fn_with_state(
+            state,
+            crate::idempotency::middleware::idempotency_middleware,
+        ))
 }
 
 #[derive(Deserialize)]

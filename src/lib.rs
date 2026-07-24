@@ -12,7 +12,6 @@ pub mod cqrs;
 pub mod crypto;
 pub mod currency;
 pub mod db;
-pub mod deduplication;
 pub mod deployment;
 pub mod docs;
 pub mod email;
@@ -21,6 +20,7 @@ pub mod events;
 pub mod gateway;
 pub mod graphql;
 pub mod health;
+pub mod idempotency;
 pub mod indexer;
 pub mod jobs;
 pub mod logging;
@@ -61,7 +61,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .allow_origin(Any)
         .allow_headers(Any);
 
-    // Build rate limiters. They handle their own background cleanup.
     let general_limiter = middleware::rate_limiter::general_limiter();
     let write_limiter = middleware::rate_limiter::write_limiter();
 
@@ -69,11 +68,11 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     let write_routes = Router::new()
         .merge(routes::auth::router())
         .merge(routes::teams::router())
-        .merge(routes::tips::router())
+        .merge(routes::tips::router(Arc::clone(&state)))
         .merge(routes::creators::write_router())
         .merge(routes::verification::router())
         .merge(routes::goals::router())
-        .merge(routes::refunds::public_router())
+        .merge(routes::refunds::public_router(Arc::clone(&state)))
         .merge(routes::tx_pool::router())
         .layer(axum::middleware::from_fn(
             middleware::body_limit::require_json_content_type,
