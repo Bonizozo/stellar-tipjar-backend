@@ -17,10 +17,18 @@ use crate::models::tip::{
 };
 use crate::validation::ValidatedJson;
 
-pub fn router() -> Router<Arc<AppState>> {
+pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/tips", post(record_tip).get(list_tips))
         .route("/tips/:id/report", post(report_tip_message))
+        // Opt-in Idempotency-Key handling (#342) for this router's mutating
+        // routes. The middleware is a no-op for GET and for requests without
+        // an Idempotency-Key header, so it's safe to attach to the whole
+        // router rather than splitting POST out into its own sub-router.
+        .route_layer(axum::middleware::from_fn_with_state(
+            state,
+            crate::idempotency::middleware::idempotency_middleware,
+        ))
 }
 
 /// Submit a tip for async on-chain verification.

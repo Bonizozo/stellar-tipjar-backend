@@ -14,6 +14,7 @@ use tower_http::request_id::{SetRequestIdLayer, MakeRequestUuid, PropagateReques
 use tower_http::trace::TraceLayer;
 use crate::services::distributed_lock::DistributedLockService;
 use crate::db::connection::{connect_with_retry, AppState};
+use crate::idempotency;
 use crate::routes;
 use crate::middleware;
 use crate::services;
@@ -58,6 +59,11 @@ pub async fn build_app() -> Router {
     let redis = None; // not needed for current tests
     let broadcast_tx = tokio::sync::broadcast::channel(16).0;
     let moderation = Arc::new(moderation::ModerationService::new(pool.clone()));
+    let idempotency = Arc::new(idempotency::IdempotencyService::new(
+        pool.clone(),
+        redis.clone(),
+        idempotency::IdempotencyConfig::default(),
+    ));
     let state = Arc::new(AppState {
         db: pool.clone(),
         stellar,
@@ -71,6 +77,7 @@ pub async fn build_app() -> Router {
         encryption: Arc::new(crate::crypto::encryption::EncryptionKeyManager::new().load().await.unwrap()),
         replicas: None,
         lock_service: None,
+        idempotency,
     });
 
     // Build router similar to main but only required routes for tests
@@ -81,7 +88,7 @@ pub async fn build_app() -> Router {
             Router::new()
                 .merge(routes::creators::write_router())
                 .merge(routes::creators::read_router())
-                .merge(routes::tips::router())
+                .merge(routes::tips::router(Arc::clone(&state)))
                 .layer(middleware::rate_limiter::write_limiter()),
         );
 

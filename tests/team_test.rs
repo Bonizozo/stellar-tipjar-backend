@@ -19,6 +19,11 @@ fn make_state(pool: PgPool) -> Arc<AppState> {
     let stellar = StellarService::new("https://horizon-testnet.stellar.org".to_string(), "testnet".to_string());
     let performance = Arc::new(PerformanceMonitor::new());
     let moderation = Arc::new(ModerationService::new(pool.clone()));
+    let idempotency = Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(
+        pool.clone(),
+        None,
+        stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
+    ));
     Arc::new(AppState {
         db: pool,
         stellar,

@@ -104,6 +104,12 @@ pub async fn create_test_app_with_verifier(
     // a no-op in unit tests. The queue.enqueue() calls will succeed (channel not full),
     // but nothing processes them, which is fine for handler-level tests.
 
+    let idempotency = Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(
+        pool.clone(),
+        redis.clone(),
+        stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
+    ));
+
     let state = Arc::new(AppState {
         db: pool,
         verifier,
@@ -148,6 +154,12 @@ pub async fn create_test_app_with_mock_stellar(
     // Initialize email system (unused in tests but AppState may require it)
     let (email_sender, _email_rx) = email::sender::EmailSender::new();
     let _email_sender = Arc::new(email_sender);
+
+    let idempotency = Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(
+        pool.clone(),
+        redis.clone(),
+        stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
+    ));
 
     let state = Arc::new(AppState {
         db: pool,

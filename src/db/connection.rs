@@ -11,6 +11,7 @@ use super::performance::PerformanceMonitor;
 use super::replica::ReplicaManager;
 use crate::cache::{CacheInvalidator, MultiLayerCache};
 use crate::crypto::encryption::EncryptionKeyManager;
+use crate::idempotency::IdempotencyService;
 use crate::moderation::ModerationService;
 use crate::services::circuit_breaker::CircuitBreaker;
 use crate::services::distributed_lock::DistributedLockService;
