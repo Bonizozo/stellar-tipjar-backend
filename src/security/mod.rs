@@ -4,3 +4,4 @@ pub mod permissions;
 pub mod rbac;
 pub mod replay_protection;
 pub mod session_management;
+pub mod token_revocation;

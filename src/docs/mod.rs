@@ -7,7 +7,8 @@ use utoipa::{
 
 use crate::models::{
     auth::{
-        AuthResponse, LoginRequest, RecoverTwoFactorRequest, RefreshRequest, RegisterRequest,
+        AuthResponse, ChangePasswordRequest, LoginRequest, LogoutRequest, RecoverTwoFactorRequest,
+        RefreshRequest, RegisterRequest, SessionListResponse, SessionSummary,
         TwoFactorSetupResponse, VerifyTwoFactorRequest, VerifyTwoFactorResponse,
     },
     creator::{CreateCreatorRequest, CreatorResponse, UpdateCreatorProfileRequest},
@@ -130,8 +131,13 @@ All errors follow a consistent envelope:
         crate::routes::auth::register,
         crate::routes::auth::login,
         crate::routes::auth::refresh,
-        crate::routes::auth::setup_2fa,
-        crate::routes::auth::verify_2fa,
+        crate::routes::auth::logout,
+        crate::routes::auth::change_password,
+        crate::routes::auth::list_sessions,
+        crate::routes::auth::revoke_session,
+        crate::routes::auth::revoke_all_sessions,
+        crate::routes::auth::totp_enroll,
+        crate::routes::auth::totp_verify,
         crate::routes::auth::recover,
         // Creators
         crate::routes::creators::create_creator,
@@ -172,6 +178,10 @@ All errors follow a consistent envelope:
             VerifyTwoFactorRequest,
             VerifyTwoFactorResponse,
             RecoverTwoFactorRequest,
+            LogoutRequest,
+            ChangePasswordRequest,
+            SessionSummary,
+            SessionListResponse,
             // Creators
             CreateCreatorRequest,
             CreatorResponse,

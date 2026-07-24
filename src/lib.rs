@@ -66,7 +66,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 
     // Write endpoints get a stricter per-IP limit and JSON content-type enforcement.
     let write_routes = Router::new()
-        .merge(routes::auth::router())
+        .merge(routes::auth::router(Arc::clone(&state)))
         .merge(routes::teams::router())
         .merge(routes::tips::router(Arc::clone(&state)))
         .merge(routes::creators::write_router())

@@ -392,7 +392,7 @@ async fn main() -> anyhow::Result<()> {
                 .merge(routes::tenants::router())
                 .merge(
                     Router::new()
-                        .merge(routes::auth::router())
+                        .merge(routes::auth::router(Arc::clone(&state)))
                         .merge(routes::teams::router())
                         .merge(routes::tips::router(Arc::clone(&state)))
                         .merge(routes::comments::router())
@@ -451,7 +451,7 @@ async fn main() -> anyhow::Result<()> {
             .merge(routes::tenants::router())
             .merge(
                 Router::new()
-                    .merge(routes::auth::router())
+                    .merge(routes::auth::router(Arc::clone(&state)))
                     .merge(routes::teams::router())
                     .merge(routes::tips::router(Arc::clone(&state)))
                     .merge(routes::creators::write_router())

@@ -11,6 +11,7 @@ use crate::errors::AppError;
 use crate::gateway::config::GatewayConfig;
 use crate::gateway::context::GatewayIdentity;
 use crate::models::api_key::ApiKey;
+use crate::security::token_revocation;
 use crate::services::auth_service;
 
 /// Gateway authentication middleware.
@@ -42,6 +43,17 @@ pub async fn gateway_auth(
     if let Some(token) = bearer_token(req.headers()) {
         match auth_service::validate_token(&token, "access") {
             Ok(claims) => {
+                // #345: honor logout / password-change / admin revocation on
+                // the gateway-authenticated surface too, not just routes
+                // behind `middleware::auth::require_auth`.
+                if let Some(ref redis) = state.redis {
+                    if let Err(e) =
+                        token_revocation::check_not_revoked(redis, &claims.jti, &claims.sub, claims.tv).await
+                    {
+                        return e.into_response();
+                    }
+                }
+
                 let identity = GatewayIdentity::Jwt {
                     subject: claims.sub.clone(),
                     role: claims.role.clone(),
