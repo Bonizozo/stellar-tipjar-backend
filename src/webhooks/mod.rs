@@ -1,6 +1,6 @@
+pub mod retry;
 pub mod sender;
 pub mod signature;
-pub mod retry;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -26,7 +26,7 @@ pub struct Webhook {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateWebhookRequest {
     pub url: String,
-    /// Events to subscribe to, e.g. ["tip.created", "creator.updated"]
+    /// Events to subscribe to, e.g. `["tip.created", "creator.updated"]`
     pub events: Vec<String>,
 }
 
@@ -55,6 +55,19 @@ pub struct WebhookLog {
     pub response_body: Option<String>,
     pub success: bool,
     pub attempts: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+/// A webhook signing secret — supports versioning for rotation.
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct WebhookSecret {
+    pub id: Uuid,
+    pub webhook_id: Uuid,
+    /// The raw secret value.
+    pub secret: String,
+    /// `true` for the primary (current) secret; `false` for a retiring secret
+    /// kept alive during the rotation overlap window.
+    pub is_primary: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -97,9 +110,9 @@ pub async fn update_webhook(
 ) -> Result<Option<Webhook>, sqlx::Error> {
     sqlx::query_as::<_, Webhook>(
         "UPDATE webhooks
-         SET url      = COALESCE($2, url),
-             events   = COALESCE($3, events),
-             enabled  = COALESCE($4, enabled),
+         SET url        = COALESCE($2, url),
+             events     = COALESCE($3, events),
+             enabled    = COALESCE($4, enabled),
              updated_at = NOW()
          WHERE id = $1
          RETURNING *",
@@ -119,6 +132,112 @@ pub async fn delete_webhook(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error
         .await?
         .rows_affected();
     Ok(rows > 0)
+}
+
+// ---------------------------------------------------------------------------
+// Secret rotation
+// ---------------------------------------------------------------------------
+
+/// Rotate the signing secret for a webhook.
+///
+/// The old secret is kept as a non-primary entry in `webhook_secrets` for the
+/// duration of the overlap window so existing consumers continue to verify
+/// deliveries while they update their configuration.
+///
+/// Any secrets older than `retain_count` (default 2) are pruned so the table
+/// does not grow unbounded.
+///
+/// Returns `(new_primary_secret, retiring_secret_opt)`.
+pub async fn rotate_secret(
+    pool: &PgPool,
+    webhook_id: Uuid,
+    retain_count: i64,
+) -> Result<(String, Option<String>), sqlx::Error> {
+    let new_secret = generate_secret();
+
+    // Fetch the current primary secret to make it the retiring one.
+    let current: Option<(String,)> = sqlx::query_as(
+        "SELECT secret FROM webhooks WHERE id = $1",
+    )
+    .bind(webhook_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let retiring = current.map(|(s,)| s);
+
+    // Update the primary secret in the webhooks table.
+    sqlx::query("UPDATE webhooks SET secret = $1, updated_at = NOW() WHERE id = $2")
+        .bind(&new_secret)
+        .bind(webhook_id)
+        .execute(pool)
+        .await?;
+
+    // Persist the new primary in webhook_secrets.
+    sqlx::query(
+        "INSERT INTO webhook_secrets (webhook_id, secret, is_primary)
+         VALUES ($1, $2, TRUE)",
+    )
+    .bind(webhook_id)
+    .bind(&new_secret)
+    .execute(pool)
+    .await?;
+
+    // Mark all other entries as non-primary.
+    sqlx::query(
+        "UPDATE webhook_secrets SET is_primary = FALSE
+         WHERE webhook_id = $1 AND secret != $2",
+    )
+    .bind(webhook_id)
+    .bind(&new_secret)
+    .execute(pool)
+    .await?;
+
+    // Prune secrets older than retain_count.
+    sqlx::query(
+        "DELETE FROM webhook_secrets
+         WHERE webhook_id = $1
+           AND id NOT IN (
+               SELECT id FROM webhook_secrets
+               WHERE webhook_id = $1
+               ORDER BY created_at DESC
+               LIMIT $2
+           )",
+    )
+    .bind(webhook_id)
+    .bind(retain_count)
+    .execute(pool)
+    .await?;
+
+    Ok((new_secret, retiring))
+}
+
+/// Retrieve all currently active secrets for a webhook (primary + retiring).
+/// Used to build dual-secret `DeliveryContext` during the rotation window.
+pub async fn active_secrets(
+    pool: &PgPool,
+    webhook_id: Uuid,
+) -> Result<Vec<String>, sqlx::Error> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT secret FROM webhook_secrets
+         WHERE webhook_id = $1
+         ORDER BY is_primary DESC, created_at DESC
+         LIMIT 2",
+    )
+    .bind(webhook_id)
+    .fetch_all(pool)
+    .await?;
+
+    if rows.is_empty() {
+        // Fallback: read from the webhooks table directly.
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT secret FROM webhooks WHERE id = $1")
+                .bind(webhook_id)
+                .fetch_optional(pool)
+                .await?;
+        Ok(row.map(|(s,)| vec![s]).unwrap_or_default())
+    } else {
+        Ok(rows.into_iter().map(|(s,)| s).collect())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +291,6 @@ pub async fn list_delivery_logs(
 // ---------------------------------------------------------------------------
 
 /// Fire registered webhooks for an event. Runs in a background task.
-/// Logs each delivery attempt to webhook_logs.
 pub async fn trigger_webhooks(pool: PgPool, event_type: &str, payload: Value) {
     let event_name = event_type.to_string();
 
@@ -191,7 +309,11 @@ pub async fn trigger_webhooks(pool: PgPool, event_type: &str, payload: Value) {
             }
         };
 
-        tracing::info!("Dispatching {} webhooks for event {}", webhooks.len(), event_name);
+        tracing::info!(
+            event = %event_name,
+            count = webhooks.len(),
+            "Dispatching webhooks"
+        );
 
         for webhook in webhooks {
             let pool2 = pool.clone();
@@ -202,37 +324,28 @@ pub async fn trigger_webhooks(pool: PgPool, event_type: &str, payload: Value) {
                 timestamp: Utc::now(),
             };
             let event_value = serde_json::to_value(&event).unwrap_or_default();
-            let url = webhook.url.clone();
-            let secret = webhook.secret.clone();
             let wid = webhook.id;
-            let etype = event_name.clone();
 
             tokio::spawn(async move {
-                let result =
-                    sender::send_webhook_with_retry(url, secret, event_value.clone()).await;
-
-                let (success, status_code, response_body) = match &result {
-                    Ok(_) => (true, Some(200i32), None),
-                    Err(e) => (false, None, Some(e.to_string())),
+                // Try to load all active secrets for dual-signing; fall back to
+                // the single secret stored on the webhook row.
+                let secrets = match active_secrets(&pool2, wid).await {
+                    Ok(s) if !s.is_empty() => s,
+                    _ => vec![webhook.secret.clone()],
                 };
 
-                if let Err(log_err) = log_delivery(
-                    &pool2,
-                    wid,
-                    &etype,
-                    &event_value,
-                    status_code,
-                    response_body.as_deref(),
-                    success,
-                    4, // RetryConfig::default max_retries + 1
-                )
-                .await
-                {
-                    tracing::warn!("Failed to log webhook delivery: {}", log_err);
+                let mut ctx = sender::DeliveryContext::new(&event_name, secrets[0].clone());
+                if secrets.len() > 1 {
+                    ctx.secrets = secrets;
                 }
 
-                if let Err(e) = result {
-                    tracing::error!("Webhook {} delivery failed permanently: {}", wid, e);
+                use retry::{deliver_with_context, WebhookRetryConfig};
+                let config = WebhookRetryConfig::default();
+                let status =
+                    deliver_with_context(&pool2, &webhook, ctx, event_value, &config).await;
+
+                if !status.success {
+                    tracing::error!(webhook_id = %wid, "Webhook permanently failed");
                 }
             });
         }
@@ -243,23 +356,12 @@ pub async fn trigger_webhooks(pool: PgPool, event_type: &str, payload: Value) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn generate_secret() -> String {
+/// Generate a cryptographically suitable webhook secret using the OS entropy
+/// source via `rand::thread_rng`.
+pub fn generate_secret() -> String {
     use base64::Engine;
-    let bytes: [u8; 32] = rand_bytes();
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
-}
-
-fn rand_bytes() -> [u8; 32] {
-    // Use the OS random source via std.
+    use rand::RngCore;
     let mut buf = [0u8; 32];
-    for (i, b) in buf.iter_mut().enumerate() {
-        // Simple deterministic-looking but actually time-seeded fill.
-        // In production, prefer `rand` crate or `getrandom`.
-        *b = ((std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .subsec_nanos()
-            .wrapping_add(i as u32 * 6364136223846793005)) & 0xFF) as u8;
-    }
-    buf
+    rand::thread_rng().fill_bytes(&mut buf);
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(buf)
 }

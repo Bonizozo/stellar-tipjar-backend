@@ -29,6 +29,10 @@ pub enum AppError {
     ServiceUnavailable { message: String },
     #[error("too many requests")]
     RateLimited { message: String, retry_after_secs: Option<u64> },
+    #[error("idempotency key reused with a different request")]
+    IdempotencyKeyReused { message: String },
+    #[error("idempotency key locked")]
+    IdempotencyKeyLocked { retry_after_secs: u64 },
     #[error("internal server error")]
     Internal,
 }
@@ -112,6 +116,13 @@ impl AppError {
                 StellarError::InvalidTransaction { .. } => StatusCode::UNPROCESSABLE_ENTITY,
                 StellarError::NetworkUnavailable => StatusCode::BAD_GATEWAY,
                 StellarError::CircuitBreakerOpen => StatusCode::SERVICE_UNAVAILABLE,
+                StellarError::TransactionFailed { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+                StellarError::OperationFailed { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+                StellarError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+                StellarError::GatewayTimeout => StatusCode::GATEWAY_TIMEOUT,
+                StellarError::DestinationUnfunded { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+                StellarError::InsufficientBalance { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+                StellarError::MemoTooLong { .. } => StatusCode::UNPROCESSABLE_ENTITY,
             },
             Self::Validation(_) => StatusCode::BAD_REQUEST,
             Self::CreatorNotFound { .. } => StatusCode::NOT_FOUND,
@@ -120,6 +131,8 @@ impl AppError {
             Self::Conflict { .. } => StatusCode::CONFLICT,
             Self::ServiceUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            Self::IdempotencyKeyReused { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+            Self::IdempotencyKeyLocked { .. } => StatusCode::CONFLICT,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -159,6 +172,16 @@ impl AppError {
                 "RATE_LIMIT_EXCEEDED",
                 message.clone(),
                 retry_after_secs.map(|s| serde_json::json!({ "retry_after_secs": s })),
+            ),
+            Self::IdempotencyKeyReused { message } => (
+                "IDEMPOTENCY_KEY_REUSED",
+                message.clone(),
+                None,
+            ),
+            Self::IdempotencyKeyLocked { retry_after_secs } => (
+                "IDEMPOTENCY_KEY_LOCKED",
+                "A request with this Idempotency-Key is already in progress".to_string(),
+                Some(serde_json::json!({ "retry_after_secs": retry_after_secs })),
             ),
             Self::Internal => ("INTERNAL_ERROR", "Internal server error".to_string(), None),
         }
@@ -209,15 +232,17 @@ impl IntoResponse for AppError {
             tracing::warn!(error = %self, "Request rejected");
         }
 
-        // For rate-limited errors, inject a Retry-After header.
-        if let Self::RateLimited { retry_after_secs, .. } = &self {
-            let retry = *retry_after_secs;
+        // For rate-limited / lock-contended errors, inject a Retry-After header.
+        let retry_after_secs = match &self {
+            Self::RateLimited { retry_after_secs, .. } => *retry_after_secs,
+            Self::IdempotencyKeyLocked { retry_after_secs } => Some(*retry_after_secs),
+            _ => None,
+        };
+        if let Some(secs) = retry_after_secs {
             let body = self.to_error_response();
             let mut resp = (status, Json(body)).into_response();
-            if let Some(secs) = retry {
-                if let Ok(v) = secs.to_string().parse() {
-                    resp.headers_mut().insert("Retry-After", v);
-                }
+            if let Ok(v) = secs.to_string().parse() {
+                resp.headers_mut().insert("Retry-After", v);
             }
             return resp;
         }

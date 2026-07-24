@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 axum = { version = "0.7", features = ["macros", "ws"] }
+http-body-util = "0.1"
 tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.8", features = [
     "runtime-tokio-rustls",
@@ -42,6 +43,7 @@ csv = "1"
 sha2 = "0.10"
 hmac = "0.12"
 hex = "0.4"
+flate2 = "1"
 base64 = "0.22"
 ed25519-dalek = "1"
 urlencoding = "2"
@@ -72,13 +74,24 @@ tracing-opentelemetry = "0.23"
 hostname = "0.4"
 
 [dev-dependencies]
-axum-test = "20.1.0"
-tokio = { version = "1", features = ["full"] }
+# Pinned to the last release compatible with `axum = "0.7"` (20.x+ requires axum 0.8, which
+# conflicts with this crate's axum pin and breaks every axum-test-based test).
+axum-test = { version = "=16.4.1", features = ["ws"] }
+tokio = { version = "1", features = ["full", "test-util"] }
 tower = "0.4"
 httpmock = "0.7"
 proptest = "1.4"
-criterion = "0.5"
+criterion = { version = "0.5" }
 # tarpaulin = "0.27"  # not a library crate; use `cargo tarpaulin` CLI instead
+
 [[bench]]
 name = "keyset_pagination_bench"
+harness = false
+
+[[bench]]
+name = "performance_benchmarks"
+harness = false
+
+[[bench]]
+name = "tracing_overhead"
 harness = false

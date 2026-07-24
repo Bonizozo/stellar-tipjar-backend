@@ -1,0 +1,75 @@
+# Multi-replica topology used to demonstrate that the Redis-backed GCRA rate
+# limiter enforces ONE shared limit across replicas, instead of the
+# in-memory tower_governor behavior of N_replicas x configured_limit.
+#
+# Usage: see scripts/rate_limit_multi_replica_test.sh, which drives this file.
+version: '3.8'
+
+services:
+  db:
+    image: postgis/postgis:15-3.4-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: tipjar
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d tipjar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Uses Dockerfile.dev rather than the production Dockerfile: the release
+  # Dockerfile compiles sqlx's compile-time-checked queries as part of the
+  # image build, which requires a live, migrated database reachable *during
+  # `docker build`* (not just at runtime). Dockerfile.dev only pre-builds a
+  # dummy main.rs at image-build time and compiles the real project at
+  # container start, once DATABASE_URL is reachable over the compose network
+  # — exactly what a same-machine demo needs without extra build plumbing.
+  backend-a:
+    build:
+      context: ..
+      dockerfile: Dockerfile.dev
+    environment:
+      - DATABASE_URL=postgres://user:password@db:5432/tipjar
+      - REDIS_URL=redis://redis:6379
+      - PORT=8000
+      - STELLAR_NETWORK=testnet
+      - RUST_LOG=stellar_tipjar_backend=info
+      # Tight, deterministic limit for a fast, legible demo run.
+      - RATE_LIMIT_ANON_RPM=${DEMO_RPM:-120}
+      - RATE_LIMIT_ANON_BURST=${DEMO_BURST:-20}
+    ports:
+      - "18001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  backend-b:
+    build:
+      context: ..
+      dockerfile: Dockerfile.dev
+    environment:
+      - DATABASE_URL=postgres://user:password@db:5432/tipjar
+      - REDIS_URL=redis://redis:6379
+      - PORT=8000
+      - STELLAR_NETWORK=testnet
+      - RUST_LOG=stellar_tipjar_backend=info
+      - RATE_LIMIT_ANON_RPM=${DEMO_RPM:-120}
+      - RATE_LIMIT_ANON_BURST=${DEMO_BURST:-20}
+    ports:
+      - "18002:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

@@ -1,0 +1,6 @@
+[toolchain]
+# Use the GNU toolchain so this project builds correctly in Git Bash / MSYS2
+# environments where /usr/bin/link shadows the MSVC linker.
+# The gnu toolchain uses gcc/ld instead of link.exe.
+channel = "stable"
+targets = ["x86_64-pc-windows-gnu"]

@@ -19,13 +19,26 @@ impl SlowQueryLogger {
         Self { threshold }
     }
 
-    /// Log the query if it exceeds the threshold. Returns true if it was slow.
+    /// Log the query if it exceeds the threshold.
+    ///
+    /// Emits a structured `warn!` inside the *current* active span so the
+    /// `tracing-opentelemetry` bridge converts it to a span event.  This makes
+    /// slow queries visible in the trace waterfall alongside the HTTP/job span
+    /// that triggered them, achieving log/trace correlation without requiring
+    /// the OpenTelemetry API directly.  Returns true if the query was slow.
     pub fn check(&self, query: &str, duration: Duration) -> bool {
         if duration >= self.threshold {
+            let trimmed = query.trim().replace('\n', " ");
+            let duration_ms = duration.as_millis();
+
+            // Emit inside whatever span is currently active.  The
+            // tracing-opentelemetry layer turns this into an OTel span event
+            // with `db.statement.summary` and `db.query.duration_ms` fields,
+            // joining it to the parent HTTP or job span in the trace waterfall.
             warn!(
                 target: "slow_query",
-                duration_ms = duration.as_millis(),
-                query = query.trim(),
+                duration_ms,
+                db.statement.summary = %trimmed,
                 "Slow query detected"
             );
             return true;

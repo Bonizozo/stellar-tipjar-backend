@@ -9,25 +9,8 @@ use crate::models::tip::RecordTipRequest;
 
 /// Context keys used between steps.
 const KEY_TIP_ID: &str = "tip_id";
-const KEY_TX_HASH: &str = "transaction_hash";
 
-// ── Step 1: verify the Stellar transaction ────────────────────────────────────
-
-struct VerifyTransactionStep {
-    state: Arc<AppState>,
-    tx_hash: String,
-}
-
-#[async_trait::async_trait]
-impl SagaAction for VerifyTransactionStep {
-    async fn execute(&self, ctx: &mut SagaContext) -> AppResult<()> {
-        self.state.stellar.verify_transaction(&self.tx_hash).await?;
-        ctx.set(KEY_TX_HASH, &self.tx_hash);
-        Ok(())
-    }
-}
-
-// ── Step 2: record the tip in the database ────────────────────────────────────
+// ── Step 1: record the tip in the database (as pending_verification) ──────────
 
 struct RecordTipStep {
     state: Arc<AppState>,
@@ -44,6 +27,8 @@ impl SagaAction for RecordTipStep {
                 amount: self.req.amount.clone(),
                 tipper_wallet: self.req.tipper_wallet.clone(),
                 transaction_hash: self.req.transaction_hash.clone(),
+                tipper_source_account: self.req.tipper_source_account.clone(),
+                memo: self.req.memo.clone(),
                 message: self.req.message.clone(),
                 message_visibility: self.req.message_visibility.clone(),
             },
@@ -71,7 +56,7 @@ impl CompensationAction for DeleteTipCompensation {
     }
 }
 
-// ── Step 3: fire webhook notification ─────────────────────────────────────────
+// ── Step 2: fire webhook notification (only fires for confirmed tips) ─────────
 
 struct NotifyStep {
     state: Arc<AppState>,
@@ -87,8 +72,11 @@ impl SagaAction for NotifyStep {
             "tip_id": tip_id,
             "creator_username": self.username,
             "amount": self.amount,
+            "status": "pending_verification",
         });
-        crate::webhooks::trigger_webhooks(self.state.db.clone(), "tip.recorded", payload).await;
+        // Note: "tip.submitted" event – does NOT trigger leaderboard/stats.
+        // "tip.confirmed" is emitted by confirm_tip() after on-chain verification.
+        crate::webhooks::trigger_webhooks(self.state.db.clone(), "tip.submitted", payload).await;
         Ok(())
     }
 }
@@ -103,16 +91,6 @@ pub async fn run_tip_saga(state: Arc<AppState>, req: RecordTipRequest) -> AppRes
 
     let steps: Vec<SagaStep> = vec![
         SagaStep {
-            name: "verify_transaction",
-            action: Box::new(VerifyTransactionStep {
-                state: Arc::clone(&state),
-                tx_hash: req.transaction_hash.clone(),
-            }),
-            compensation: Box::new(NoOpCompensation),
-            max_retries: 2,
-            retry_backoff_ms: 200,
-        },
-        SagaStep {
             name: "record_tip",
             action: Box::new(RecordTipStep {
                 state: Arc::clone(&state),
@@ -121,6 +99,8 @@ pub async fn run_tip_saga(state: Arc<AppState>, req: RecordTipRequest) -> AppRes
                     amount: req.amount.clone(),
                     tipper_wallet: req.tipper_wallet.clone(),
                     transaction_hash: req.transaction_hash.clone(),
+                    tipper_source_account: req.tipper_source_account.clone(),
+                    memo: req.memo.clone(),
                     message: req.message.clone(),
                     message_visibility: req.message_visibility.clone(),
                 },

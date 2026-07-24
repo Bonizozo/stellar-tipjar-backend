@@ -6,6 +6,7 @@
 pub mod handlers;
 pub mod monitoring;
 pub mod queue;
+pub mod reconciliation;
 pub mod scheduler;
 pub mod types;
 pub mod worker;

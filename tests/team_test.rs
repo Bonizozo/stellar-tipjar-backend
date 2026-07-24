@@ -19,6 +19,11 @@ fn make_state(pool: PgPool) -> Arc<AppState> {
     let stellar = StellarService::new("https://horizon-testnet.stellar.org".to_string(), "testnet".to_string());
     let performance = Arc::new(PerformanceMonitor::new());
     let moderation = Arc::new(ModerationService::new(pool.clone()));
+    let idempotency = Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(
+        pool.clone(),
+        None,
+        stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
+    ));
     Arc::new(AppState {
         db: pool,
         stellar,
@@ -30,6 +35,8 @@ fn make_state(pool: PgPool) -> Arc<AppState> {
         invalidator: None,
         db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
         lock_service: None,
+        ws_shutdown_tx: tokio::sync::watch::channel(false).0,
+        ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
     })
 }
 

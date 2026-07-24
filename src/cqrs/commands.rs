@@ -12,6 +12,8 @@ pub enum Command {
         creator_username: String,
         amount: String,
         transaction_hash: String,
+        tipper_source_account: String,
+        memo: Option<String>,
     },
 }
 

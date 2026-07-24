@@ -197,10 +197,10 @@ lazy_static! {
         &["tier", "kind", "path"]
     ).unwrap();
 
-    pub static ref RATE_LIMIT_BURST_CONSUMED_TOTAL: CounterVec = register_counter_vec!(
-        "gateway_rate_limit_burst_consumed_total",
-        "Total burst token consumption events, by tier",
-        &["tier"]
+    pub static ref RATE_LIMIT_DEGRADED_TOTAL: CounterVec = register_counter_vec!(
+        "gateway_rate_limit_degraded_total",
+        "Total requests handled in degraded mode (Redis unavailable), by tier, fail policy, and outcome",
+        &["tier", "policy", "outcome"]
     ).unwrap();
 
     // ── Quota Management ──────────────────────────────────────────────────────
@@ -214,6 +214,27 @@ lazy_static! {
         "gateway_quota_usage_ratio",
         "Current quota usage as a ratio (0–1) by tier and period",
         &["tier", "period"]
+    ).unwrap();
+
+    // ── WebSocket ─────────────────────────────────────────────────────────────
+    pub static ref WS_ACTIVE_CONNECTIONS: Gauge = register_gauge!(
+        "ws_active_connections",
+        "Number of currently open WebSocket connections"
+    ).unwrap();
+
+    pub static ref WS_SUBSCRIPTIONS: Gauge = register_gauge!(
+        "ws_subscriptions",
+        "Number of active per-connection channel subscriptions across all WebSocket clients"
+    ).unwrap();
+
+    pub static ref WS_EVENTS_SENT_TOTAL: Counter = register_counter!(
+        "ws_events_sent_total",
+        "Total TipEvent frames forwarded to WebSocket subscribers"
+    ).unwrap();
+
+    pub static ref WS_EVENTS_DROPPED_TOTAL: Counter = register_counter!(
+        "ws_events_dropped_total",
+        "Total TipEvent frames dropped for lagging WebSocket subscribers (broadcast::error::Lagged)"
     ).unwrap();
 }
 
