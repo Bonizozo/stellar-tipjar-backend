@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
 
+use crate::services::stellar_service::TipVerifier;
+use crate::queue::VerificationQueue;
 use super::performance::PerformanceMonitor;
 use super::replica::ReplicaManager;
 use crate::cache::{CacheInvalidator, MultiLayerCache};
@@ -19,7 +21,10 @@ use crate::ws::TipEvent;
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
-    pub stellar: StellarService,
+    /// Injectable on-chain verifier (production: StellarService, tests: MockTipVerifier).
+    pub verifier: Arc<dyn TipVerifier>,
+    /// Background verification job queue.
+    pub queue: VerificationQueue,
     pub performance: Arc<PerformanceMonitor>,
     pub redis: Option<ConnectionManager>,
     pub broadcast_tx: broadcast::Sender<TipEvent>,
@@ -32,10 +37,11 @@ pub struct AppState {
     pub replicas: Option<Arc<ReplicaManager>>,
     /// Distributed lock service — None when Redis is unavailable.
     pub lock_service: Option<Arc<DistributedLockService>>,
-    /// Idempotency-Key store for mutating endpoints (#342). Always present —
-    /// it degrades to Postgres-only when Redis is unavailable rather than
-    /// being disabled outright, since these are money-adjacent endpoints.
-    pub idempotency: Arc<IdempotencyService>,
+    /// Broadcasts `true` when the server begins graceful shutdown; WebSocket
+    /// connections subscribe to this to close themselves with a going-away frame.
+    pub ws_shutdown_tx: tokio::sync::watch::Sender<bool>,
+    /// WebSocket liveness/idle-timeout tuning.
+    pub ws_config: crate::ws::WsConfig,
 }
 
 impl AppState {

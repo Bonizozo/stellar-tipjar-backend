@@ -10,12 +10,12 @@ use uuid::Uuid;
 
 use crate::controllers::tip_controller;
 use crate::db::connection::AppState;
-use crate::errors::{AppError, StellarError};
+use crate::errors::AppError;
 use crate::models::pagination::PaginationParams;
 use crate::models::tip::{
     RecordTipRequest, ReportMessageRequest, TipFilters, TipResponse, TipSortParams,
 };
-use crate::services::validation_service::{TipValidationService, ValidationRules};
+use crate::validation::ValidatedJson;
 
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
@@ -31,14 +31,22 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         ))
 }
 
-/// Record a new tip (verifies transaction on the Stellar network first)
+/// Submit a tip for async on-chain verification.
+///
+/// The tip is stored immediately as `pending_verification`. The background
+/// worker verifies the Stellar transaction and transitions the tip to
+/// `confirmed` or `rejected`. Webhooks and leaderboard updates only fire
+/// once the tip reaches `confirmed`.
 #[utoipa::path(
     post,
     path = "/tips",
     tag = "tips",
     request_body = RecordTipRequest,
     responses(
-        (status = 201, description = "Tip recorded successfully", body = TipResponse),
+        (status = 201, description = "Tip accepted for verification", body = TipResponse),
+        (status = 400, description = "Invalid request body or validation failure"),
+        (status = 404, description = "Creator not found"),
+        (status = 409, description = "Duplicate transaction hash"),
         (status = 422, description = "Transaction not found or unsuccessful on Stellar network"),
         (status = 502, description = "Unable to reach Stellar network for verification"),
         (status = 500, description = "Internal server error")
@@ -46,37 +54,11 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
 )]
 pub async fn record_tip(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    crate::validation::ValidatedJson(body): crate::validation::ValidatedJson<RecordTipRequest>,
+    ValidatedJson(body): ValidatedJson<RecordTipRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let client_ip = extract_client_ip(&headers);
-    let validator = TipValidationService::new(ValidationRules::default());
-    validator
-        .validate_with_client(&state.db, &body, client_ip)
-        .await?;
-
-    match state
-        .stellar
-        .verify_transaction(&body.transaction_hash)
-        .await
-    {
-        Ok(false) => {
-            return Err(AppError::Stellar(StellarError::TransactionNotFound {
-                hash: body.transaction_hash.clone(),
-            }));
-        }
-        Err(e) => return Err(e),
-        Ok(true) => {}
-    }
-
-    let tip = tip_controller::record_tip_with_context(
-        &state,
-        body,
-        tip_controller::TipRecordContext { ip: client_ip },
-    )
-    .await?;
+    let tip = tip_controller::record_tip(&state, body).await?;
     let response: TipResponse = tip.into();
-    Ok((StatusCode::CREATED, Json(serde_json::json!(response))).into_response())
+    Ok((StatusCode::CREATED, Json(response)))
 }
 
 /// List all tips with pagination, filtering, and sorting
@@ -107,7 +89,7 @@ pub async fn list_tips(
             HeaderValue::from_static("Offset pagination is deprecated; use signed keyset cursors."),
         );
     }
-    Ok((headers, StatusCode::OK, Json(serde_json::json!(response))).into_response())
+    Ok((headers, axum::http::StatusCode::OK, Json(serde_json::json!(response))).into_response())
 }
 
 /// Report a tip message for moderation review
