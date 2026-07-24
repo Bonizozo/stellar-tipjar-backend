@@ -1,10 +1,12 @@
-use axum::Router;
+use axum::{http::Method, Router};
+use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::broadcast;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+use tokio::sync::broadcast;
 
 mod analytics;
 mod anonymization;
@@ -20,19 +22,19 @@ mod cqrs;
 mod crypto;
 mod currency;
 mod db;
-mod deduplication;
 mod deployment;
 mod docs;
+mod jobs;
+mod metrics;
 mod email;
 mod errors;
 mod events;
 mod gateway;
 mod graphql;
 mod health;
+mod idempotency;
 mod indexer;
-mod jobs;
 mod logging;
-mod metrics;
 mod middleware;
 mod ml;
 mod moderation;
@@ -63,6 +65,9 @@ use docs::ApiDoc;
 use graphql::schema::{graphql_handler, graphql_ws_handler};
 use service_mesh::discovery::ServiceRegistry;
 use services::stellar_service::StellarService;
+use crate::queue::VerificationQueue;
+use crate::queue::worker::spawn_worker;
+use crate::jobs::reconciliation;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -95,24 +100,24 @@ async fn main() -> anyhow::Result<()> {
 
     sqlx::migrate!("./migrations").run(&pool).await?;
 
-    // --- Services Initialization (Merged from Main) ---
-    let stellar = StellarService::new(stellar_rpc_url, stellar_network);
+    // ── Services ──────────────────────────────────────────────────────────────
+    let stellar = Arc::new(StellarService::new(stellar_rpc_url, stellar_network));
     let performance = Arc::new(db::performance::PerformanceMonitor::new());
-    let (broadcast_tx, _) = broadcast::channel(ws::CHANNEL_CAPACITY);
+    let (broadcast_tx, _) = broadcast::channel(ws::channel_capacity());
+    let (ws_shutdown_tx, _) = tokio::sync::watch::channel(false);
 
     // Redis setup (Your fixed version)
     let redis_url =
         std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
     let redis = cache::redis_client::connect(&redis_url).await;
 
-    // Email Worker (Added from Main)
+    // Email worker
     let (email_sender, email_rx) = email::sender::EmailSender::new();
     tokio::spawn(email::sender::start_email_worker(email_rx));
-    let email_sender = Arc::new(email_sender);
+    let _email_sender = Arc::new(email_sender);
 
-    // Service Layer Orchestration (Added from Main)
-    let tip_service = Arc::new(services::tip_service::TipService::new());
-    let creator_service = Arc::new(services::creator_service::CreatorService::new());
+    // ── Verification Queue ────────────────────────────────────────────────────
+    let (queue, queue_rx) = VerificationQueue::new();
 
     let moderation = Arc::new(moderation::ModerationService::new(pool.clone()));
 
@@ -164,9 +169,17 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(services::distributed_lock::DistributedLockService::new(conn.clone()))
     });
 
+    // Idempotency-Key store (#342): Redis primary, Postgres fallback table.
+    let idempotency = Arc::new(idempotency::IdempotencyService::new(
+        pool.clone(),
+        redis.clone(),
+        idempotency::IdempotencyConfig::default(),
+    ));
+
     let state = Arc::new(AppState {
         db: pool.clone(),
-        stellar,
+        verifier: stellar,
+        queue,
         performance,
         redis,
         broadcast_tx,
@@ -180,6 +193,8 @@ async fn main() -> anyhow::Result<()> {
         encryption: Arc::clone(&encryption_manager),
         replicas: replica_manager.clone(),
         lock_service: lock_service.clone(),
+        ws_shutdown_tx: ws_shutdown_tx.clone(),
+        ws_config: ws::WsConfig::from_env(),
     });
 
     // Build CommandBus after state is constructed (avoids circular dependency).
@@ -243,6 +258,11 @@ async fn main() -> anyhow::Result<()> {
         detector: Arc::new(anonymization::detector::PiiDetector::new()),
         audit: Arc::new(anonymization::audit::AnonymizationAudit::new(pool.clone())),
     });
+
+    // Spawn verification queue worker
+    spawn_worker(Arc::clone(&state), queue_rx);
+    // Reconciliation job: re-drives stuck pending_verification tips
+    reconciliation::spawn(Arc::clone(&state));
 
     // Start RabbitMQ queue system (optional — skipped when RABBITMQ_URL is unset).
     let queue_system = queue::try_start(Arc::clone(&state)).await;
@@ -318,7 +338,6 @@ async fn main() -> anyhow::Result<()> {
 
     let cors = middleware::cors::cors_layer();
 
-    // Build rate limiters (Your FIXED version - no tuples!)
     let general_limiter_v1 = middleware::rate_limiter::general_limiter();
     let write_limiter_v1 = middleware::rate_limiter::write_limiter();
     let general_limiter_v2 = middleware::rate_limiter::general_limiter();
@@ -375,12 +394,12 @@ async fn main() -> anyhow::Result<()> {
                     Router::new()
                         .merge(routes::auth::router())
                         .merge(routes::teams::router())
-                        .merge(routes::tips::router())
+                        .merge(routes::tips::router(Arc::clone(&state)))
                         .merge(routes::comments::router())
                         .merge(routes::creators::write_router())
                         .merge(routes::verification::router())
                         .merge(routes::goals::router())
-                        .merge(routes::scheduled_tips::router())
+                        .merge(routes::scheduled_tips::router(Arc::clone(&state)))
                         .merge(routes::tx_pool::router())
                         .merge(routes::v1::router())
                         .layer(axum::middleware::from_fn(
@@ -434,11 +453,11 @@ async fn main() -> anyhow::Result<()> {
                 Router::new()
                     .merge(routes::auth::router())
                     .merge(routes::teams::router())
-                    .merge(routes::tips::router())
+                    .merge(routes::tips::router(Arc::clone(&state)))
                     .merge(routes::creators::write_router())
                     .merge(routes::verification::router())
                     .merge(routes::goals::router())
-                    .merge(routes::scheduled_tips::router())
+                    .merge(routes::scheduled_tips::router(Arc::clone(&state)))
                     .merge(routes::tx_pool::router())
                     .merge(routes::v2::router())
                     .layer(axum::middleware::from_fn(
@@ -469,8 +488,6 @@ async fn main() -> anyhow::Result<()> {
     .layer(quota_enforcement_layer_v2)
     .layer(gateway_rate_limit_layer_v2)
     .layer(gateway_auth_layer);
-
-    let x_request_id = axum::http::HeaderName::from_static("x-request-id");
 
     let gql_schema = graphql::schema::build_schema(Arc::clone(&state));
 
@@ -503,7 +520,6 @@ async fn main() -> anyhow::Result<()> {
         .layer(axum::Extension(command_bus))
         .layer(cors)
         .layer(axum::middleware::map_response(middleware::cors::security_headers))
-        .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(
             middleware::tracing::trace_request,
         ))
@@ -551,7 +567,18 @@ async fn main() -> anyhow::Result<()> {
             timeout_secs = shutdown_timeout.as_secs(),
             "Waiting for in-flight requests to complete…"
         );
-        tokio::time::sleep(shutdown_timeout).await;
+        // Tell open WebSocket connections to close with a going-away frame, then wait
+        // (bounded by the same shutdown timeout) for them to drain.
+        let _ = ws_shutdown_tx.send(true);
+        let drain_deadline = tokio::time::Instant::now() + shutdown_timeout;
+        while metrics::collectors::WS_ACTIVE_CONNECTIONS.get() > 0.0
+            && tokio::time::Instant::now() < drain_deadline
+        {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        if metrics::collectors::WS_ACTIVE_CONNECTIONS.get() > 0.0 {
+            tracing::warn!("Shutdown deadline reached with WebSocket connections still open");
+        }
         monitor.stop().await;
         // Flush and shut down the OTel tracer so all buffered spans are
         // exported before the process exits.

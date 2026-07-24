@@ -1,12 +1,59 @@
 pub mod fixtures;
+
+use async_trait::async_trait;
 use axum::Router;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Mutex;
+
 use stellar_tipjar_backend::db::connection::AppState;
+use stellar_tipjar_backend::errors::AppResult;
 use stellar_tipjar_backend::moderation::ModerationService;
-use stellar_tipjar_backend::services::stellar_service::StellarService;
+use stellar_tipjar_backend::queue::VerificationQueue;
+use stellar_tipjar_backend::services::stellar_service::{
+    StellarService, TipVerifier, TipVerifyRequest, VerifyOutcome,
+};
 use stellar_tipjar_backend::{cache, create_app, db, email};
+
+// ─────────────────────────── MockTipVerifier ────────────────────────────────
+
+/// Programmable mock that can be pre-loaded with expected outcomes.
+pub struct MockTipVerifier {
+    /// Ordered list of outcomes to return, consumed one by one.
+    outcomes: Mutex<Vec<AppResult<VerifyOutcome>>>,
+}
+
+impl MockTipVerifier {
+    /// Create a verifier that always returns `Confirmed`.
+    pub fn always_confirm() -> Arc<Self> {
+        Arc::new(Self {
+            outcomes: Mutex::new(vec![]),
+        })
+    }
+
+    /// Create a verifier pre-loaded with a sequence of outcomes.
+    pub fn with_outcomes(outcomes: Vec<AppResult<VerifyOutcome>>) -> Arc<Self> {
+        Arc::new(Self {
+            outcomes: Mutex::new(outcomes),
+        })
+    }
+}
+
+#[async_trait]
+impl TipVerifier for MockTipVerifier {
+    async fn verify_tip(&self, _req: &TipVerifyRequest) -> AppResult<VerifyOutcome> {
+        let mut queue = self.outcomes.lock().await;
+        if queue.is_empty() {
+            // Default: confirm unless instructed otherwise
+            Ok(VerifyOutcome::Confirmed)
+        } else {
+            queue.remove(0)
+        }
+    }
+}
+
+// ─────────────────────────── DB helpers ─────────────────────────────────────
 
 pub async fn setup_test_db() -> PgPool {
     dotenvy::from_filename(".env.test").ok();
@@ -39,100 +86,100 @@ pub async fn cleanup_test_db(pool: &PgPool) {
     .unwrap();
 }
 
+// ─────────────────────────── App factory ────────────────────────────────────
+
 pub async fn create_test_app(pool: PgPool) -> (Router, String) {
-    let stellar_network = "testnet".to_string();
-    // In actual tests, you'd use httpmock for stellar_rpc_url
-    let stellar_rpc_url = "https://soroban-testnet.stellar.org".to_string();
+    create_test_app_with_verifier(pool, MockTipVerifier::always_confirm()).await
+}
 
-    let stellar = StellarService::new(stellar_rpc_url, stellar_network);
+pub async fn create_test_app_with_verifier(
+    pool: PgPool,
+    verifier: Arc<dyn TipVerifier>,
+) -> (Router, String) {
     let performance = Arc::new(db::performance::PerformanceMonitor::new());
     let moderation = Arc::new(ModerationService::new(pool.clone()));
-
-    // Mock redis (or just let it fail/disable)
     let redis = None;
+    let (queue, _queue_rx) = VerificationQueue::new();
+    // Note: we intentionally drop queue_rx here so the channel is effectively
+    // a no-op in unit tests. The queue.enqueue() calls will succeed (channel not full),
+    // but nothing processes them, which is fine for handler-level tests.
 
-    // Initialize email system
-    let (email_sender, _email_rx) = email::sender::EmailSender::new();
-    let email_sender = Arc::new(email_sender);
+    let idempotency = Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(
+        pool.clone(),
+        redis.clone(),
+        stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
+    ));
 
     let state = Arc::new(AppState {
         db: pool,
-        stellar,
+        verifier,
+        queue,
         performance,
         moderation,
         redis,
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
         cache: None,
         invalidator: None,
-        db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
+        db_circuit_breaker: Arc::new(
+            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(60),
+            ),
+        ),
         lock_service: None,
+        ws_shutdown_tx: tokio::sync::watch::channel(false).0,
+        ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
     });
 
     (create_app(state), "mock_token".into())
 }
 
-/// Like [`create_test_app`], but wires up a real Redis connection so tests
-/// can exercise the GCRA-backed distributed rate limiter instead of only its
-/// fail-open no-Redis path. Callers are responsible for pointing `redis_url`
-/// at a reachable Redis instance (e.g. `TEST_REDIS_URL`).
-pub async fn create_test_app_with_redis(pool: PgPool, redis_url: &str) -> (Router, String) {
-    let stellar_network = "testnet".to_string();
-    let stellar_rpc_url = "https://soroban-testnet.stellar.org".to_string();
-
-    let stellar = StellarService::new(stellar_rpc_url, stellar_network);
-    let performance = Arc::new(db::performance::PerformanceMonitor::new());
-    let moderation = Arc::new(ModerationService::new(pool.clone()));
-
-    let redis = cache::redis_client::connect(redis_url).await;
-
-    let (email_sender, _email_rx) = email::sender::EmailSender::new();
-    let email_sender = Arc::new(email_sender);
-
-    let state = Arc::new(AppState {
-        db: pool,
-        stellar,
-        performance,
-        moderation,
-        redis,
-        broadcast_tx: tokio::sync::broadcast::channel(16).0,
-        cache: None,
-        invalidator: None,
-        db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
-        lock_service: None,
-    });
-
-    (create_app(state), "mock_token".into())
-}
-
+/// Create a test app backed by a real StellarService pointing at a mock Horizon URL.
+/// Useful for tests that want to exercise the full HTTP Horizon path without hitting
+/// the live testnet.
 pub async fn create_test_app_with_mock_stellar(
     pool: PgPool,
     mock_stellar_url: &str,
 ) -> (Router, String) {
     let stellar_network = "testnet".to_string();
-
-    // Use the mock server URL for stellar service
-    let stellar = StellarService::new(mock_stellar_url.to_string(), stellar_network);
+    let stellar: Arc<dyn TipVerifier> = Arc::new(StellarService::new(
+        mock_stellar_url.to_string(),
+        stellar_network,
+    ));
     let performance = Arc::new(db::performance::PerformanceMonitor::new());
     let moderation = Arc::new(ModerationService::new(pool.clone()));
-
-    // Mock redis (or just let it fail/disable)
     let redis = None;
+    let (queue, _queue_rx) = VerificationQueue::new();
 
-    // Initialize email system
+    // Initialize email system (unused in tests but AppState may require it)
     let (email_sender, _email_rx) = email::sender::EmailSender::new();
-    let email_sender = Arc::new(email_sender);
+    let _email_sender = Arc::new(email_sender);
+
+    let idempotency = Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(
+        pool.clone(),
+        redis.clone(),
+        stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
+    ));
 
     let state = Arc::new(AppState {
         db: pool,
-        stellar,
+        verifier: stellar,
+        queue,
         performance,
         moderation,
         redis,
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
         cache: None,
         invalidator: None,
-        db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
+        db_circuit_breaker: Arc::new(
+            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(60),
+            ),
+        ),
         lock_service: None,
+        ws_shutdown_tx: tokio::sync::watch::channel(false).0,
+        ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
     });
 
     (create_app(state), "mock_token".into())

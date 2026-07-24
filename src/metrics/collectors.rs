@@ -215,6 +215,27 @@ lazy_static! {
         "Current quota usage as a ratio (0–1) by tier and period",
         &["tier", "period"]
     ).unwrap();
+
+    // ── WebSocket ─────────────────────────────────────────────────────────────
+    pub static ref WS_ACTIVE_CONNECTIONS: Gauge = register_gauge!(
+        "ws_active_connections",
+        "Number of currently open WebSocket connections"
+    ).unwrap();
+
+    pub static ref WS_SUBSCRIPTIONS: Gauge = register_gauge!(
+        "ws_subscriptions",
+        "Number of active per-connection channel subscriptions across all WebSocket clients"
+    ).unwrap();
+
+    pub static ref WS_EVENTS_SENT_TOTAL: Counter = register_counter!(
+        "ws_events_sent_total",
+        "Total TipEvent frames forwarded to WebSocket subscribers"
+    ).unwrap();
+
+    pub static ref WS_EVENTS_DROPPED_TOTAL: Counter = register_counter!(
+        "ws_events_dropped_total",
+        "Total TipEvent frames dropped for lagging WebSocket subscribers (broadcast::error::Lagged)"
+    ).unwrap();
 }
 
 /// Aggregated snapshot used by the `/metrics/summary` endpoint.

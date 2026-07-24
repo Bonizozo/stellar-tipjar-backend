@@ -5,6 +5,7 @@ use crate::metrics::collectors::{
     BLOCKCHAIN_EVENTS_FAILED_TOTAL, BLOCKCHAIN_EVENTS_PROCESSED_TOTAL,
     BLOCKCHAIN_INDEXER_LAG_LEDGERS, BLOCKCHAIN_RETRY_ATTEMPTS_TOTAL,
 };
+use crate::telemetry::http_client::inject_trace_headers;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -111,9 +112,14 @@ impl BlockchainListener {
             self.horizon_url, cursor
         );
 
+        // Inject W3C trace context so Horizon/proxy calls link to the active trace.
+        let mut extra_headers = reqwest::header::HeaderMap::new();
+        inject_trace_headers(&mut extra_headers);
+
         let response = self
             .http
             .get(&url)
+            .headers(extra_headers)
             .header("Accept", "text/event-stream")
             .send()
             .await

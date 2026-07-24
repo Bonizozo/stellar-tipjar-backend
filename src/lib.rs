@@ -12,7 +12,6 @@ pub mod cqrs;
 pub mod crypto;
 pub mod currency;
 pub mod db;
-pub mod deduplication;
 pub mod deployment;
 pub mod docs;
 pub mod email;
@@ -21,6 +20,7 @@ pub mod events;
 pub mod gateway;
 pub mod graphql;
 pub mod health;
+pub mod idempotency;
 pub mod indexer;
 pub mod jobs;
 pub mod logging;
@@ -52,7 +52,6 @@ use db::connection::AppState;
 use docs::ApiDoc;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
-use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -62,7 +61,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .allow_origin(Any)
         .allow_headers(Any);
 
-    // Build rate limiters. They handle their own background cleanup.
     let general_limiter = middleware::rate_limiter::general_limiter();
     let write_limiter = middleware::rate_limiter::write_limiter();
 
@@ -70,11 +68,11 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     let write_routes = Router::new()
         .merge(routes::auth::router())
         .merge(routes::teams::router())
-        .merge(routes::tips::router())
+        .merge(routes::tips::router(Arc::clone(&state)))
         .merge(routes::creators::write_router())
         .merge(routes::verification::router())
         .merge(routes::goals::router())
-        .merge(routes::refunds::public_router())
+        .merge(routes::refunds::public_router(Arc::clone(&state)))
         .merge(routes::tx_pool::router())
         .layer(axum::middleware::from_fn(
             middleware::body_limit::require_json_content_type,
@@ -106,7 +104,12 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .merge(write_routes)
         .merge(read_routes)
         .layer(cors)
-        .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(
+            middleware::tracing::trace_request,
+        ))
+        .layer(axum::middleware::from_fn(
+            crate::middleware::metrics::track_metrics,
+        ))
         .layer(middleware::compression::compression_layer())
         .layer(middleware::timeout::timeout_layer_from_env())
         .layer(axum::middleware::from_fn(

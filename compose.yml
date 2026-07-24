@@ -31,6 +31,12 @@ services:
       - STELLAR_NETWORK=testnet
       - RUST_LOG=stellar_tipjar_backend=debug
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/%2f
+      # OpenTelemetry — active when observability profile is included.
+      # Override with: OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=stellar-tipjar-backend
+      - OTEL_SAMPLE_RATIO=${OTEL_SAMPLE_RATIO:-1.0}
+      - DEPLOYMENT_ENVIRONMENT=local
     depends_on:
       db:
         condition: service_healthy
@@ -110,6 +116,48 @@ services:
       backend:
         condition: service_started
 
+  # ── OpenTelemetry Collector ─────────────────────────────────────────────────
+  # Receives OTLP spans from the backend and forwards to Jaeger.
+  # Activate with:  docker compose --profile observability up
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.99.0
+    container_name: tipjar-otel-collector
+    profiles:
+      - observability
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./monitoring/otel/otel-collector.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver (used by the backend)
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8889:8889"   # Prometheus metrics exporter (scraped by Prometheus)
+    depends_on:
+      - jaeger
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Jaeger all-in-one ───────────────────────────────────────────────────────
+  # Trace backend — view at http://localhost:16686
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: tipjar-jaeger
+    profiles:
+      - observability
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14250:14250"  # gRPC model.proto receiver (used by otel-collector)
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:14269"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   prometheus_data:
   grafana_data:
+  rabbitmq_data:
