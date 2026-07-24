@@ -103,7 +103,8 @@ async fn main() -> anyhow::Result<()> {
     // ── Services ──────────────────────────────────────────────────────────────
     let stellar = Arc::new(StellarService::new(stellar_rpc_url, stellar_network));
     let performance = Arc::new(db::performance::PerformanceMonitor::new());
-    let (broadcast_tx, _) = broadcast::channel(ws::CHANNEL_CAPACITY);
+    let (broadcast_tx, _) = broadcast::channel(ws::channel_capacity());
+    let (ws_shutdown_tx, _) = tokio::sync::watch::channel(false);
 
     // Redis setup (Your fixed version)
     let redis_url =
@@ -185,6 +186,8 @@ async fn main() -> anyhow::Result<()> {
         encryption: Arc::clone(&encryption_manager),
         replicas: replica_manager.clone(),
         lock_service: lock_service.clone(),
+        ws_shutdown_tx: ws_shutdown_tx.clone(),
+        ws_config: ws::WsConfig::from_env(),
     });
 
     // Build CommandBus after state is constructed (avoids circular dependency).
@@ -558,7 +561,18 @@ async fn main() -> anyhow::Result<()> {
             timeout_secs = shutdown_timeout.as_secs(),
             "Waiting for in-flight requests to complete…"
         );
-        tokio::time::sleep(shutdown_timeout).await;
+        // Tell open WebSocket connections to close with a going-away frame, then wait
+        // (bounded by the same shutdown timeout) for them to drain.
+        let _ = ws_shutdown_tx.send(true);
+        let drain_deadline = tokio::time::Instant::now() + shutdown_timeout;
+        while metrics::collectors::WS_ACTIVE_CONNECTIONS.get() > 0.0
+            && tokio::time::Instant::now() < drain_deadline
+        {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        if metrics::collectors::WS_ACTIVE_CONNECTIONS.get() > 0.0 {
+            tracing::warn!("Shutdown deadline reached with WebSocket connections still open");
+        }
         monitor.stop().await;
         // Flush and shut down the OTel tracer so all buffered spans are
         // exported before the process exits.

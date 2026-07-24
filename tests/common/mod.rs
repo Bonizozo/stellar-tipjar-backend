@@ -121,6 +121,8 @@ pub async fn create_test_app_with_verifier(
             ),
         ),
         lock_service: None,
+        ws_shutdown_tx: tokio::sync::watch::channel(false).0,
+        ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
     });
 
     (create_app(state), "mock_token".into())
@@ -164,6 +166,8 @@ pub async fn create_test_app_with_mock_stellar(
             ),
         ),
         lock_service: None,
+        ws_shutdown_tx: tokio::sync::watch::channel(false).0,
+        ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
     });
 
     (create_app(state), "mock_token".into())

@@ -36,6 +36,11 @@ pub struct AppState {
     pub replicas: Option<Arc<ReplicaManager>>,
     /// Distributed lock service — None when Redis is unavailable.
     pub lock_service: Option<Arc<DistributedLockService>>,
+    /// Broadcasts `true` when the server begins graceful shutdown; WebSocket
+    /// connections subscribe to this to close themselves with a going-away frame.
+    pub ws_shutdown_tx: tokio::sync::watch::Sender<bool>,
+    /// WebSocket liveness/idle-timeout tuning.
+    pub ws_config: crate::ws::WsConfig,
 }
 
 impl AppState {
