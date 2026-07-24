@@ -172,6 +172,10 @@ pub struct RecordTipRequest {
     #[validate(length(max = 280, message = "Message must be 280 characters or fewer"))]
     pub message: Option<String>,
 
+    /// Optional Stellar transaction memo (max 28 UTF-8 bytes).
+    /// Validated against the Stellar protocol limit before building.
+    pub memo: Option<String>,
+
     /// Visibility of the message: "public" (default), "private"
     #[serde(default)]
     pub message_visibility: MessageVisibility,

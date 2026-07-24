@@ -204,6 +204,18 @@ impl MessageConsumer {
             message.type = %message.message_type,
             retry_count  = message.retry_count,
         );
+
+        // Extract the W3C trace context propagated inside the message envelope
+        // and link the consumer span to the producer's trace.  This creates a
+        // proper span *link* (not a parent-child) across the async queue boundary
+        // so both sides of the pipeline are visible in the waterfall view.
+        let producer_cx = message.extract_trace_context();
+        {
+            use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+            // Set the parent so this consumer span is a child of the producer span.
+            span.set_parent(producer_cx);
+        }
+
         let _enter = span.enter();
 
         match registry.dispatch(&message).await {

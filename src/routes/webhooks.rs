@@ -3,6 +3,7 @@ use crate::webhooks::{
     self, CreateWebhookRequest, UpdateWebhookRequest,
 };
 use crate::webhooks::retry::{list_dlq, replay_dlq_entry, WebhookRetryConfig};
+use crate::webhooks::sender::DeliveryContext;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -13,6 +14,18 @@ use axum::{
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
+
+pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/webhooks", get(list).post(create))
+        .route("/webhooks/:id", get(get_one).put(update).delete(remove))
+        .route("/webhooks/:id/logs", get(delivery_logs))
+        .route("/webhooks/:id/test", post(test_webhook))
+        .route("/webhooks/:id/rotate-secret", post(rotate_secret))
+        .route("/webhooks/dlq", get(dlq_list))
+        .route("/webhooks/dlq/:id/replay", post(dlq_replay))
+        .with_state(state)
+}
 
 /// GET /webhooks
 async fn list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -100,7 +113,7 @@ async fn delivery_logs(
 }
 
 /// POST /webhooks/:id/test
-/// Sends a test ping event to the webhook URL immediately (no retry).
+/// Sends a test ping to the webhook URL using the current secrets.
 async fn test_webhook(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -112,7 +125,11 @@ async fn test_webhook(
         }
         Err(e) => {
             tracing::error!("test_webhook get: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "db error"})),
+            )
+                .into_response();
         }
     };
 
@@ -123,18 +140,47 @@ async fn test_webhook(
         "timestamp": chrono::Utc::now()
     });
 
-    match webhooks::sender::send_webhook(&hook.url, &hook.secret, payload.clone()).await {
-        Ok(_) => {
+    // Use dual secrets if a rotation is in progress.
+    let secrets = webhooks::active_secrets(&state.db, id)
+        .await
+        .unwrap_or_else(|_| vec![hook.secret.clone()]);
+
+    let mut ctx = DeliveryContext::new("webhook.test", secrets[0].clone());
+    if secrets.len() > 1 {
+        ctx.secrets = secrets;
+    }
+
+    match webhooks::sender::send_webhook(&hook.url, &ctx, payload.clone()).await {
+        Ok(status) => {
             let _ = webhooks::log_delivery(
-                &state.db, id, "webhook.test", &payload, Some(200), None, true, 1,
+                &state.db,
+                id,
+                "webhook.test",
+                &payload,
+                Some(status as i32),
+                None,
+                true,
+                1,
             )
             .await;
-            Json(json!({"status": "delivered"})).into_response()
+            Json(json!({
+                "status": "delivered",
+                "delivery_id": ctx.delivery_id,
+                "http_status": status
+            }))
+            .into_response()
         }
         Err(e) => {
             let msg = e.to_string();
             let _ = webhooks::log_delivery(
-                &state.db, id, "webhook.test", &payload, None, Some(&msg), false, 1,
+                &state.db,
+                id,
+                "webhook.test",
+                &payload,
+                None,
+                Some(&msg),
+                false,
+                1,
             )
             .await;
             (
@@ -146,15 +192,81 @@ async fn test_webhook(
     }
 }
 
-pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/webhooks", get(list).post(create))
-        .route("/webhooks/:id", get(get_one).put(update).delete(remove))
-        .route("/webhooks/:id/logs", get(delivery_logs))
-        .route("/webhooks/:id/test", post(test_webhook))
-        .route("/webhooks/dlq", get(dlq_list))
-        .route("/webhooks/dlq/:id/replay", post(dlq_replay))
-        .with_state(state)
+/// POST /webhooks/:id/rotate-secret
+///
+/// Rotates the signing secret for the webhook.  The retiring secret is kept
+/// in `webhook_secrets` for the overlap window so existing receivers continue
+/// to verify deliveries.  The rotation is recorded in the audit log.
+///
+/// Response:
+/// ```json
+/// { "new_secret": "...", "retiring_secret": "..." }
+/// ```
+/// The caller must distribute `new_secret` to receivers; they have the
+/// tolerance window to update before the retiring secret expires.
+async fn rotate_secret(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    // Verify the webhook exists before rotating.
+    match webhooks::get_webhook(&state.db, id).await {
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, Json(json!({"error": "not found"}))).into_response()
+        }
+        Err(e) => {
+            tracing::error!("rotate_secret get: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "db error"})),
+            )
+                .into_response();
+        }
+        Ok(Some(_)) => {}
+    }
+
+    match webhooks::rotate_secret(&state.db, id, 2).await {
+        Ok((new_secret, retiring)) => {
+            // Audit log — fire-and-forget.
+            {
+                let db = state.db.clone();
+                let wid = id.to_string();
+                tokio::spawn(async move {
+                    let _ = crate::controllers::audit_log_controller::log(
+                        &db,
+                        "webhook.secret_rotated",
+                        None,
+                        "webhook",
+                        Some(&wid),
+                        "rotate_secret",
+                        None,
+                        Some(serde_json::json!({ "webhook_id": wid })),
+                        serde_json::json!({}),
+                        None,
+                        None,
+                    )
+                    .await;
+                });
+            }
+
+            tracing::info!(webhook_id = %id, "Webhook secret rotated");
+
+            Json(json!({
+                "new_secret":      new_secret,
+                "retiring_secret": retiring,
+                "note": "Distribute new_secret to receivers. Both secrets are valid \
+                         during the rotation overlap window."
+            }))
+            .into_response()
+        }
+        Err(e) => {
+            tracing::error!("rotate_secret: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "rotation failed"})),
+            )
+                .into_response()
+        }
+    }
 }
 
 /// GET /webhooks/dlq

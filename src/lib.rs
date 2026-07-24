@@ -52,7 +52,6 @@ use db::connection::AppState;
 use docs::ApiDoc;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
-use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -105,7 +104,12 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .merge(write_routes)
         .merge(read_routes)
         .layer(cors)
-        .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(
+            middleware::tracing::trace_request,
+        ))
+        .layer(axum::middleware::from_fn(
+            crate::middleware::metrics::track_metrics,
+        ))
         .layer(middleware::compression::compression_layer())
         .layer(middleware::timeout::timeout_layer_from_env())
         .layer(axum::middleware::from_fn(

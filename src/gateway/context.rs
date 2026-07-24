@@ -48,4 +48,17 @@ impl GatewayIdentity {
             Self::Anonymous => "anonymous".to_string(),
         }
     }
+
+    /// Returns an opaque (non-PII) identifier safe to include in trace attributes.
+    ///
+    /// For JWT callers this is the subject UUID; for API-key callers the key_id;
+    /// for anonymous callers the literal string `"anonymous"`.
+    /// Roles, names, and raw key values are intentionally excluded.
+    pub fn opaque_id(&self) -> String {
+        match self {
+            Self::Jwt { subject, .. } => subject.clone(),
+            Self::ApiKey { key_id, .. } => key_id.to_string(),
+            Self::Anonymous => "anonymous".to_string(),
+        }
+    }
 }

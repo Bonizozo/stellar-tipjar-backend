@@ -1,12 +1,19 @@
 use async_trait::async_trait;
 use reqwest::Client;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::Instrument;
 
 use super::circuit_breaker::CircuitBreaker;
 use super::retry::{with_retry, RetryConfig};
 use crate::errors::{AppError, AppResult, StellarError};
+use crate::errors::stellar::{map_op_result_code, map_tx_result_code};
+use crate::telemetry::http_client::inject_trace_headers;
+
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 // ─────────────────────────── Horizon Response Types ─────────────────────────
 
@@ -99,18 +106,31 @@ pub struct SorobanRpcRequest {
     pub params: serde_json::Value,
 }
 
+// ── Service ───────────────────────────────────────────────────────────────────
+
 #[derive(Clone)]
 pub struct StellarService {
     client: Client,
-    #[allow(dead_code)]
+    /// Horizon base URL — injected so tests can point at `httpmock`.
+    pub horizon_url: String,
+    /// Soroban RPC URL (may be the same host or different).
     pub rpc_url: String,
     pub network: String,
+    #[allow(dead_code)]
+    pub submit_timeout: Duration,
     retry_config: RetryConfig,
     circuit_breaker: Arc<CircuitBreaker>,
 }
 
 impl StellarService {
+    /// Construct with explicit Horizon + RPC URLs and network name.
+    /// Tests pass `mock_server.base_url()` here.
     pub fn new(rpc_url: String, network: String) -> Self {
+        let horizon_url = if network == "mainnet" {
+            "https://horizon.stellar.org".to_string()
+        } else {
+            "https://horizon-testnet.stellar.org".to_string()
+        };
         Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(10))
@@ -118,6 +138,7 @@ impl StellarService {
                 .expect("failed to build reqwest client"),
             rpc_url,
             network,
+            submit_timeout: Duration::from_secs(30),
             retry_config: RetryConfig::default(),
             circuit_breaker: Arc::new(CircuitBreaker::new(5, Duration::from_secs(60))),
         }
@@ -145,7 +166,22 @@ impl StellarService {
         let client = self.client.clone();
         let cb = self.circuit_breaker.clone();
 
-        let result = with_retry(&self.retry_config, || {
+        // One automatic retry for 504 (Stellar guideline: the tx might be in
+        // flight; wait a few seconds then re-query).
+        // The delay is read from STELLAR_504_RETRY_DELAY_MS env var so tests
+        // can set it to 0 for fast execution.
+        let retry_delay_ms = std::env::var("STELLAR_504_RETRY_DELAY_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(3_000);
+
+        let retry_config = RetryConfig {
+            max_retries: 1,
+            base_delay: Duration::from_millis(retry_delay_ms),
+            max_delay: Duration::from_millis(retry_delay_ms),
+        };
+
+        let result = with_retry(&retry_config, || {
             let client = client.clone();
             let url = url.clone();
             async move {
@@ -212,6 +248,8 @@ impl StellarService {
                 } else {
                     Err(AppError::Stellar(StellarError::NetworkUnavailable))
                 }
+                .instrument(span)
+                .await
             }
         })
         .await;
@@ -257,9 +295,13 @@ impl StellarService {
             params: serde_json::Value::Null,
         };
 
+        let mut extra_headers = reqwest::header::HeaderMap::new();
+        inject_trace_headers(&mut extra_headers);
+
         let response = self
             .client
             .post(&self.rpc_url)
+            .headers(extra_headers)
             .json(&req)
             .send()
             .await

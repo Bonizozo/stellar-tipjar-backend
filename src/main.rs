@@ -520,7 +520,6 @@ async fn main() -> anyhow::Result<()> {
         .layer(axum::Extension(command_bus))
         .layer(cors)
         .layer(axum::middleware::map_response(middleware::cors::security_headers))
-        .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(
             middleware::tracing::trace_request,
         ))

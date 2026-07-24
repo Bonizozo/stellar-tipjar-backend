@@ -13,6 +13,8 @@ use uuid::Uuid;
 ///
 /// The envelope carries routing metadata alongside the domain payload so
 /// consumers can dispatch without deserialising the inner payload first.
+/// `trace_context` carries the W3C `traceparent` / `tracestate` values so
+/// the consumer can reconstruct the distributed trace across the AMQP boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     /// Unique message identifier (used for idempotency checks).
@@ -25,16 +27,30 @@ pub struct Message {
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// How many times delivery has been attempted (incremented by the consumer).
     pub retry_count: u32,
+    /// W3C trace propagation headers captured at publish time.
+    /// Stored as `{"traceparent": "…", "tracestate": "…"}`.
+    #[serde(default)]
+    pub trace_context: std::collections::HashMap<String, String>,
 }
 
 impl Message {
     pub fn new(message_type: impl Into<String>, payload: serde_json::Value) -> Self {
+        // Capture the current OTel context into a HashMap carrier so the
+        // consumer can reconstruct the trace across the AMQP boundary.
+        let mut carrier = crate::telemetry::propagation::HashMapCarrier(
+            std::collections::HashMap::new(),
+        );
+        opentelemetry::global::get_text_map_propagator(|p| {
+            p.inject_context(&opentelemetry::Context::current(), &mut carrier);
+        });
+
         Self {
             id: Uuid::new_v4(),
             message_type: message_type.into(),
             payload,
             created_at: chrono::Utc::now(),
             retry_count: 0,
+            trace_context: carrier.0,
         }
     }
 
@@ -44,6 +60,13 @@ impl Message {
 
     pub fn should_retry(&self, max_retries: u32) -> bool {
         self.retry_count < max_retries
+    }
+
+    /// Extract the OTel parent context carried in this message's `trace_context`.
+    pub fn extract_trace_context(&self) -> opentelemetry::Context {
+        let carrier =
+            crate::telemetry::propagation::HashMapCarrier(self.trace_context.clone());
+        opentelemetry::global::get_text_map_propagator(|p| p.extract(&carrier))
     }
 }
 
@@ -86,6 +109,8 @@ impl MessagePublisher {
     ///
     /// Sets AMQP `content_type`, `message_id`, and `delivery_mode = 2`
     /// (persistent) so messages survive broker restarts.
+    /// The message envelope already carries W3C trace context captured at
+    /// construction time (`Message::new`).
     ///
     /// Each publish creates a short-lived channel.  For high-throughput
     /// scenarios consider pooling channels; for this workload the overhead

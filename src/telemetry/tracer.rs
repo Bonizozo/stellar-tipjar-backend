@@ -41,13 +41,22 @@ fn build_resource() -> Resource {
     ])
 }
 
-/// Build a `Sampler` from the `OTEL_SAMPLE_RATIO` environment variable.
+/// Build a **parent-based + ratio tail-aware** `Sampler` from env vars.
 ///
-/// - `1.0`  → always sample (default)
-/// - `0.0`  → never sample
-/// - `0.1`  → sample 10 % of traces
+/// - `OTEL_SAMPLE_RATIO`   → tail sampling ratio applied to *new* root spans
+///   (default `1.0`).  For child spans the parent's sampling decision is
+///   always honoured (parent-based), so traces are never split mid-flight.
 ///
-/// Values outside `[0.0, 1.0]` are clamped.
+/// The sampler composition is:
+/// ```text
+/// ParentBased(
+///   root          = TraceIdRatioBased(ratio)   ← decision for new traces
+///   remote_sampled   = AlwaysOn               ← honour upstream "sample" decision
+///   remote_unsampled = AlwaysOff              ← honour upstream "drop" decision
+///   local_sampled    = AlwaysOn
+///   local_unsampled  = AlwaysOff
+/// )
+/// ```
 fn build_sampler() -> Sampler {
     let ratio = std::env::var("OTEL_SAMPLE_RATIO")
         .ok()
@@ -55,13 +64,17 @@ fn build_sampler() -> Sampler {
         .unwrap_or(1.0)
         .clamp(0.0, 1.0);
 
-    if ratio >= 1.0 {
+    // Root sampler: decide whether to start a brand-new trace.
+    let root = if ratio >= 1.0 {
         Sampler::AlwaysOn
     } else if ratio <= 0.0 {
         Sampler::AlwaysOff
     } else {
         Sampler::TraceIdRatioBased(ratio)
-    }
+    };
+
+    // Wrap in ParentBased so child spans inherit the parent's decision.
+    Sampler::ParentBased(Box::new(root))
 }
 
 /// Initialise the global OpenTelemetry tracer and return a `tracing` layer.

@@ -7,3 +7,16 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     editable: false
+    jsonData:
+      # Enable exemplars so Grafana can follow trace_id links from histograms.
+      exemplarTraceIdDestinations:
+        - name: traceID
+          datasourceUid: jaeger
+
+  - name: Jaeger
+    uid: jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    isDefault: false
+    editable: false

@@ -7,6 +7,7 @@ use chrono::Utc;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
+use tracing::Instrument;
 
 /// Individual job worker that pulls and processes jobs from the queue
 pub struct JobWorker {
@@ -51,6 +52,16 @@ impl JobWorker {
 
             match self.queue.dequeue(self.id.clone()).await {
                 Ok(Some(job)) => {
+                    // Open an OTel-aware span for this job execution so it
+                    // appears as a named node in the trace waterfall.
+                    let job_span = tracing::info_span!(
+                        "job.execute",
+                        "job.id"      = %job.id,
+                        "job.type"    = %job.job_type,
+                        "worker.id"   = %self.id,
+                        "retry_count" = job.retry_count,
+                    );
+
                     let ctx = JobContext {
                         job_id: job.id,
                         worker_id: self.id.clone(),
@@ -76,7 +87,8 @@ impl JobWorker {
                         "Processing job"
                     );
 
-                    match handler.handle(&job, &ctx).await {
+                    let result = handler.handle(&job, &ctx).instrument(job_span.clone()).await;
+                    match result {
                         Ok(()) => {
                             if let Err(e) = self.queue.complete(job.id).await {
                                 tracing::error!(job_id = %job.id, error = %e, "Failed to mark job complete");
@@ -96,10 +108,8 @@ impl JobWorker {
                             let policy = self.registry.retry_policy(&job.job_type);
                             if let Err(db_err) = self.queue.fail(job.id, e.to_string(), &policy).await {
                                 tracing::error!(job_id = %job.id, error = %db_err, "Failed to record job failure");
-                            }
-                        }
-                    }
-                }
+                            }                        }
+                    }                }
                 Ok(None) => {
                     // No jobs available — wait before polling again
                     tokio::time::sleep(self.poll_interval).await;
