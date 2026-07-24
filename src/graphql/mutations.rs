@@ -21,6 +21,8 @@ pub struct RecordTipInput {
     pub amount: String,
     pub tipper_wallet: Option<String>,
     pub transaction_hash: String,
+    pub tipper_source_account: String,
+    pub memo: Option<String>,
 }
 
 pub struct MutationRoot;
@@ -49,18 +51,13 @@ impl MutationRoot {
     async fn record_tip(&self, ctx: &Context<'_>, input: RecordTipInput) -> Result<GqlTip> {
         let gql_ctx = ctx.data::<GraphQLContext>()?;
 
-        gql_ctx
-            .state
-            .stellar
-            .verify_transaction(&input.transaction_hash)
-            .await
-            .map_err(|e| async_graphql::Error::new(e.to_string()))?;
-
         let req = RecordTipRequest {
             username: input.username,
             amount: input.amount,
             tipper_wallet: input.tipper_wallet,
             transaction_hash: input.transaction_hash,
+            tipper_source_account: input.tipper_source_account,
+            memo: input.memo,
             message: None,
             message_visibility: crate::models::tip::MessageVisibility::Public,
         };

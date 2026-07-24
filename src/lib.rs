@@ -62,7 +62,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .allow_origin(Any)
         .allow_headers(Any);
 
-    // Build rate limiters. They handle their own background cleanup.
     let general_limiter = middleware::rate_limiter::general_limiter();
     let write_limiter = middleware::rate_limiter::write_limiter();
 

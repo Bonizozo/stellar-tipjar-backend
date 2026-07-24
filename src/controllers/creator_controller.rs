@@ -2,6 +2,7 @@ use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::{PublicKey, Signature, Verifier};
 use std::time::Instant;
 use uuid::Uuid;
+use sqlx::PgPool;
 
 use crate::cache::{keys, redis_client};
 use crate::db::connection::AppState;
@@ -11,7 +12,6 @@ use crate::metrics::collectors::CREATORS_REGISTERED_TOTAL;
 use crate::models::creator::{CreateCreatorRequest, Creator, UpdateCreatorProfileRequest, UpdateCreatorWalletRequest};
 use crate::moderation::ContentType;
 use crate::search::SearchQuery;
-use sqlx::PgPool;
 use validator::Validate;
 
 #[tracing::instrument(skip(state), fields(username = %req.username))]
@@ -94,14 +94,7 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppR
             .await;
     }
 
-    // Main branch added Webhook notification
-    crate::webhooks::trigger_webhooks(
-        state.db.clone(),
-        "creator.created",
-        serde_json::to_value(&creator).unwrap(),
-    )
-    .await;
-    // Notify external services via webhook.
+    // Webhook notification
     let payload = serde_json::to_value(&creator).map_err(|e| {
         tracing::error!(error = %e, "Failed to serialize creator webhook payload");
         AppError::internal()
@@ -169,7 +162,7 @@ pub async fn get_creator_by_username(
         "Creator lookup"
     );
 
-    // Populate cache if found.
+    // Populate cache if found
     if let (Some(ref c), Some(conn)) = (&creator, state.redis.as_ref()) {
         let mut conn = conn.clone();
         let _ = redis_client::set(
@@ -186,10 +179,11 @@ pub async fn get_creator_by_username(
 
 #[tracing::instrument(skip(state), fields(username = %username))]
 pub async fn get_creator_or_not_found(state: &AppState, username: &str) -> AppResult<Creator> {
-    let creator = get_creator_by_username(state, username).await?;
-    creator.ok_or_else(|| AppError::CreatorNotFound {
-        username: username.to_string(),
-    })
+    get_creator_by_username(state, username)
+        .await?
+        .ok_or_else(|| AppError::CreatorNotFound {
+            username: username.to_string(),
+        })
 }
 
 /// Search creators by username using PostgreSQL full-text search with trigram
