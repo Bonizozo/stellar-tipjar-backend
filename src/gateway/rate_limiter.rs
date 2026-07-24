@@ -1,24 +1,29 @@
-
-use std::time::Duration;
-
 use axum::{
-    extract::{ConnectInfo, Request, State},
+    extract::{Request, State},
     http::{HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 
-use redis::AsyncCommands;
+use lazy_static::lazy_static;
 
 use crate::{
     db::connection::AppState,
-    errors::AppError,
+    gateway::client_ip::extract_client_ip,
     gateway::context::GatewayIdentity,
+    gateway::rate_limit_policy::{self, FailPolicy},
+    gateway::rate_limit_script::GcraLimiter,
     metrics::collectors::{
-        RATE_LIMIT_BURST_CONSUMED_TOTAL, RATE_LIMIT_EXCEEDED_TOTAL,
-        RATE_LIMIT_REQUESTS_TOTAL,
+        RATE_LIMIT_DEGRADED_TOTAL, RATE_LIMIT_EXCEEDED_TOTAL, RATE_LIMIT_REQUESTS_TOTAL,
     },
 };
+
+lazy_static! {
+    /// Single compiled GCRA script, shared across all requests so the SHA
+    /// cache inside `redis::Script` is reused instead of being rebuilt per
+    /// request.
+    static ref GCRA: GcraLimiter = GcraLimiter::new();
+}
 
 // ── Tier definitions ──────────────────────────────────────────────────────────
 
@@ -134,7 +139,12 @@ fn tier_from_identity(identity: Option<&GatewayIdentity>) -> CallerTier {
 
 /// Build a stable client key used as the Redis counter key.
 ///
-/// Priority: authenticated identity → IP address → constant fallback.
+/// Priority: authenticated identity → trusted client IP → constant fallback.
+/// The IP fallback goes through [`extract_client_ip`], which only trusts
+/// `X-Forwarded-For` up to the configured `TRUSTED_PROXY_DEPTH` — a naive
+/// `ConnectInfo`-only or header-only lookup would let a client behind our own
+/// load balancer either collide with (or spoof around) another client's
+/// bucket.
 fn client_key(identity: Option<&GatewayIdentity>, req: &Request) -> String {
     if let Some(id) = identity {
         match id {
@@ -146,86 +156,30 @@ fn client_key(identity: Option<&GatewayIdentity>, req: &Request) -> String {
         }
     }
 
-    // Fall back to IP.
-    let ip = req
-        .extensions()
-        .get::<ConnectInfo<std::net::SocketAddr>>()
-        .map(|ci| ci.0.ip().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
-    format!("rl:ip:{}", ip)
-}
-
-// ── Redis sliding-window counter ──────────────────────────────────────────────
-
-/// Increment a sliding-window counter stored in Redis and return the current
-/// count.  Returns `None` on Redis error (fail-open strategy).
-///
-/// Window buckets are 60-second aligned.  Two buckets are used to implement a
-/// sliding window: the current bucket + the previous bucket proportionally.
-async fn redis_sliding_count(
-    conn: &mut redis::aio::ConnectionManager,
-    key: &str,
-    window_secs: u64,
-    now_ts: u64,
-) -> Option<f64> {
-    let bucket = now_ts / window_secs;
-    let cur_key = format!("{}:{}", key, bucket);
-    let prev_key = format!("{}:{}", key, bucket.saturating_sub(1));
-
-    // INCR current bucket and get both buckets atomically via pipeline.
-    let (cur_count, prev_count): (i64, i64) = redis::pipe()
-        .atomic()
-        .incr(&cur_key, 1i64)
-        .expire(&cur_key, (window_secs * 2) as i64)
-        .ignore()
-        .get(&prev_key)
-        .query_async(conn)
-        .await
-        .ok()?;
-
-    let prev_count = prev_count.max(0);
-
-    // Fraction of the current window that has elapsed.
-    let elapsed_fraction = (now_ts % window_secs) as f64 / window_secs as f64;
-
-    // Sliding window estimate = previous × (1 − elapsed) + current.
-    let sliding = (prev_count as f64) * (1.0 - elapsed_fraction) + cur_count as f64;
-    Some(sliding)
-}
-
-/// Increment a burst counter with a short TTL (10 s) and return the count.
-async fn redis_burst_count(
-    conn: &mut redis::aio::ConnectionManager,
-    key: &str,
-) -> Option<i64> {
-    redis::pipe()
-        .atomic()
-        .incr(key, 1i64)
-        .expire(key, 10i64)
-        .ignore()
-        .query_async::<(i64,)>(conn)
-        .await
-        .ok()
-        .map(|(c,)| c)
+    format!("rl:ip:{}", extract_client_ip(req))
 }
 
 // ── Response helpers ──────────────────────────────────────────────────────────
 
+/// Emit both the legacy `X-RateLimit-*` headers (kept for existing clients)
+/// and the standard IETF `RateLimit-*` headers
+/// (draft-ietf-httpapi-ratelimit-headers) that new clients should prefer.
 fn add_rate_limit_headers(resp: &mut Response, limit: u64, remaining: i64, reset_secs: u64) {
     let headers = resp.headers_mut();
-    let _ = headers.insert(
-        "X-RateLimit-Limit",
-        HeaderValue::from_str(&limit.to_string()).unwrap_or(HeaderValue::from_static("0")),
-    );
-    let _ = headers.insert(
-        "X-RateLimit-Remaining",
-        HeaderValue::from_str(&remaining.max(0).to_string())
-            .unwrap_or(HeaderValue::from_static("0")),
-    );
-    let _ = headers.insert(
-        "X-RateLimit-Reset",
-        HeaderValue::from_str(&reset_secs.to_string()).unwrap_or(HeaderValue::from_static("0")),
-    );
+    let limit_val =
+        HeaderValue::from_str(&limit.to_string()).unwrap_or(HeaderValue::from_static("0"));
+    let remaining_val = HeaderValue::from_str(&remaining.max(0).to_string())
+        .unwrap_or(HeaderValue::from_static("0"));
+    let reset_val =
+        HeaderValue::from_str(&reset_secs.to_string()).unwrap_or(HeaderValue::from_static("0"));
+
+    let _ = headers.insert("X-RateLimit-Limit", limit_val.clone());
+    let _ = headers.insert("X-RateLimit-Remaining", remaining_val.clone());
+    let _ = headers.insert("X-RateLimit-Reset", reset_val.clone());
+
+    let _ = headers.insert("RateLimit-Limit", limit_val);
+    let _ = headers.insert("RateLimit-Remaining", remaining_val);
+    let _ = headers.insert("RateLimit-Reset", reset_val);
 }
 
 fn too_many_requests(
@@ -256,6 +210,25 @@ fn too_many_requests(
     resp
 }
 
+/// Response returned when the limiter is degraded (Redis unreachable) and the
+/// resolved [`FailPolicy`] for this route is `FailClosed`. Deliberately a
+/// `503`, not a `429` — we cannot verify the caller is actually over their
+/// limit, so this communicates "temporarily can't serve you safely" rather
+/// than "you are rate limited".
+fn degraded_fail_closed(tier: &str) -> Response {
+    let body = serde_json::json!({
+        "error": "Rate limiting is temporarily unavailable and this endpoint fails closed for safety. Please retry shortly.",
+        "code": "RATE_LIMIT_DEGRADED",
+        "status": StatusCode::SERVICE_UNAVAILABLE.as_u16(),
+        "details": { "tier": tier },
+        "request_id": crate::middleware::request_id::current_request_id(),
+    });
+    let mut resp = (StatusCode::SERVICE_UNAVAILABLE, axum::Json(body)).into_response();
+    resp.headers_mut()
+        .insert("Retry-After", HeaderValue::from_static("1"));
+    resp
+}
+
 // ── Axum middleware ───────────────────────────────────────────────────────────
 
 /// Gateway rate-limiting middleware.
@@ -263,11 +236,18 @@ fn too_many_requests(
 /// - Resolves the caller tier from `GatewayIdentity` (injected by
 ///   `gateway_auth`).
 /// - Applies per-route overrides when configured via env vars.
-/// - Uses Redis sliding-window + burst counters when Redis is available.
-/// - Falls back to allowing the request when Redis is unreachable
-///   (tower_governor IP-based layers still apply as a backstop).
-/// - Injects `X-RateLimit-*` headers on every response.
-/// - Emits Prometheus metrics for observability.
+/// - Enforces a single atomic GCRA check per request via a Lua script in
+///   Redis (see `rate_limit_script`), shared across every replica — burst and
+///   sustained rate are both captured by the one call, with no
+///   read-modify-write race.
+/// - When Redis is unreachable, consults the per-route [`FailPolicy`]
+///   (`rate_limit_policy`): fail-closed routes (auth/account-security) reject
+///   with `503`; fail-open routes fall through, with local `tower_governor`
+///   IP-based layers acting as a backstop.
+/// - Injects both legacy `X-RateLimit-*` and standard `RateLimit-*` headers,
+///   plus `Retry-After` on `429`s.
+/// - Emits Prometheus metrics for observability, including degraded-mode
+///   decisions.
 pub async fn gateway_rate_limit(
     State(state): State<std::sync::Arc<AppState>>,
     req: Request,
@@ -291,97 +271,103 @@ pub async fn gateway_rate_limit(
         .with_label_values(&[tier_str, &path])
         .inc();
 
-    let now_ts = std::time::SystemTime::now()
+    let window_secs = 60u64;
+    let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs();
+        .as_millis() as i64;
 
-    let window_secs = 60u64;
-    let reset_secs = window_secs - (now_ts % window_secs);
-
-    // ── Redis path ────────────────────────────────────────────────────────────
-    if let Some(ref conn_mgr) = state.redis {
-        let mut conn = conn_mgr.clone();
-
-        // 1. Burst check (10-second sub-window).
-        let burst_key = format!("{}:burst:{}", key, now_ts / 10);
-        match redis_burst_count(&mut conn, &burst_key).await {
-            Some(burst_count) if burst_count > burst as i64 => {
-                RATE_LIMIT_EXCEEDED_TOTAL
-                    .with_label_values(&[tier_str, "burst", &path])
-                    .inc();
-                RATE_LIMIT_BURST_CONSUMED_TOTAL
-                    .with_label_values(&[tier_str])
-                    .inc();
-                tracing::warn!(
-                    tier = tier_str,
-                    key = %key,
-                    burst_count,
-                    burst_limit = burst,
-                    path = %path,
-                    "Burst rate limit exceeded"
-                );
-                return too_many_requests(
-                    "Burst limit exceeded. Please slow down.",
-                    10 - (now_ts % 10),
-                    tier_str,
-                    burst,
-                    reset_secs,
-                );
-            }
-            Some(_) => {}
-            None => {
-                tracing::debug!("Redis burst check failed – skipping burst enforcement");
-            }
+    // ── Redis path: single atomic GCRA check ─────────────────────────────────
+    // `state.redis` being `None` (never configured, or the initial connection
+    // failed at boot) is just as much a "Redis is unavailable" condition as a
+    // per-request script error — both must go through the same fail-policy
+    // decision below, rather than letting an absent connection silently
+    // bypass fail-closed routes.
+    let gcra_result = match &state.redis {
+        Some(conn_mgr) => {
+            let mut conn = conn_mgr.clone();
+            let gcra_key = format!("{}:gcra", key);
+            Some(
+                GCRA.check(&mut conn, &gcra_key, rpm, burst, window_secs, now_ms)
+                    .await,
+            )
         }
+        None => None,
+    };
 
-        // 2. Sustained sliding-window check.
-        let sliding_key = format!("{}:rpm", key);
-        match redis_sliding_count(&mut conn, &sliding_key, window_secs, now_ts).await {
-            Some(count) if count > rpm as f64 => {
-                RATE_LIMIT_EXCEEDED_TOTAL
-                    .with_label_values(&[tier_str, "sustained", &path])
-                    .inc();
-                tracing::warn!(
-                    tier = tier_str,
-                    key = %key,
-                    count,
-                    rpm,
-                    path = %path,
-                    "Sustained rate limit exceeded"
-                );
-                return too_many_requests(
-                    "Rate limit exceeded. Please slow down.",
-                    reset_secs,
-                    tier_str,
-                    rpm,
-                    reset_secs,
-                );
-            }
-            Some(count) => {
-                // Attach rate-limit info to extensions for quota manager.
-                let remaining = (rpm as f64 - count).max(0.0) as i64;
-                let mut resp = next.run(req).await;
-                add_rate_limit_headers(&mut resp, rpm, remaining, reset_secs);
-                resp.headers_mut().insert(
-                    "X-RateLimit-Tier",
-                    HeaderValue::from_static(tier_str),
-                );
-                return resp;
-            }
-            None => {
-                tracing::debug!("Redis sliding-window check failed – falling through");
-            }
+    match gcra_result {
+        Some(Ok(decision)) if !decision.allowed => {
+            RATE_LIMIT_EXCEEDED_TOTAL
+                .with_label_values(&[tier_str, "gcra", &path])
+                .inc();
+            tracing::warn!(
+                tier = tier_str,
+                key = %key,
+                rpm,
+                burst,
+                path = %path,
+                "Rate limit exceeded"
+            );
+            return too_many_requests(
+                "Rate limit exceeded. Please slow down.",
+                decision.retry_after_secs,
+                tier_str,
+                decision.limit as u64,
+                decision.reset_after_secs,
+            );
+        }
+        Some(Ok(decision)) => {
+            let mut resp = next.run(req).await;
+            add_rate_limit_headers(
+                &mut resp,
+                decision.limit as u64,
+                decision.remaining,
+                decision.reset_after_secs,
+            );
+            resp.headers_mut()
+                .insert("X-RateLimit-Tier", HeaderValue::from_static(tier_str));
+            return resp;
+        }
+        Some(Err(e)) => {
+            tracing::error!(
+                error = %e,
+                tier = tier_str,
+                path = %path,
+                "Rate limiter Redis check failed; applying degraded-mode fail policy"
+            );
+        }
+        None => {
+            tracing::debug!(
+                tier = tier_str,
+                path = %path,
+                "Rate limiter has no Redis connection; applying degraded-mode fail policy"
+            );
         }
     }
 
-    // ── No Redis / fail-open path ─────────────────────────────────────────────
+    // ── Degraded path (Redis absent or errored) ──────────────────────────────
+    // Reached whenever Redis could not be consulted at all. The per-route
+    // fail policy decides the outcome explicitly rather than defaulting
+    // either way; `tower_governor`'s per-process IP layers remain a coarse
+    // backstop on the fail-open branch.
+    let policy = rate_limit_policy::resolve(&path);
+    if policy == FailPolicy::FailClosed {
+        RATE_LIMIT_DEGRADED_TOTAL
+            .with_label_values(&[tier_str, policy.as_str(), "rejected"])
+            .inc();
+        return degraded_fail_closed(tier_str);
+    }
+    RATE_LIMIT_DEGRADED_TOTAL
+        .with_label_values(&[tier_str, policy.as_str(), "allowed"])
+        .inc();
+
+    let reset_secs = window_secs - ((now_ms as u64 / 1000) % window_secs);
     let mut resp = next.run(req).await;
     add_rate_limit_headers(&mut resp, rpm, rpm as i64, reset_secs);
-    resp.headers_mut().insert(
-        "X-RateLimit-Tier",
-        HeaderValue::from_static(tier_str),
-    );
+    resp.headers_mut()
+        .insert("X-RateLimit-Tier", HeaderValue::from_static(tier_str));
+    resp.headers_mut()
+        .insert("X-RateLimit-Degraded", HeaderValue::from_static("true"));
     resp
 }
 

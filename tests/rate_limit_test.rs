@@ -89,3 +89,114 @@ async fn test_whitelist_env_parsing() {
 
     std::env::remove_var("RATE_LIMIT_WHITELIST");
 }
+
+/// Connect to a test Redis instance, or return `None` to skip gracefully —
+/// mirrors the existing DB-dependent test pattern in this suite.
+async fn test_redis_url() -> Option<String> {
+    let url = std::env::var("TEST_REDIS_URL")
+        .or_else(|_| std::env::var("REDIS_URL"))
+        .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+
+    let client = redis::Client::open(url.as_str()).ok()?;
+    redis::aio::ConnectionManager::new(client).await.ok()?;
+    Some(url)
+}
+
+/// With a real Redis behind the gateway limiter, every response should carry
+/// both the legacy `X-RateLimit-*` headers and the standard IETF
+/// `RateLimit-*` headers.
+#[tokio::test]
+async fn test_gcra_emits_ietf_and_legacy_headers() {
+    let Some(redis_url) = test_redis_url().await else {
+        eprintln!("skipping: no reachable Redis for TEST_REDIS_URL/REDIS_URL");
+        return;
+    };
+
+    let pool = common::setup_test_db().await;
+    let (app, _) = common::create_test_app_with_redis(pool.clone(), &redis_url).await;
+    let server = axum_test::TestServer::new(app).unwrap();
+
+    let resp = server.get("/api/v1/health").await;
+    resp.assert_status(StatusCode::OK);
+
+    for header in [
+        "x-ratelimit-limit",
+        "x-ratelimit-remaining",
+        "x-ratelimit-reset",
+        "ratelimit-limit",
+        "ratelimit-remaining",
+        "ratelimit-reset",
+    ] {
+        assert!(
+            resp.headers().contains_key(header),
+            "expected `{header}` on a GCRA-limited response"
+        );
+    }
+
+    common::cleanup_test_db(&pool).await;
+}
+
+/// Exhausting the GCRA burst allowance must return 429 with `Retry-After` and
+/// the standard error envelope — proving the atomic Lua-script path (not just
+/// the in-memory tower_governor backstop) is what's enforcing the limit.
+#[tokio::test]
+async fn test_gcra_exceeded_returns_429_with_retry_after() {
+    let Some(redis_url) = test_redis_url().await else {
+        eprintln!("skipping: no reachable Redis for TEST_REDIS_URL/REDIS_URL");
+        return;
+    };
+
+    std::env::set_var("RATE_LIMIT_ANON_RPM", "60");
+    std::env::set_var("RATE_LIMIT_ANON_BURST", "1");
+
+    let pool = common::setup_test_db().await;
+    let (app, _) = common::create_test_app_with_redis(pool.clone(), &redis_url).await;
+    let server = axum_test::TestServer::new(app).unwrap();
+
+    // axum-test requests share no real TCP peer, so both requests resolve to
+    // the same fallback rate-limit key — the single configured burst slot is
+    // shared between them just as it would be for a real repeat caller.
+    server
+        .get("/api/v1/health")
+        .await
+        .assert_status(StatusCode::OK);
+
+    let resp = server.get("/api/v1/health").await;
+    assert_eq!(resp.status_code(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(
+        resp.headers().contains_key("retry-after"),
+        "expected Retry-After on a GCRA 429"
+    );
+    let body = resp.json::<serde_json::Value>();
+    assert_eq!(body["code"], "RATE_LIMIT_EXCEEDED");
+
+    std::env::remove_var("RATE_LIMIT_ANON_RPM");
+    std::env::remove_var("RATE_LIMIT_ANON_BURST");
+    common::cleanup_test_db(&pool).await;
+}
+
+/// A fail-closed route (auth) must respond 503 — not silently allow — when
+/// Redis is unreachable.
+#[tokio::test]
+async fn test_degraded_fail_closed_on_auth_route() {
+    // Deliberately point at a port nothing is listening on so the limiter's
+    // Redis check fails, exercising the degraded path without needing to
+    // actually take down a real Redis instance mid-test.
+    let pool = common::setup_test_db().await;
+    let (app, _) = common::create_test_app_with_redis(pool.clone(), "redis://127.0.0.1:1")
+        .await;
+    let server = axum_test::TestServer::new(app).unwrap();
+
+    let resp = server.post("/api/v1/auth/login").json(&serde_json::json!({
+        "email": "test@example.com",
+        "password": "irrelevant",
+    })).await;
+
+    // Fail-closed: the request never even reaches the handler far enough to
+    // return a normal auth failure — the limiter itself returns 503.
+    assert_eq!(resp.status_code(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = resp.json::<serde_json::Value>();
+    assert_eq!(body["code"], "RATE_LIMIT_DEGRADED");
+
+    common::cleanup_test_db(&pool).await;
+}
