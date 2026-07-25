@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE email_deliveries\n            SET status = 'complained'\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f12fe34d1236dbf421ca4e62691a316d6d7a432a4c6e6b75088170761f3cf3c0"
+}

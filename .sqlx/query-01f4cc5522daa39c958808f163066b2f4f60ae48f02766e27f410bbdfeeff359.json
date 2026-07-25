@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    INSERT INTO tips (id, creator_username, amount, transaction_hash, message, created_at)\n                    VALUES ($1, $2, $3, $4, $5, $6)\n                    ON CONFLICT (id) DO NOTHING\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "01f4cc5522daa39c958808f163066b2f4f60ae48f02766e27f410bbdfeeff359"
+}

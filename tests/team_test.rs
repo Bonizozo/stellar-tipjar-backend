@@ -16,7 +16,8 @@ use stellar_tipjar_backend::models::tip::RecordTipRequest;
 use stellar_tipjar_backend::services::stellar_service::StellarService;
 
 fn make_state(pool: PgPool) -> Arc<AppState> {
-    let stellar = StellarService::new("https://horizon-testnet.stellar.org".to_string(), "testnet".to_string());
+    let stellar = Arc::new(StellarService::new("https://horizon-testnet.stellar.org".to_string(), "testnet".to_string()));
+    let (queue, _rx) = stellar_tipjar_backend::queue::VerificationQueue::new();
     let performance = Arc::new(PerformanceMonitor::new());
     let moderation = Arc::new(ModerationService::new(pool.clone()));
     let idempotency = Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(
@@ -26,17 +27,23 @@ fn make_state(pool: PgPool) -> Arc<AppState> {
     ));
     Arc::new(AppState {
         db: pool,
+        verifier: stellar.clone(),
         stellar,
+        queue,
         performance,
         moderation,
         redis: None,
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
         cache: None,
         invalidator: None,
+        encryption: Arc::new(stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new()),
+        replicas: None,
         db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
         lock_service: None,
         ws_shutdown_tx: tokio::sync::watch::channel(false).0,
         ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
+        idempotency,
+        sharding: None,
     })
 }
 

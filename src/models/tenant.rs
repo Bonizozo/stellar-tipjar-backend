@@ -25,7 +25,7 @@ pub struct CreateTenantRequest {
     /// URL-safe identifier (lowercase letters, numbers, hyphens)
     #[validate(length(min = 2, max = 50, message = "Slug must be 2–50 characters"))]
     #[validate(regex(
-        path = "SLUG_REGEX",
+        path = *SLUG_REGEX,
         message = "Slug may only contain lowercase letters, numbers, and hyphens"
     ))]
     pub slug: String,

@@ -13,13 +13,14 @@ pub async fn dashboard(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 
     let mut queries: Vec<_> = stats
         .into_iter()
-        .map(|(pattern, (count, avg_ms, max_ms))| {
+        .map(|(pattern, (count, avg_ms, max_ms, _last_seen, n_plus_one_suspect))| {
             json!({
                 "query": pattern,
                 "count": count,
                 "avg_ms": (avg_ms * 100.0).round() / 100.0,
                 "max_ms": max_ms,
                 "slow": max_ms > 200,
+                "n_plus_one_suspect": n_plus_one_suspect,
             })
         })
         .collect();

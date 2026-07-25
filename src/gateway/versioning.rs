@@ -203,7 +203,8 @@ pub async fn version_negotiation(req: Request, next: Next) -> Response {
 
     // Use resolved version or default for API paths
     let version_str = version_resolution
-        .map(|r| r.version)
+        .as_ref()
+        .map(|r| r.version.clone())
         .unwrap_or_else(|| mgr.current().to_string());
 
     // Validate version exists
@@ -302,9 +303,10 @@ pub async fn version_routing(req: Request, next: Next) -> Response {
     if path.starts_with("/api/") && !path.contains("/v1/") && !path.contains("/v2/") {
         let resolution = resolve_api_version(&req);
         let target_version = resolution
-            .map(|r| r.version)
+            .as_ref()
+            .map(|r| r.version.clone())
             .unwrap_or_else(|| mgr.current().to_string());
-        
+
         // Add version context to request extensions for downstream handlers
         let mut req = req;
         req.extensions_mut().insert(ApiVersionContext {

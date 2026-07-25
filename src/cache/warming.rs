@@ -125,7 +125,18 @@ mod tests {
             username: "alice".to_string(),
             wallet_address: "GABC...".to_string(),
             email: None,
+            password_hash: Default::default(),
+            totp_secret: None,
+            totp_enabled: false,
+            backup_code_hashes: Vec::new(),
             created_at: Utc::now(),
+            bio: None,
+            display_name: None,
+            avatar_url: None,
+            is_verified: false,
+            social_links: serde_json::Value::Null,
+            categories: Vec::new(),
+            tags: Vec::new(),
         });
 
         let warmer = CacheWarmer::new(cache.clone(), source, Duration::from_secs(120));

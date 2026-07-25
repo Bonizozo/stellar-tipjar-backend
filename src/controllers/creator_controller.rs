@@ -394,7 +394,7 @@ fn verify_wallet_signature(
     Ok(())
 }
 
-#[tracing::instrument(skip(state), fields(username = %username))]
+#[tracing::instrument(skip(pool))]
 pub async fn search_creators(pool: &PgPool, query: &SearchQuery) -> AppResult<Vec<Creator>> {
     let term = query.q.trim().to_string();
     if term.is_empty() {

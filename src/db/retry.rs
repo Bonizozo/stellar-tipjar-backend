@@ -65,11 +65,11 @@ mod tests {
         // uses the pool, so this is fine for unit-testing the retry loop.
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/nonexistent").unwrap();
 
-        let result: Result<(), String> = with_db_retry(&pool, 2, |_pool| {
+        let result: Result<(), anyhow::Error> = with_db_retry(&pool, 2, |_pool| {
             let c = c.clone();
             Box::pin(async move {
                 c.fetch_add(1, Ordering::SeqCst);
-                Err("deadlock detected".to_string())
+                Err(anyhow::anyhow!("deadlock detected"))
             })
         })
         .await;
@@ -86,11 +86,11 @@ mod tests {
 
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/nonexistent").unwrap();
 
-        let result: Result<(), String> = with_db_retry(&pool, 3, |_pool| {
+        let result: Result<(), anyhow::Error> = with_db_retry(&pool, 3, |_pool| {
             let c = c.clone();
             Box::pin(async move {
                 c.fetch_add(1, Ordering::SeqCst);
-                Err("unique constraint violation".to_string())
+                Err(anyhow::anyhow!("unique constraint violation"))
             })
         })
         .await;
@@ -103,7 +103,7 @@ mod tests {
     async fn succeeds_on_first_attempt() {
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/nonexistent").unwrap();
 
-        let result: Result<u32, String> =
+        let result: Result<u32, anyhow::Error> =
             with_db_retry(&pool, 3, |_pool| Box::pin(async { Ok(42u32) })).await;
 
         assert_eq!(result.unwrap(), 42);

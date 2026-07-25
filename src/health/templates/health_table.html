@@ -1,0 +1,12 @@
+<table>
+    <tr><th>Check</th><th>Status</th><th>Message</th><th>Response time</th><th>Timestamp</th></tr>
+    {% for check in health.checks %}
+    <tr>
+        <td>{{ check.service_name }}</td>
+        <td class="status-{{ check.status | lower }}">{{ check.status }}</td>
+        <td>{{ check.message }}</td>
+        <td>{{ check.response_time_ms }}ms</td>
+        <td>{{ check.timestamp }}</td>
+    </tr>
+    {% endfor %}
+</table>

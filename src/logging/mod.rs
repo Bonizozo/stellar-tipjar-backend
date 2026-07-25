@@ -22,7 +22,7 @@ pub fn init() {
     // automatic log/trace correlation.
     let otel_layer = crate::telemetry::init_tracer();
 
-    let registry = tracing_subscriber::registry().with(filter).with(otel_layer);
+    let registry = tracing_subscriber::registry().with(otel_layer).with(filter);
 
     if json_format {
         registry

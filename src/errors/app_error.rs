@@ -223,6 +223,13 @@ impl From<anyhow::Error> for AppError {
     }
 }
 
+impl From<serde_json::Error> for AppError {
+    fn from(value: serde_json::Error) -> Self {
+        tracing::error!(error = %value, "JSON (de)serialization failed");
+        Self::Internal
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = self.status_code();

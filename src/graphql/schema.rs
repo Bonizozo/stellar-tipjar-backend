@@ -1,5 +1,5 @@
 use async_graphql::Schema;
-use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
+use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::Extension;
 use std::sync::Arc;
 
@@ -24,9 +24,3 @@ pub async fn graphql_handler(
     schema.execute(req.into_inner()).await.into()
 }
 
-pub async fn graphql_ws_handler(
-    Extension(schema): Extension<AppSchema>,
-    protocol: GraphQLSubscription,
-) -> impl axum::response::IntoResponse {
-    protocol.on_upgrade(schema)
-}

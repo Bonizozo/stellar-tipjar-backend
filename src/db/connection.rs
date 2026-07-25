@@ -23,6 +23,9 @@ pub struct AppState {
     pub db: PgPool,
     /// Injectable on-chain verifier (production: StellarService, tests: MockTipVerifier).
     pub verifier: Arc<dyn TipVerifier>,
+    /// Concrete Stellar service — used by callers that need network/RPC details
+    /// beyond the `TipVerifier` trait surface (health checks, monitoring).
+    pub stellar: Arc<crate::services::stellar_service::StellarService>,
     /// Background verification job queue.
     pub queue: VerificationQueue,
     pub performance: Arc<PerformanceMonitor>,
@@ -42,6 +45,10 @@ pub struct AppState {
     pub ws_shutdown_tx: tokio::sync::watch::Sender<bool>,
     /// WebSocket liveness/idle-timeout tuning.
     pub ws_config: crate::ws::WsConfig,
+    /// Idempotency-Key persistence (Postgres fallback store).
+    pub idempotency: Arc<crate::idempotency::IdempotencyService>,
+    /// Database shard manager — `None` when sharding is not configured.
+    pub sharding: Option<Arc<crate::db::sharding::ShardingManager>>,
 }
 
 impl AppState {

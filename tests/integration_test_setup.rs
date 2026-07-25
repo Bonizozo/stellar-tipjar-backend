@@ -51,13 +51,15 @@ pub async fn build_app() -> Router {
     sqlx::migrate!("./migrations").run(&pool).await.expect("Migrations failed");
 
     // Minimal set of services required for the tested routes
-    let stellar = services::stellar_service::StellarService::new(
+    let stellar = Arc::new(services::stellar_service::StellarService::new(
         std::env::var("STELLAR_RPC_URL").unwrap_or_default(),
         std::env::var("STELLAR_NETWORK").unwrap_or_default(),
-    );
+    ));
+    let (queue, _rx) = queue::VerificationQueue::new();
     let performance = Arc::new(db::performance::PerformanceMonitor::new());
     let redis = None; // not needed for current tests
     let broadcast_tx = tokio::sync::broadcast::channel(16).0;
+    let (ws_shutdown_tx, _) = tokio::sync::watch::channel(false);
     let moderation = Arc::new(moderation::ModerationService::new(pool.clone()));
     let idempotency = Arc::new(idempotency::IdempotencyService::new(
         pool.clone(),
@@ -66,7 +68,9 @@ pub async fn build_app() -> Router {
     ));
     let state = Arc::new(AppState {
         db: pool.clone(),
+        verifier: stellar.clone(),
         stellar,
+        queue,
         performance,
         redis,
         broadcast_tx,
@@ -77,7 +81,10 @@ pub async fn build_app() -> Router {
         encryption: Arc::new(crate::crypto::encryption::EncryptionKeyManager::new().load().await.unwrap()),
         replicas: None,
         lock_service: None,
+        ws_shutdown_tx,
+        ws_config: crate::ws::WsConfig::from_env(),
         idempotency,
+        sharding: None,
     });
 
     // Build router similar to main but only required routes for tests

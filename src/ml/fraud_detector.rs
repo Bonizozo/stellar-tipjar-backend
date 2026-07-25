@@ -53,7 +53,7 @@ impl FraudDetector {
     }
 
     fn calculate_score(&self, features: &Features) -> f32 {
-        let mut score = 0.0;
+        let mut score: f32 = 0.0;
 
         if features.amount_normalized > 2.0 {
             score += 0.3;

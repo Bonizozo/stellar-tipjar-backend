@@ -19,10 +19,10 @@ const DEFAULT_KEY_TTL_SECS: u64 = 300;
 
 static GLOBAL_ENCRYPTION_MANAGER: OnceLock<Arc<EncryptionKeyManager>> = OnceLock::new();
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct EncryptionKeyManager {
-    current_key_id: String,
-    keys: HashMap<String, [u8; 32]>,
+    current_key_id: std::sync::RwLock<String>,
+    keys: std::sync::RwLock<HashMap<String, [u8; 32]>>,
     vault_addr: Option<String>,
     vault_token: Option<String>,
     vault_mount: String,
@@ -97,18 +97,18 @@ impl PgHasArrayType for EncryptedString {
 impl<'r> Decode<'r, Postgres> for EncryptedString {
     fn decode(value: PgValueRef<'r>) -> Result<Self, BoxDynError> {
         let raw = <String as Decode<Postgres>>::decode(value)?;
-        let manager = global_encryption_manager().map_err(|e| e.into())?;
-        let decrypted = manager.decrypt_to_string(&raw).map_err(|e| e.into())?;
+        let manager = global_encryption_manager().map_err(|e| e.to_string())?;
+        let decrypted = manager.decrypt_to_string(&raw).map_err(|e| e.to_string())?;
         Ok(EncryptedString::new(decrypted))
     }
 }
 
 impl<'q> Encode<'q, Postgres> for EncryptedString {
-    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
-        let manager = global_encryption_manager().expect("encryption manager must be initialized before DB operations");
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> Result<sqlx::encode::IsNull, BoxDynError> {
+        let manager = global_encryption_manager().map_err(|e| e.to_string())?;
         let encrypted = manager
             .encrypt_to_string(self.as_str())
-            .expect("failed to encrypt field before persistence");
+            .map_err(|e| e.to_string())?;
         <String as Encode<Postgres>>::encode_by_ref(&encrypted, buf)
     }
 }
@@ -116,8 +116,8 @@ impl<'q> Encode<'q, Postgres> for EncryptedString {
 impl EncryptionKeyManager {
     pub fn new() -> Self {
         Self {
-            current_key_id: String::new(),
-            keys: HashMap::new(),
+            current_key_id: std::sync::RwLock::new(String::new()),
+            keys: std::sync::RwLock::new(HashMap::new()),
             vault_addr: std::env::var("VAULT_ADDR").ok(),
             vault_token: std::env::var("VAULT_TOKEN").ok(),
             vault_mount: std::env::var("VAULT_MOUNT").unwrap_or_else(|_| "secret".to_string()),
@@ -194,33 +194,34 @@ impl EncryptionKeyManager {
             let key_name = format!("ENCRYPTION_KEY_{}", key_id.to_uppercase());
             if let Ok(raw_key) = self.resolve_key(&key_name).await {
                 let key = parse_key(&raw_key)?;
-                self.keys.insert(key_id.clone(), key);
+                self.keys.get_mut().unwrap().insert(key_id.clone(), key);
             }
         }
 
-        if self.keys.is_empty() {
+        if self.keys.get_mut().unwrap().is_empty() {
             return Err(anyhow::anyhow!(
                 "No encryption keys found. Set ENCRYPTION_KEY_CURRENT or ENCRYPTION_KEY_IDS with env or Vault secrets."
             ));
         }
 
-        self.current_key_id = if self.keys.contains_key("current") {
+        *self.current_key_id.get_mut().unwrap() = if self.keys.get_mut().unwrap().contains_key("current") {
             "current".to_string()
         } else {
-            self.keys.keys().next().cloned().unwrap()
+            self.keys.get_mut().unwrap().keys().next().cloned().unwrap()
         };
 
         Ok(self)
     }
 
-    pub fn active_key_id(&self) -> &str {
-        &self.current_key_id
+    pub fn active_key_id(&self) -> String {
+        self.current_key_id.read().unwrap().clone()
     }
 
     pub fn encrypt_to_string(&self, plaintext: &str) -> anyhow::Result<String> {
-        let key = self
-            .keys
-            .get(&self.current_key_id)
+        let current_key_id = self.current_key_id.read().unwrap().clone();
+        let keys = self.keys.read().unwrap();
+        let key = keys
+            .get(&current_key_id)
             .ok_or_else(|| anyhow::anyhow!("Encryption active key is unavailable"))?;
 
         let cipher = Aes256Gcm::new_from_slice(key).expect("valid AES-256-GCM key");
@@ -238,7 +239,7 @@ impl EncryptionKeyManager {
         let payload = format!(
             "{}:{}:{}:{}",
             FORMAT_PREFIX,
-            self.current_key_id,
+            current_key_id,
             general_purpose::URL_SAFE_NO_PAD.encode(nonce_bytes),
             general_purpose::URL_SAFE_NO_PAD.encode(ciphertext)
         );
@@ -265,8 +266,8 @@ impl EncryptionKeyManager {
                 ENCRYPTION_FAILURES_TOTAL.with_label_values(&["decode_ciphertext"]).inc();
                 e
             })?;
-        let key = self
-            .keys
+        let keys = self.keys.read().unwrap();
+        let key = keys
             .get(key_id)
             .ok_or_else(|| {
                 ENCRYPTION_FAILURES_TOTAL.with_label_values(&["key_not_found"]).inc();
@@ -287,7 +288,7 @@ impl EncryptionKeyManager {
 
     /// Rotate encryption keys by generating a new current key and archiving the old one.
     /// This method updates the key manager in place and should be called periodically.
-    pub async fn rotate_keys(&mut self) -> anyhow::Result<()> {
+    pub async fn rotate_keys(&self) -> anyhow::Result<()> {
         // Generate a new key for "current"
         let mut new_key_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut new_key_bytes);
@@ -296,17 +297,20 @@ impl EncryptionKeyManager {
         let mut new_keys = HashMap::new();
         new_keys.insert("current".to_string(), new_key_bytes);
 
-        // Move existing keys to old positions
-        if let Some(current_key) = self.keys.get("current") {
-            new_keys.insert("old_1".to_string(), *current_key);
+        {
+            let keys = self.keys.read().unwrap();
+            // Move existing keys to old positions
+            if let Some(current_key) = keys.get("current") {
+                new_keys.insert("old_1".to_string(), *current_key);
+            }
+            if let Some(old_1_key) = keys.get("old_1") {
+                new_keys.insert("old_2".to_string(), *old_1_key);
+            }
+            // Keep old_2 if it exists, or drop it
         }
-        if let Some(old_1_key) = self.keys.get("old_1") {
-            new_keys.insert("old_2".to_string(), *old_1_key);
-        }
-        // Keep old_2 if it exists, or drop it
 
-        self.keys = new_keys;
-        self.current_key_id = "current".to_string();
+        *self.keys.write().unwrap() = new_keys;
+        *self.current_key_id.write().unwrap() = "current".to_string();
 
         // Update environment variables or Vault with new keys
         // Note: In a real implementation, you'd want to persist these securely
@@ -358,8 +362,8 @@ mod tests {
         std::env::remove_var("ENCRYPTION_KEY_CURRENT");
         std::env::set_var("ENCRYPTION_KEY_CURRENT", "0000000000000000000000000000000000000000000000000000000000000000");
 
-        let manager = EncryptionKeyManager::new().load().await.expect("load key manager");
-        set_global_encryption_manager(Arc::new(manager.clone())).unwrap();
+        let manager = Arc::new(EncryptionKeyManager::new().load().await.expect("load key manager"));
+        set_global_encryption_manager(manager.clone()).unwrap();
 
         let plaintext = "test-secret";
         let encrypted = manager.encrypt_to_string(plaintext).unwrap();

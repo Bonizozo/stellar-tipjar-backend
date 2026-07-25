@@ -56,7 +56,7 @@ pub struct NonceInfo {
 
 pub struct ReplayProtectionService {
     redis: Option<Arc<ConnectionManager>>,
-    config: ReplayProtectionConfig,
+    pub config: ReplayProtectionConfig,
 }
 
 impl ReplayProtectionService {
@@ -129,7 +129,7 @@ impl ReplayProtectionService {
         endpoint: &str,
     ) -> Result<(), ReplayProtectionError> {
         let redis = self.redis.as_ref().unwrap();
-        let mut conn = redis.clone();
+        let mut conn = redis.as_ref().clone();
 
         let key = format!("nonce:{}", nonce);
         
@@ -159,7 +159,7 @@ impl ReplayProtectionService {
             .arg(&key)
             .arg(self.config.nonce_ttl_seconds)
             .arg(&serialized)
-            .query_async::<_, ()>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await
             .map_err(|e| ReplayProtectionError::RedisError(e.to_string()))?;
 
@@ -174,7 +174,7 @@ impl ReplayProtectionService {
         endpoint: &str,
     ) -> Result<(), ReplayProtectionError> {
         if let Some(redis) = &self.redis {
-            let mut conn = redis.clone();
+            let mut conn = redis.as_ref().clone();
             let key = format!("nonce:{}", nonce);
 
             let nonce_info = NonceInfo {
@@ -191,7 +191,7 @@ impl ReplayProtectionService {
                 .arg(&key)
                 .arg(self.config.nonce_ttl_seconds)
                 .arg(&serialized)
-                .query_async::<_, ()>(&mut conn)
+                .query_async::<()>(&mut conn)
                 .await
                 .map_err(|e| ReplayProtectionError::RedisError(e.to_string()))?;
         }
@@ -202,7 +202,7 @@ impl ReplayProtectionService {
     /// Check if a nonce has been used
     pub async fn is_nonce_used(&self, nonce: &str) -> Result<bool, ReplayProtectionError> {
         if let Some(redis) = &self.redis {
-            let mut conn = redis.clone();
+            let mut conn = redis.as_ref().clone();
             let key = format!("nonce:{}", nonce);
 
             let exists: bool = redis::cmd("EXISTS")
@@ -238,7 +238,7 @@ impl ReplayProtectionService {
     /// Cleanup expired nonces
     pub async fn cleanup_expired_nonces(&self) -> Result<u64, ReplayProtectionError> {
         if let Some(redis) = &self.redis {
-            let mut conn = redis.clone();
+            let mut conn = redis.as_ref().clone();
             let pattern = "nonce:*";
 
             let keys: Vec<String> = redis::cmd("KEYS")
@@ -258,7 +258,7 @@ impl ReplayProtectionService {
                 if ttl == -1 { // No expiry set, delete it
                     redis::cmd("DEL")
                         .arg(&key)
-                        .query_async::<_, ()>(&mut conn)
+                        .query_async::<()>(&mut conn)
                         .await
                         .map_err(|e| ReplayProtectionError::RedisError(e.to_string()))?;
                     deleted_count += 1;
@@ -276,7 +276,7 @@ impl ReplayProtectionService {
         let mut stats = HashMap::new();
         
         if let Some(redis) = &self.redis {
-            let mut conn = redis.clone();
+            let mut conn = redis.as_ref().clone();
             let pattern = "nonce:*";
 
             let keys: Vec<String> = redis::cmd("KEYS")
@@ -307,7 +307,7 @@ impl ReplayProtectionService {
 
     async fn get_nonce_info(&self, key: &str) -> Result<Option<NonceInfo>, ReplayProtectionError> {
         if let Some(redis) = &self.redis {
-            let mut conn = redis.clone();
+            let mut conn = redis.as_ref().clone();
             
             let value: Option<String> = redis::cmd("GET")
                 .arg(key)

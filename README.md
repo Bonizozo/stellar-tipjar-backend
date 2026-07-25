@@ -1,5 +1,8 @@
 # stellar-tipjar-backend
 
+[![CI](https://github.com/Markodiba/stellar-tipjar-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/Markodiba/stellar-tipjar-backend/actions/workflows/ci.yml)
+[![Audit](https://github.com/Markodiba/stellar-tipjar-backend/actions/workflows/audit.yml/badge.svg)](https://github.com/Markodiba/stellar-tipjar-backend/actions/workflows/audit.yml)
+
 A REST API backend for a Stellar-based tip jar. Creators register with a username and Stellar wallet address, and supporters send tips by submitting verified on-chain Stellar transactions.
 
 ## Related Repositories

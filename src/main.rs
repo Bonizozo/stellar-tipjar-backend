@@ -62,7 +62,7 @@ use crate::metrics::{metrics_handler, metrics_summary_handler};
 use crate::middleware::metrics::track_metrics;
 use db::connection::AppState;
 use docs::ApiDoc;
-use graphql::schema::{graphql_handler, graphql_ws_handler};
+use graphql::schema::graphql_handler;
 use service_mesh::discovery::ServiceRegistry;
 use services::stellar_service::StellarService;
 use crate::queue::VerificationQueue;
@@ -178,7 +178,8 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(AppState {
         db: pool.clone(),
-        verifier: stellar,
+        verifier: stellar.clone(),
+        stellar,
         queue,
         performance,
         redis,
@@ -195,6 +196,8 @@ async fn main() -> anyhow::Result<()> {
         lock_service: lock_service.clone(),
         ws_shutdown_tx: ws_shutdown_tx.clone(),
         ws_config: ws::WsConfig::from_env(),
+        idempotency,
+        sharding,
     });
 
     // Build CommandBus after state is constructed (avoids circular dependency).
@@ -495,7 +498,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/ws", axum::routing::get(ws::ws_handler))
         .route(
             "/graphql",
-            axum::routing::post(graphql_handler).get(graphql_ws_handler),
+            axum::routing::post(graphql_handler),
         )
         .route("/metrics", axum::routing::get(metrics_handler))
         .route("/metrics/summary", axum::routing::get(metrics_summary_handler))

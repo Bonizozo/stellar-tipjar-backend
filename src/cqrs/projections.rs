@@ -26,6 +26,7 @@ impl CqrsProjection {
     pub async fn sync_event(&self, event: &Event) -> AppResult<()> {
         match event {
             Event::CreatorRegistered {
+                version: _,
                 id,
                 username,
                 wallet_address,

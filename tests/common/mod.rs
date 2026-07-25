@@ -113,6 +113,10 @@ pub async fn create_test_app_with_verifier(
     let state = Arc::new(AppState {
         db: pool,
         verifier,
+        stellar: Arc::new(StellarService::new(
+            "https://horizon-testnet.stellar.org".to_string(),
+            "testnet".to_string(),
+        )),
         queue,
         performance,
         moderation,
@@ -120,6 +124,8 @@ pub async fn create_test_app_with_verifier(
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
         cache: None,
         invalidator: None,
+        encryption: Arc::new(stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new()),
+        replicas: None,
         db_circuit_breaker: Arc::new(
             stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
                 5,
@@ -129,6 +135,8 @@ pub async fn create_test_app_with_verifier(
         lock_service: None,
         ws_shutdown_tx: tokio::sync::watch::channel(false).0,
         ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
+        idempotency,
+        sharding: None,
     });
 
     (create_app(state), "mock_token".into())
@@ -164,6 +172,10 @@ pub async fn create_test_app_with_mock_stellar(
     let state = Arc::new(AppState {
         db: pool,
         verifier: stellar,
+        stellar: Arc::new(StellarService::new(
+            mock_stellar_url.to_string(),
+            "testnet".to_string(),
+        )),
         queue,
         performance,
         moderation,
@@ -171,6 +183,8 @@ pub async fn create_test_app_with_mock_stellar(
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
         cache: None,
         invalidator: None,
+        encryption: Arc::new(stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new()),
+        replicas: None,
         db_circuit_breaker: Arc::new(
             stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
                 5,
@@ -180,6 +194,8 @@ pub async fn create_test_app_with_mock_stellar(
         lock_service: None,
         ws_shutdown_tx: tokio::sync::watch::channel(false).0,
         ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
+        idempotency,
+        sharding: None,
     });
 
     (create_app(state), "mock_token".into())

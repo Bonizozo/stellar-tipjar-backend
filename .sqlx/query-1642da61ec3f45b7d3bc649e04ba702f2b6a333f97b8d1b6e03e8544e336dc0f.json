@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE jobs\n                SET status = 'retrying',\n                    error_message = $2,\n                    scheduled_at = NOW() + ($3 || ' seconds')::interval\n                WHERE id = $1\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1642da61ec3f45b7d3bc649e04ba702f2b6a333f97b8d1b6e03e8544e336dc0f"
+}

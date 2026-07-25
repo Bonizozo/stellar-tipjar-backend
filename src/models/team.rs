@@ -47,7 +47,7 @@ pub struct CreateTeamRequest {
     #[validate(length(min = 3, max = 30, message = "Owner username must be between 3 and 30 characters"))]
     pub owner_username: String,
 
-    #[validate]
+    #[validate(nested)]
     pub members: Option<Vec<TeamMemberRequest>>,
 }
 

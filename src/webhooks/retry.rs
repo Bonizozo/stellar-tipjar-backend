@@ -160,6 +160,7 @@ pub async fn deliver_with_context(
     let circuit = get_or_create_circuit(&webhook.url, config);
     let mut last_error = String::new();
     let mut last_status_code: Option<i32> = None;
+    let event_type = ctx.event_type.clone();
 
     // Fail-fast when the circuit is fully open (not half-open).
     if circuit.state() == CircuitState::Open {
@@ -172,7 +173,7 @@ pub async fn deliver_with_context(
             pool,
             webhook.id,
             ctx.delivery_id,
-            event_type,
+            &event_type,
             &payload,
             &msg,
             0,
@@ -190,8 +191,6 @@ pub async fn deliver_with_context(
             delivered_at: None,
         };
     }
-
-    let event_type = ctx.event_type.clone();
 
     for attempt in 0..config.max_attempts {
         if attempt > 0 {

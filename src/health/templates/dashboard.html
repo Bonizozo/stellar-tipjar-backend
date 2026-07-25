@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Service Health Dashboard</title>
+    <meta http-equiv="refresh" content="{{ data.refresh_interval }}">
+    <style>
+        body { font-family: sans-serif; margin: 2rem; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; }
+        .status-healthy { color: #2e7d32; }
+        .status-degraded { color: #ed6c02; }
+        .status-unhealthy { color: #c62828; }
+        .status-unknown { color: #757575; }
+    </style>
+</head>
+<body>
+    <h1>Service Health Dashboard</h1>
+    <p>Overall status: <strong>{{ data.health_summary.overall_status }}</strong></p>
+    <p>Overall uptime: {{ data.health_summary.overall_uptime }}%</p>
+    <p>Active alerts: {{ data.health_summary.active_alerts_count }}</p>
+    <p>Last check: {{ data.health_summary.last_check }}</p>
+    {% if data.selected_service %}<p>Filtered by service: {{ data.selected_service }}</p>{% endif %}
+
+    <h2>Services</h2>
+    <table>
+        <tr><th>Service</th><th>Status</th><th>Uptime</th><th>Trend</th></tr>
+        {% for name, summary in data.health_summary.service_summaries %}
+        <tr>
+            <td>{{ summary.name }}</td>
+            <td class="status-{{ summary.current_status | lower }}">{{ summary.current_status }}</td>
+            <td>{{ summary.uptime_percentage }}%</td>
+            <td>{{ summary.trend }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <h2>Recovery Actions</h2>
+    <table>
+        <tr><th>Service</th><th>Action</th><th>Description</th><th>Created</th><th>Automatic</th></tr>
+        {% for action in data.recovery_actions %}
+        <tr>
+            <td>{{ action.service_name }}</td>
+            <td>{{ action.action_type }}</td>
+            <td>{{ action.description }}</td>
+            <td>{{ action.created_at }}</td>
+            <td>{{ action.automatic }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <p><small>Generated at {{ data.timestamp }}</small></p>
+</body>
+</html>

@@ -95,14 +95,14 @@ impl JobMonitor {
         let status = sqlx::query_as!(
             JobStatus,
             r#"
-            SELECT 
-                $1 as name,
-                MAX(run_at) as last_run,
+            SELECT
+                $1 as "name!",
+                MAX(run_at)::timestamptz as last_run,
                 (SELECT status FROM job_runs WHERE job_name = $1 ORDER BY run_at DESC LIMIT 1) as last_status,
                 (SELECT error_message FROM job_runs WHERE job_name = $1 ORDER BY run_at DESC LIMIT 1) as last_error,
-                COUNT(*) as run_count,
-                COUNT(*) FILTER (WHERE status = 'failure') as failure_count,
-                AVG(duration_ms) as avg_duration_ms
+                COUNT(*) as "run_count!",
+                COUNT(*) FILTER (WHERE status = 'failure') as "failure_count!",
+                AVG(duration_ms)::bigint as avg_duration_ms
             FROM job_runs
             WHERE job_name = $1
             GROUP BY job_name
@@ -119,14 +119,14 @@ impl JobMonitor {
         let statuses = sqlx::query_as!(
             JobStatus,
             r#"
-            SELECT 
-                job_name as name,
-                MAX(run_at) as last_run,
+            SELECT
+                job_name as "name!",
+                MAX(run_at)::timestamptz as last_run,
                 (SELECT status FROM job_runs jr2 WHERE jr2.job_name = jr.job_name ORDER BY run_at DESC LIMIT 1) as last_status,
                 (SELECT error_message FROM job_runs jr2 WHERE jr2.job_name = jr.job_name ORDER BY run_at DESC LIMIT 1) as last_error,
-                COUNT(*) as run_count,
-                COUNT(*) FILTER (WHERE status = 'failure') as failure_count,
-                AVG(duration_ms) as avg_duration_ms
+                COUNT(*) as "run_count!",
+                COUNT(*) FILTER (WHERE status = 'failure') as "failure_count!",
+                AVG(duration_ms)::bigint as avg_duration_ms
             FROM job_runs jr
             GROUP BY job_name
             ORDER BY MAX(run_at) DESC

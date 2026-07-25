@@ -92,7 +92,8 @@ pub fn record(route: &str, method: &str, status: u16, duration: std::time::Durat
     // Attach exemplar — only when there is a valid, sampled OTel trace.
     let span = tracing::Span::current();
     let cx = span.context();
-    let sc = cx.span().span_context();
+    let span_ref = cx.span();
+    let sc = span_ref.span_context();
     if sc.is_sampled() && sc.is_valid() {
         let trace_id = sc.trace_id().to_string();
         let ts = std::time::SystemTime::now()

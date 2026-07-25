@@ -11,7 +11,7 @@ pub struct SchedulerManager {
 }
 
 impl SchedulerManager {
-    pub async fn new(db_pool: PgPool) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(db_pool: PgPool) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let scheduler = JobScheduler::new().await?;
         let monitor = Arc::new(JobMonitor::new(db_pool.clone()));
         
@@ -21,7 +21,7 @@ impl SchedulerManager {
         })
     }
 
-    pub async fn start(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn start(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!("Starting scheduler with jobs");
 
         // Daily tip summary - runs at 1 AM daily
@@ -51,7 +51,7 @@ impl SchedulerManager {
         Ok(())
     }
 
-    async fn add_daily_summary_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn add_daily_summary_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let monitor = self.monitor.clone();
         
         let job = Job::new_async("0 0 1 * * *", move |_uuid, _l| {
@@ -78,7 +78,7 @@ impl SchedulerManager {
         Ok(())
     }
 
-    async fn add_weekly_report_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn add_weekly_report_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let monitor = self.monitor.clone();
         
         let job = Job::new_async("0 0 2 * * 0", move |_uuid, _l| {
@@ -105,7 +105,7 @@ impl SchedulerManager {
         Ok(())
     }
 
-    async fn add_cleanup_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn add_cleanup_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let monitor = self.monitor.clone();
         
         let job = Job::new_async("0 0 3 * * *", move |_uuid, _l| {
@@ -132,7 +132,7 @@ impl SchedulerManager {
         Ok(())
     }
 
-    async fn add_cache_warming_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn add_cache_warming_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let monitor = self.monitor.clone();
         
         let job = Job::new_async("0 0 */6 * * *", move |_uuid, _l| {
@@ -159,7 +159,7 @@ impl SchedulerManager {
         Ok(())
     }
 
-    async fn add_analytics_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn add_analytics_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let monitor = self.monitor.clone();
         
         let job = Job::new_async("0 0 * * * *", move |_uuid, _l| {
@@ -186,13 +186,13 @@ impl SchedulerManager {
         Ok(())
     }
 
-    pub async fn shutdown(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn shutdown(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!("Shutting down scheduler");
         self.scheduler.shutdown().await?;
         Ok(())
     }
 
-    async fn add_backup_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn add_backup_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let monitor = self.monitor.clone();
 
         let job = Job::new_async("0 0 2 * * *", move |_uuid, _l| {
@@ -265,7 +265,7 @@ impl SchedulerManager {
         Ok(())
     }
 
-    async fn add_key_rotation_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn add_key_rotation_job(&self, db_pool: PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let monitor = self.monitor.clone();
 
         let job = Job::new_async("0 0 3 * * 0", move |_uuid, _l| {

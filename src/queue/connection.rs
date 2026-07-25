@@ -79,7 +79,7 @@ impl RabbitMQConnection {
         channel: &Channel,
         queue_name: &str,
         args: FieldTable,
-    ) -> LapinResult<lapin::queue::QueueDeclareOk> {
+    ) -> LapinResult<lapin::Queue> {
         channel
             .queue_declare(
                 queue_name,

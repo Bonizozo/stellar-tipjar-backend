@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::crypto::encryption::EncryptedString;
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct ApiKey {
     pub id: Uuid,
     pub key: String,
@@ -133,6 +133,12 @@ impl ApiKey {
         .bind(secret)
         .fetch_one(pool)
         .await
+    }
+
+    /// Fetch the (decrypted) secret for an active, non-revoked key.
+    pub async fn get_secret(pool: &PgPool, key: &str) -> Result<String, sqlx::Error> {
+        let api_key = Self::get_by_key(pool, key).await?;
+        Ok(api_key.secret.as_str().to_string())
     }
 
     /// Increment usage counter (fire-and-forget; ignore errors).

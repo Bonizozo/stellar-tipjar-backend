@@ -14,7 +14,7 @@ impl CursorManager {
         redis::cmd("SET")
             .arg("indexer:cursor")
             .arg(cursor)
-            .query_async::<_, ()>(&mut self.redis.clone())
+            .query_async::<()>(&mut self.redis.clone())
             .await
             .map_err(|e| AppError::database_error(e.to_string()))
     }
@@ -22,7 +22,7 @@ impl CursorManager {
     pub async fn get_cursor(&self) -> Result<Option<String>, AppError> {
         redis::cmd("GET")
             .arg("indexer:cursor")
-            .query_async::<_, Option<String>>(&mut self.redis.clone())
+            .query_async::<Option<String>>(&mut self.redis.clone())
             .await
             .map_err(|e| AppError::database_error(e.to_string()))
     }

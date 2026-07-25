@@ -272,7 +272,8 @@ pub fn generate_backup_codes() -> Vec<String> {
     let mut rng = thread_rng();
     (0..8)
         .map(|_| {
-            rng.sample_iter(&Alphanumeric)
+            (&mut rng)
+                .sample_iter(&Alphanumeric)
                 .take(10)
                 .map(char::from)
                 .collect()
@@ -289,9 +290,12 @@ pub fn hash_backup_code(code: &str) -> AppResult<String> {
 }
 
 #[tracing::instrument(skip_all)]
-pub fn verify_backup_code(code: &str, backup_code_hashes: &[String]) -> AppResult<Option<usize>> {
+pub fn verify_backup_code(
+    code: &str,
+    backup_code_hashes: &[crate::crypto::encryption::EncryptedString],
+) -> AppResult<Option<usize>> {
     for (idx, hash) in backup_code_hashes.iter().enumerate() {
-        if bcrypt::verify(code, hash).map_err(|e| {
+        if bcrypt::verify(code, hash.as_str()).map_err(|e| {
             tracing::error!(error = %e, "Backup code verification failed");
             AppError::internal()
         })? {

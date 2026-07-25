@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE email_deliveries\n            SET status = 'bounced', bounced_at = $2, error_message = $3\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamp",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cbbe992e69a8eba0e167ee3c756ecfcb8f39c61f03e6f377a206ffd11a6ad1c8"
+}

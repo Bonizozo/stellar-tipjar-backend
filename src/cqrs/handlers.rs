@@ -51,11 +51,13 @@ impl CommandHandler for RegisterCreatorHandler {
                 username,
                 wallet_address,
                 email,
+                ..Default::default()
             },
         )
         .await?;
 
         let event = Event::CreatorRegistered {
+            version: crate::events::types::EVENT_VERSION,
             id: creator.id,
             username: creator.username.clone(),
             wallet_address: creator.wallet_address.clone(),
@@ -89,6 +91,8 @@ impl CommandHandler for RecordTipHandler {
             creator_username,
             amount,
             transaction_hash,
+            tipper_source_account,
+            memo,
         } = cmd
         else {
             return Ok(None);
@@ -103,6 +107,8 @@ impl CommandHandler for RecordTipHandler {
                 transaction_hash,
                 message: None,
                 message_visibility: crate::models::tip::MessageVisibility::Public,
+                memo,
+                tipper_source_account,
             },
         )
         .await?;
@@ -111,6 +117,7 @@ impl CommandHandler for RecordTipHandler {
             creator_controller::get_creator_by_username(&self.state, &tip.creator_username).await
         {
             let event = Event::TipReceived {
+                version: crate::events::types::EVENT_VERSION,
                 id: tip.id,
                 creator_id: creator.id,
                 amount: tip.amount.clone(),

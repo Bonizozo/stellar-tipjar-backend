@@ -1,5 +1,6 @@
 use rust_decimal::Decimal;
 use sqlx::{Postgres, Transaction};
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::errors::AppResult;

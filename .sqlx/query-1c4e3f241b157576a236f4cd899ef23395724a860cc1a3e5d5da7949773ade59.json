@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE email_preferences\n            SET \n                tip_notifications = false,\n                weekly_summary = false,\n                marketing_emails = false,\n                unsubscribed_at = NOW()\n            WHERE creator_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1c4e3f241b157576a236f4cd899ef23395724a860cc1a3e5d5da7949773ade59"
+}

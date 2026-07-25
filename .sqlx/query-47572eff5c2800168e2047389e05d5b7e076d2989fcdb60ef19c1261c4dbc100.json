@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO events (aggregate_id, event_type, event_data, version)\n               VALUES ($1, $2, $3, $4)\n               RETURNING sequence_number",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sequence_number",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "47572eff5c2800168e2047389e05d5b7e076d2989fcdb60ef19c1261c4dbc100"
+}

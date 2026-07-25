@@ -107,7 +107,9 @@ pub async fn get_creator_tips(
             HeaderValue::from_static("Offset pagination is deprecated; use signed keyset cursors."),
         );
     }
-    Ok((headers, axum::http::StatusCode::OK, Json(serde_json::json!(response))).into_response())
+    let mut resp = Json(serde_json::json!(response)).into_response();
+    resp.headers_mut().extend(headers);
+    Ok(resp)
 }
 
 /// Update a creator's wallet address with proof of ownership from the new address.

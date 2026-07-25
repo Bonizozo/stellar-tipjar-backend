@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT client_addr::text as \"addr?\", pg_wal_lsn_diff(sent_lsn, replay_lsn)::bigint as \"lag?\"\n               FROM pg_stat_replication",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "addr?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "lag?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "540c3c63751c270b591b3608c627d342ebcf932f372534e337e52ed7aace6a03"
+}

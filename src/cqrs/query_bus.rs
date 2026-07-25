@@ -39,8 +39,14 @@ impl QueryBus {
             }
 
             Query::ListTipsForCreator { username, params } => {
-                let page =
-                    tip_controller::get_tips_paginated(&self.state, &username, params).await?;
+                let page = tip_controller::get_tips_paginated(
+                    &self.state,
+                    Some(&username),
+                    params,
+                    Default::default(),
+                    Default::default(),
+                )
+                .await?;
                 Ok(QueryResult::Tips(page))
             }
 

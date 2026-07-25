@@ -39,6 +39,7 @@ impl MutationRoot {
             username: input.username,
             wallet_address: input.wallet_address,
             email: input.email,
+            ..Default::default()
         };
         req.validate()
             .map_err(|e| async_graphql::Error::new(e.to_string()))?;

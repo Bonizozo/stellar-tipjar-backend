@@ -29,7 +29,7 @@ fn cursor_secret() -> String {
         .unwrap_or_else(|_| "development-pagination-secret-change-me".to_string())
 }
 
-#[derive(Debug, Clone, Deserialize, IntoParams)]
+#[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
 pub struct PaginationParams {
     /// Page size, max 100 (default: 20).
     #[serde(default = "default_limit")]

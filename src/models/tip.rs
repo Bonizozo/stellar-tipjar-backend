@@ -183,9 +183,6 @@ pub struct RecordTipRequest {
     /// The tipper's Stellar account address (source account of the transaction)
     #[validate(length(min = 56, max = 56, message = "Stellar address must be 56 characters"))]
     pub tipper_source_account: String,
-
-    /// Optional memo included in the Stellar transaction
-    pub memo: Option<String>,
 }
 
 fn validate_tx_hash(hash: &str) -> Result<(), validator::ValidationError> {
@@ -198,7 +195,7 @@ fn validate_tx_hash(hash: &str) -> Result<(), validator::ValidationError> {
 }
 
 /// Query filters for listing tips
-#[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
+#[derive(Debug, Default, Serialize, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 pub struct TipFilters {
     /// Filter by minimum amount (inclusive)
     pub min_amount: Option<String>,
@@ -211,7 +208,7 @@ pub struct TipFilters {
 }
 
 /// Sort parameters for listing tips
-#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[derive(Debug, Serialize, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 pub struct TipSortParams {
     /// Field to sort by: `created_at` or `amount` (default: `created_at`)
     #[serde(default = "TipSortParams::default_sort_by")]
@@ -270,6 +267,7 @@ pub struct TipResponse {
 
 impl From<Tip> for TipResponse {
     fn from(t: Tip) -> Self {
+        let status = t.effective_status().to_string();
         Self {
             id: t.id,
             creator_username: t.creator_username,
@@ -278,7 +276,7 @@ impl From<Tip> for TipResponse {
             message: t.message,
             message_visibility: t.message_visibility.unwrap_or_else(|| "public".to_string()),
             created_at: t.created_at,
-            status: t.effective_status().to_string(),
+            status,
         }
     }
 }

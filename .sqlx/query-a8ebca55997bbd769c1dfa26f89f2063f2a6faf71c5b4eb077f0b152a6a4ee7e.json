@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT \n                c.id,\n                c.username,\n                c.display_name,\n                c.bio,\n                similarity(c.username, $1) as \"rank!\",\n                COUNT(DISTINCT t.id) as \"tip_count!\",\n                COALESCE(SUM(t.amount::decimal), 0) as \"total_received!\"\n            FROM creators c\n            LEFT JOIN tips t ON c.id = t.creator_id\n            WHERE \n                c.username % $1\n                OR c.display_name % $1\n            GROUP BY c.id, c.username, c.display_name, c.bio\n            ORDER BY \"rank!\" DESC\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "bio",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "rank!",
+        "type_info": "Float4"
+      },
+      {
+        "ordinal": 5,
+        "name": "tip_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "total_received!",
+        "type_info": "Numeric"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a8ebca55997bbd769c1dfa26f89f2063f2a6faf71c5b4eb077f0b152a6a4ee7e"
+}

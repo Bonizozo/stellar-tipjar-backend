@@ -22,8 +22,12 @@ pub async fn verify_request_signature(
 ) -> Result<Response, StatusCode> {
     let headers = req.headers();
 
-    let api_key = header_str(headers, "x-api-key").ok_or(StatusCode::UNAUTHORIZED)?;
-    let signature = header_str(headers, "x-signature").ok_or(StatusCode::UNAUTHORIZED)?;
+    let api_key = header_str(headers, "x-api-key")
+        .ok_or(StatusCode::UNAUTHORIZED)?
+        .to_string();
+    let signature = header_str(headers, "x-signature")
+        .ok_or(StatusCode::UNAUTHORIZED)?
+        .to_string();
     let timestamp: i64 = header_str(headers, "x-timestamp")
         .and_then(|s| s.parse().ok())
         .ok_or(StatusCode::UNAUTHORIZED)?;

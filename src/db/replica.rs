@@ -92,7 +92,7 @@ impl ReplicaManager {
     async fn refresh_lag(&self, primary: &PgPool) {
         // Query primary for lag per replica using pg_stat_replication.
         let rows = sqlx::query!(
-            r#"SELECT client_addr::text as "addr?", write_lag_bytes as "lag?"
+            r#"SELECT client_addr::text as "addr?", pg_wal_lsn_diff(sent_lsn, replay_lsn)::bigint as "lag?"
                FROM pg_stat_replication"#
         )
         .fetch_all(primary)

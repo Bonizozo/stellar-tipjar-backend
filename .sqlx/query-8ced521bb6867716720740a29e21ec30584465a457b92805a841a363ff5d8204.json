@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE jobs\n            SET status = 'running',\n                started_at = NOW(),\n                worker_id = $1,\n                retry_count = retry_count + 1\n            WHERE id = (\n                SELECT id FROM jobs\n                WHERE status IN ('pending', 'retrying')\n                  AND scheduled_at <= NOW()\n                ORDER BY priority DESC NULLS LAST, scheduled_at ASC\n                FOR UPDATE SKIP LOCKED\n                LIMIT 1\n            )\n            RETURNING id, job_type, payload, status, retry_count, max_retries,\n                      created_at, scheduled_at, started_at, completed_at,\n                      error_message, worker_id, priority\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "job_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "payload",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "status",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "retry_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "max_retries",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "scheduled_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "completed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "error_message",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "worker_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 12,
+        "name": "priority",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "8ced521bb6867716720740a29e21ec30584465a457b92805a841a363ff5d8204"
+}

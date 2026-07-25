@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM tip_logs WHERE logged_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b9b64e21d4d399de5a9ffa12bc8ebad4422637ea0a0036857fcdf67c2cfef239"
+}
