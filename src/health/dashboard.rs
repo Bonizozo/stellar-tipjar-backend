@@ -104,7 +104,7 @@ impl HealthDashboard {
             _ => return Ok((StatusCode::BAD_REQUEST, "Invalid action type").into_response()),
         };
 
-        match self.recovery_manager.execute_manual_recovery(service_name, action_type).await {
+        match self.recovery_manager.execute_manual_recovery(service_name, action_type.clone()).await {
             Ok(action) => {
                 let body = serde_json::json!({
                     "success": true,
@@ -408,8 +408,14 @@ pub struct RecoveryRequest {
 pub async fn recovery_action_handler(
     State(dashboard): State<Arc<HealthDashboard>>,
     axum::Json(payload): axum::Json<RecoveryRequest>,
-) -> impl IntoResponse {
-    dashboard.execute_manual_recovery(&payload.service_name, &payload.action_type).await
+) -> Response {
+    match dashboard.execute_manual_recovery(&payload.service_name, &payload.action_type).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            tracing::error!("Manual recovery action failed: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response()
+        }
+    }
 }
 
 #[cfg(test)]

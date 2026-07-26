@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT \n                c.id,\n                c.username,\n                c.display_name,\n                c.bio,\n                ts_rank(c.search_vector, to_tsquery('english', $1)) as \"rank!\",\n                COUNT(DISTINCT t.id) as \"tip_count!\",\n                COALESCE(SUM(t.amount::decimal), 0) as \"total_received!\"\n            FROM creators c\n            LEFT JOIN tips t ON c.id = t.creator_id\n            WHERE \n                c.search_vector @@ to_tsquery('english', $1)\n                AND ($2::uuid IS NULL OR c.id = $2)\n                AND ($3::boolean IS NULL OR c.verified = $3)\n            GROUP BY c.id, c.username, c.display_name, c.bio, c.search_vector\n            ORDER BY \"rank!\" DESC, \"tip_count!\" DESC\n            LIMIT $4 OFFSET $5\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "bio",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "rank!",
+        "type_info": "Float4"
+      },
+      {
+        "ordinal": 5,
+        "name": "tip_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "total_received!",
+        "type_info": "Numeric"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Bool",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "90952c1848dfabecf5abdcac1445fd79fdb017bd6687425c17f5d0d2fa271162"
+}

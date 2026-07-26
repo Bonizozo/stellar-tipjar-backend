@@ -113,6 +113,13 @@ async fn test_confirmed_tip_appears_in_list() {
             invalidator: None,
             db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
             lock_service: None,
+        stellar: Arc::new(stellar_tipjar_backend::services::stellar_service::StellarService::new("https://horizon-testnet.stellar.org".to_string(), "testnet".to_string())),
+        encryption: Arc::new(stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new()),
+        replicas: None,
+        ws_shutdown_tx: tokio::sync::watch::channel(false).0,
+        ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
+        idempotency: Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(pool.clone(), None, stellar_tipjar_backend::idempotency::IdempotencyConfig::default())),
+        sharding: None,
         })
     };
 
@@ -158,6 +165,13 @@ async fn test_rejected_tip_hidden_from_list() {
             invalidator: None,
             db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
             lock_service: None,
+        stellar: Arc::new(stellar_tipjar_backend::services::stellar_service::StellarService::new("https://horizon-testnet.stellar.org".to_string(), "testnet".to_string())),
+        encryption: Arc::new(stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new()),
+        replicas: None,
+        ws_shutdown_tx: tokio::sync::watch::channel(false).0,
+        ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
+        idempotency: Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(pool.clone(), None, stellar_tipjar_backend::idempotency::IdempotencyConfig::default())),
+        sharding: None,
         })
     };
 
@@ -318,6 +332,13 @@ async fn test_horizon_5xx_retry_eventual_confirm() {
         invalidator: None,
         db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
         lock_service: None,
+        stellar: Arc::new(stellar_tipjar_backend::services::stellar_service::StellarService::new("https://horizon-testnet.stellar.org".to_string(), "testnet".to_string())),
+        encryption: Arc::new(stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new()),
+        replicas: None,
+        ws_shutdown_tx: tokio::sync::watch::channel(false).0,
+        ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
+        idempotency: Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(pool.clone(), None, stellar_tipjar_backend::idempotency::IdempotencyConfig::default())),
+        sharding: None,
     });
 
     // Spawn the real queue worker so jobs are processed
@@ -395,6 +416,13 @@ async fn test_reconciliation_re_enqueues_stuck_tips() {
         invalidator: None,
         db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
         lock_service: None,
+        stellar: Arc::new(stellar_tipjar_backend::services::stellar_service::StellarService::new("https://horizon-testnet.stellar.org".to_string(), "testnet".to_string())),
+        encryption: Arc::new(stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new()),
+        replicas: None,
+        ws_shutdown_tx: tokio::sync::watch::channel(false).0,
+        ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
+        idempotency: Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(pool.clone(), None, stellar_tipjar_backend::idempotency::IdempotencyConfig::default())),
+        sharding: None,
     });
 
     // Create creator

@@ -103,6 +103,7 @@ impl RecoveryPolicy {
     }
 }
 
+#[async_trait::async_trait]
 pub trait RecoveryHandler: Send + Sync {
     async fn execute_action(&self, action: &RecoveryActionType) -> Result<RecoveryResult>;
     fn service_name(&self) -> &str;
@@ -118,6 +119,7 @@ impl DatabaseRecoveryHandler {
     }
 }
 
+#[async_trait::async_trait]
 impl RecoveryHandler for DatabaseRecoveryHandler {
     async fn execute_action(&self, action: &RecoveryActionType) -> Result<RecoveryResult> {
         match action {
@@ -153,6 +155,7 @@ impl RedisRecoveryHandler {
     }
 }
 
+#[async_trait::async_trait]
 impl RecoveryHandler for RedisRecoveryHandler {
     async fn execute_action(&self, action: &RecoveryActionType) -> Result<RecoveryResult> {
         match action {
@@ -201,6 +204,7 @@ impl ServiceRecoveryHandler {
     }
 }
 
+#[async_trait::async_trait]
 impl RecoveryHandler for ServiceRecoveryHandler {
     async fn execute_action(&self, action: &RecoveryActionType) -> Result<RecoveryResult> {
         match action {
@@ -410,8 +414,9 @@ impl RecoveryManager {
         actions.push(action);
         
         // Keep only recent actions (last 1000)
-        if actions.len() > 1000 {
-            actions.drain(0..actions.len() - 1000);
+        let len = actions.len();
+        if len > 1000 {
+            actions.drain(0..len - 1000);
         }
     }
 

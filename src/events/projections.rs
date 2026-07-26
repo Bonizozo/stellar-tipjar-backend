@@ -17,6 +17,7 @@ impl CreatorProjection {
     pub fn apply(&mut self, event: &Event) {
         match event {
             Event::CreatorRegistered {
+                version: _,
                 id,
                 username,
                 wallet_address,
@@ -49,6 +50,7 @@ mod tests {
 
     fn reg_event(id: Uuid) -> Event {
         Event::CreatorRegistered {
+            version: crate::events::types::EVENT_VERSION,
             id,
             username: "alice".into(),
             wallet_address: "GABC".into(),
@@ -58,6 +60,7 @@ mod tests {
 
     fn tip_event(creator_id: Uuid) -> Event {
         Event::TipReceived {
+            version: crate::events::types::EVENT_VERSION,
             id: Uuid::new_v4(),
             creator_id,
             amount: "5.0".into(),

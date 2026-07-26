@@ -29,10 +29,10 @@ pub fn generate_receipt_pdf(data: &ReceiptData) -> AppResult<Vec<u8>> {
     // Divider line
     layer.add_line_break();
 
-    let mut y = 250.0_f64;
-    let label_x = 20.0_f64;
-    let value_x = 90.0_f64;
-    let line_height = 10.0_f64;
+    let mut y = 250.0_f32;
+    let label_x = 20.0_f32;
+    let value_x = 90.0_f32;
+    let line_height = 10.0_f32;
 
     let rows: &[(&str, String)] = &[
         ("Receipt ID:", data.receipt_id.to_string()),

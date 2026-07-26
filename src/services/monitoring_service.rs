@@ -40,14 +40,14 @@ pub struct MonitoringSnapshot {
 /// Monitors unverified tips in the database and attempts to verify them
 /// against the Stellar network, auto-recording them when confirmed.
 pub struct MonitoringService {
-    stellar: StellarService,
+    stellar: Arc<StellarService>,
     pub stats: Arc<MonitoringStats>,
     poll_interval: Duration,
     shutdown: Arc<RwLock<bool>>,
 }
 
 impl MonitoringService {
-    pub fn new(stellar: StellarService, poll_interval: Duration) -> Self {
+    pub fn new(stellar: Arc<StellarService>, poll_interval: Duration) -> Self {
         Self {
             stellar,
             stats: Arc::new(MonitoringStats::default()),

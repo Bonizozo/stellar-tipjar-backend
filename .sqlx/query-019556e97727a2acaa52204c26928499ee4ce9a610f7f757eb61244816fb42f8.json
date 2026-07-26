@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO jobs (id, job_type, payload, status, priority, max_retries, scheduled_at)\n            VALUES ($1, $2, $3, 'pending', $4, $5, NOW())\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Jsonb",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "019556e97727a2acaa52204c26928499ee4ce9a610f7f757eb61244816fb42f8"
+}

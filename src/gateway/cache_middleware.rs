@@ -1,6 +1,6 @@
 use axum::{
     extract::{Request, State},
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderName, HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -10,6 +10,10 @@ use std::time::{Duration, Instant};
 
 use crate::cache::{CachedHttpResponse, MultiLayerCache};
 use crate::errors::AppError;
+
+fn x_cache_header() -> HeaderName {
+    HeaderName::from_static("x-cache")
+}
 
 /// Configuration for gateway caching middleware
 #[derive(Clone)]
@@ -236,16 +240,18 @@ pub async fn gateway_cache_middleware(
         
         // Copy cached headers
         for (name, values) in &cached_response.headers {
-            for value in values {
-                if let Ok(header_value) = HeaderValue::from_str(value) {
-                    response.headers_mut().append(name, header_value);
+            if let Ok(header_name) = HeaderName::from_bytes(name.as_bytes()) {
+                for value in values {
+                    if let Ok(header_value) = HeaderValue::from_str(value) {
+                        response.headers_mut().append(header_name.clone(), header_value);
+                    }
                 }
             }
         }
         
         // Add cache headers
         response.headers_mut().insert(
-            header::X_CACHE,
+            x_cache_header(),
             HeaderValue::from_static("HIT"),
         );
         
@@ -307,12 +313,12 @@ pub async fn gateway_cache_middleware(
 
         // Add cache headers
         response.headers_mut().insert(
-            header::X_CACHE,
+            x_cache_header(),
             HeaderValue::from_static("MISS"),
         );
     } else {
         response.headers_mut().insert(
-            header::X_CACHE,
+            x_cache_header(),
             HeaderValue::from_static("BYPASS"),
         );
     }
@@ -326,12 +332,13 @@ pub async fn cache_invalidation_middleware(
     req: Request,
     next: Next,
 ) -> Response {
+    let path = req.uri().path().to_owned();
     let response = next.run(req).await;
 
     // Invalidate cache on successful write operations
     if response.status().is_success() {
-        let path = req.uri().path();
-        
+        let path = path.as_str();
+
         // Invalidate patterns based on the path
         let patterns = generate_invalidation_patterns(path);
         

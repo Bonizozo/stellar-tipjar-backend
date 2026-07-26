@@ -45,9 +45,9 @@ pub async fn del(conn: &mut ConnectionManager, keys: &[&str]) {
 
 /// Delete keys matching a pattern. Swallows errors.
 pub async fn del_pattern(conn: &mut ConnectionManager, pattern: &str) {
-    match redis::cmd("KEYS").arg(pattern).query_async::<_, Vec<String>>(conn).await {
+    match redis::cmd("KEYS").arg(pattern).query_async::<Vec<String>>(conn).await {
         Ok(keys) if !keys.is_empty() => {
-            if let Err(e) = conn.del(keys).await {
+            if let Err(e) = conn.del::<_, ()>(keys).await {
                 tracing::warn!("Redis DEL pattern failed for '{}' : {}", pattern, e);
             }
         }

@@ -34,7 +34,7 @@ pub async fn revoke_jti(conn: &ConnectionManager, jti: &str, ttl_secs: i64) {
         .arg(denylist_key(jti))
         .arg(ttl_secs as u64)
         .arg("1")
-        .query_async::<_, ()>(&mut conn)
+        .query_async::<()>(&mut conn)
         .await
     {
         tracing::warn!(error = %e, jti = %jti, "Failed to denylist jti");
@@ -47,7 +47,7 @@ pub async fn bump_epoch(conn: &ConnectionManager, username: &str) {
     let mut conn = conn.clone();
     if let Err(e) = redis::cmd("INCR")
         .arg(epoch_key(username))
-        .query_async::<_, i64>(&mut conn)
+        .query_async::<i64>(&mut conn)
         .await
     {
         tracing::warn!(error = %e, username = %username, "Failed to bump token epoch");
@@ -60,7 +60,7 @@ pub async fn current_epoch(conn: &ConnectionManager, username: &str) -> i64 {
     let mut conn = conn.clone();
     redis::cmd("GET")
         .arg(epoch_key(username))
-        .query_async::<_, Option<i64>>(&mut conn)
+        .query_async::<Option<i64>>(&mut conn)
         .await
         .ok()
         .flatten()

@@ -1,3 +1,5 @@
+use sha2::Digest;
+
 use crate::models::pagination::PaginationParams;
 use crate::models::tip::{TipFilters, TipSortParams};
 

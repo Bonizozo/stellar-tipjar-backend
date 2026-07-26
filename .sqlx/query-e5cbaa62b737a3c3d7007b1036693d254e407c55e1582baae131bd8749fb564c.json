@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                t.id,\n                c.username as creator_username,\n                t.amount::decimal as \"amount!\",\n                t.message,\n                t.created_at,\n                ts_rank(t.search_vector, to_tsquery('english', $1)) as \"rank!\"\n            FROM tips t\n            JOIN creators c ON t.creator_id = c.id\n            WHERE\n                t.search_vector @@ to_tsquery('english', $1)\n                AND ($2::uuid IS NULL OR t.creator_id = $2)\n                AND ($3::timestamp IS NULL OR t.created_at >= $3)\n                AND ($4::timestamp IS NULL OR t.created_at <= $4)\n                AND ($5::decimal IS NULL OR t.amount::decimal >= $5)\n                AND ($6::decimal IS NULL OR t.amount::decimal <= $6)\n            ORDER BY \"rank!\" DESC, t.created_at DESC\n            LIMIT $7 OFFSET $8\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "creator_username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "amount!",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 3,
+        "name": "message",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "rank!",
+        "type_info": "Float4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Timestamp",
+        "Timestamp",
+        "Numeric",
+        "Numeric",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "e5cbaa62b737a3c3d7007b1036693d254e407c55e1582baae131bd8749fb564c"
+}

@@ -121,6 +121,7 @@ impl Default for HealthCheckConfig {
     }
 }
 
+#[async_trait::async_trait]
 pub trait HealthCheck: Send + Sync {
     async fn check(&self) -> Result<HealthCheckResult, HealthCheckError>;
     fn name(&self) -> &str;
@@ -137,6 +138,7 @@ impl DatabaseHealthCheck {
     }
 }
 
+#[async_trait::async_trait]
 impl HealthCheck for DatabaseHealthCheck {
     async fn check(&self) -> Result<HealthCheckResult, HealthCheckError> {
         let start = std::time::Instant::now();
@@ -154,11 +156,6 @@ impl HealthCheck for DatabaseHealthCheck {
 
         match result {
             Ok(Ok(_)) => {
-                let mut metadata = HashMap::new();
-                if let Ok(stats) = self.pool.acquire().await {
-                    metadata.insert("active_connections".to_string(), stats.stat().acquired().to_string());
-                }
-
                 Ok(HealthCheckResult::healthy("database".to_string(), response_time)
                     .with_metadata("connection_pool_size".to_string(), self.pool.size().to_string())
                     .with_metadata("idle_connections".to_string(), self.pool.num_idle().to_string()))
@@ -192,6 +189,7 @@ impl RedisHealthCheck {
     }
 }
 
+#[async_trait::async_trait]
 impl HealthCheck for RedisHealthCheck {
     async fn check(&self) -> Result<HealthCheckResult, HealthCheckError> {
         let start = std::time::Instant::now();
@@ -200,8 +198,8 @@ impl HealthCheck for RedisHealthCheck {
             let result = tokio::time::timeout(
                 Duration::from_millis(self.config.timeout_ms),
                 async {
-                    let mut conn = redis.clone();
-                    redis::cmd("PING").query_async::<_, String>(&mut conn).await
+                    let mut conn = redis.as_ref().clone();
+                    redis::cmd("PING").query_async::<String>(&mut conn).await
                 }
             ).await;
 
@@ -255,6 +253,7 @@ impl StellarHealthCheck {
     }
 }
 
+#[async_trait::async_trait]
 impl HealthCheck for StellarHealthCheck {
     async fn check(&self) -> Result<HealthCheckResult, HealthCheckError> {
         let start = std::time::Instant::now();
@@ -315,6 +314,7 @@ impl DiskSpaceHealthCheck {
     }
 }
 
+#[async_trait::async_trait]
 impl HealthCheck for DiskSpaceHealthCheck {
     async fn check(&self) -> Result<HealthCheckResult, HealthCheckError> {
         let start = std::time::Instant::now();
@@ -395,6 +395,7 @@ impl MemoryHealthCheck {
     }
 }
 
+#[async_trait::async_trait]
 impl HealthCheck for MemoryHealthCheck {
     async fn check(&self) -> Result<HealthCheckResult, HealthCheckError> {
         let start = std::time::Instant::now();

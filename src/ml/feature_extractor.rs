@@ -1,6 +1,6 @@
 use crate::errors::app_error::AppError;
 use crate::models::tip::Tip;
-use chrono::Datelike;
+use chrono::{Datelike, Timelike};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
@@ -38,9 +38,11 @@ impl FeatureExtractor {
         let tips_last_day = self.count_recent_tips(&tip.transaction_hash, 86400).await?;
         let previous_tips = self.count_tips_to_creator(&tip.transaction_hash, &tip.creator_username).await?;
 
+        let amount: f64 = tip.amount.parse().unwrap_or(0.0);
+
         Ok(Features {
-            amount: tip.amount,
-            amount_normalized: (tip.amount / 100.0) as f32,
+            amount,
+            amount_normalized: (amount / 100.0) as f32,
             hour_of_day: tip.created_at.hour() as f32,
             day_of_week: tip.created_at.weekday().number_from_monday() as f32,
             creator_total_tips: creator_history.0,

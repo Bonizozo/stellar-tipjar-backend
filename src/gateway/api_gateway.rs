@@ -69,7 +69,8 @@ impl ApiGateway {
 
         let instance = self
             .load_balancer
-            .select(&instances)
+            .select(&instances, None)
+            .await
             .ok_or_else(|| AppError::service_unavailable("No healthy instances available"))?;
 
         breaker.record_success().await;

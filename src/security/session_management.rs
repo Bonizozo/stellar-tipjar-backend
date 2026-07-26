@@ -168,7 +168,7 @@ impl SessionManager {
 
     async fn store_session_redis(&self, session: &SessionData) -> Result<(), SessionError> {
         let redis = self.redis.as_ref().unwrap();
-        let mut conn = redis.clone();
+        let mut conn = redis.as_ref().clone();
 
         let session_key = format!("session:{}", session.session_id);
         let user_sessions_key = format!("user_sessions:{}", session.user_id);
@@ -181,7 +181,7 @@ impl SessionManager {
             .arg(&session_key)
             .arg(self.config.session_ttl_seconds)
             .arg(&serialized)
-            .query_async::<_, ()>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await
             .map_err(|e| SessionError::RedisError(e.to_string()))?;
 
@@ -189,7 +189,7 @@ impl SessionManager {
         redis::cmd("SADD")
             .arg(&user_sessions_key)
             .arg(&session.session_id)
-            .query_async::<_, ()>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await
             .map_err(|e| SessionError::RedisError(e.to_string()))?;
 
@@ -197,7 +197,7 @@ impl SessionManager {
         redis::cmd("EXPIRE")
             .arg(&user_sessions_key)
             .arg(self.config.absolute_timeout_seconds)
-            .query_async::<_, ()>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await
             .map_err(|e| SessionError::RedisError(e.to_string()))?;
 
@@ -207,7 +207,7 @@ impl SessionManager {
     /// Get a session by ID
     pub async fn get_session(&self, session_id: &str) -> Result<Option<SessionData>, SessionError> {
         if let Some(redis) = &self.redis {
-            let mut conn = redis.clone();
+            let mut conn = redis.as_ref().clone();
             let session_key = format!("session:{}", session_id);
 
             let value: Option<String> = redis::cmd("GET")
@@ -221,7 +221,7 @@ impl SessionManager {
                     .map_err(|e| SessionError::InvalidSessionFormat(e.to_string()))?;
 
                 if session.is_expired() {
-                    self.delete_session(session_id).await?;
+                    Box::pin(self.delete_session(session_id)).await?;
                     return Ok(None);
                 }
 
@@ -251,7 +251,7 @@ impl SessionManager {
 
     async fn update_session_redis(&self, session: &SessionData) -> Result<(), SessionError> {
         let redis = self.redis.as_ref().unwrap();
-        let mut conn = redis.clone();
+        let mut conn = redis.as_ref().clone();
 
         let session_key = format!("session:{}", session.session_id);
         let serialized = serde_json::to_string(session)
@@ -261,7 +261,7 @@ impl SessionManager {
             .arg(&session_key)
             .arg(self.config.session_ttl_seconds)
             .arg(&serialized)
-            .query_async::<_, ()>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await
             .map_err(|e| SessionError::RedisError(e.to_string()))?;
 
@@ -271,7 +271,7 @@ impl SessionManager {
     /// Delete a session
     pub async fn delete_session(&self, session_id: &str) -> Result<(), SessionError> {
         if let Some(redis) = &self.redis {
-            let mut conn = redis.clone();
+            let mut conn = redis.as_ref().clone();
             let session_key = format!("session:{}", session_id);
 
             // Get session data to update user sessions
@@ -282,7 +282,7 @@ impl SessionManager {
                 redis::cmd("SREM")
                     .arg(&user_sessions_key)
                     .arg(session_id)
-                    .query_async::<_, ()>(&mut conn)
+                    .query_async::<()>(&mut conn)
                     .await
                     .map_err(|e| SessionError::RedisError(e.to_string()))?;
             }
@@ -290,7 +290,7 @@ impl SessionManager {
             // Delete session data
             redis::cmd("DEL")
                 .arg(&session_key)
-                .query_async::<_, ()>(&mut conn)
+                .query_async::<()>(&mut conn)
                 .await
                 .map_err(|e| SessionError::RedisError(e.to_string()))?;
         }
@@ -303,7 +303,7 @@ impl SessionManager {
         let mut sessions = Vec::new();
 
         if let Some(redis) = &self.redis {
-            let mut conn = redis.clone();
+            let mut conn = redis.as_ref().clone();
             let user_sessions_key = format!("user_sessions:{}", user_id);
 
             let session_ids: Vec<String> = redis::cmd("SMEMBERS")
@@ -357,7 +357,7 @@ impl SessionManager {
         let mut cleaned_count = 0;
 
         if let Some(redis) = &self.redis {
-            let mut conn = redis.clone();
+            let mut conn = redis.as_ref().clone();
             let pattern = "session:*";
 
             let keys: Vec<String> = redis::cmd("KEYS")
@@ -391,7 +391,7 @@ impl SessionManager {
         };
 
         if let Some(redis) = &self.redis {
-            let mut conn = redis.clone();
+            let mut conn = redis.as_ref().clone();
             let pattern = "session:*";
 
             let keys: Vec<String> = redis::cmd("KEYS")

@@ -54,8 +54,8 @@ impl SignalingServer {
     }
 
     pub fn queue_message(&mut self, message: SignalingMessage) {
-        self.message_queue.push(message);
         tracing::debug!("Queued signaling message: {:?}", message);
+        self.message_queue.push(message);
     }
 
     pub fn get_pending_messages(&mut self) -> Vec<SignalingMessage> {

@@ -1,4 +1,4 @@
--- Migration 0012: Tip Verification Pipeline
+-- Migration 0072: Tip Verification Pipeline
 -- Adds two-phase tip state (pending_verification → confirmed/rejected),
 -- tipper source account for on-chain verification, and enforces exactly-once
 -- ingestion via a UNIQUE constraint on transaction_hash.

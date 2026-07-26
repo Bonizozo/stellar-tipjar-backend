@@ -14,6 +14,7 @@ use crate::errors::{AppError, ValidationError};
 /// on the deserialized body, returning a structured 400 on failure.
 pub struct ValidatedJson<T>(pub T);
 
+#[async_trait::async_trait]
 impl<T, S> FromRequest<S> for ValidatedJson<T>
 where
     T: DeserializeOwned + Validate,

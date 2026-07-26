@@ -334,7 +334,7 @@ pub async fn trigger_webhooks(pool: PgPool, event_type: &str, payload: Value) {
                     _ => vec![webhook.secret.clone()],
                 };
 
-                let mut ctx = sender::DeliveryContext::new(&event_name, secrets[0].clone());
+                let mut ctx = sender::DeliveryContext::new(event.event_type.clone(), secrets[0].clone());
                 if secrets.len() > 1 {
                     ctx.secrets = secrets;
                 }

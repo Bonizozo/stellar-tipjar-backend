@@ -30,7 +30,7 @@ impl RealtimeFraudScorer {
 
         if let Ok(cached) = redis::cmd("GET")
             .arg(&cache_key)
-            .query_async::<_, Option<String>>(&mut self.redis.clone())
+            .query_async::<Option<String>>(&mut self.redis.clone())
             .await
         {
             if let Some(cached_json) = cached {
@@ -47,7 +47,7 @@ impl RealtimeFraudScorer {
             .arg(&cache_key)
             .arg(3600)
             .arg(serde_json::to_string(&score).unwrap_or_default())
-            .query_async::<_, ()>(&mut self.redis.clone())
+            .query_async::<()>(&mut self.redis.clone())
             .await;
 
         Ok(score)

@@ -29,7 +29,7 @@ pub struct TipSearchResult {
     pub creator_username: String,
     pub amount: rust_decimal::Decimal,
     pub message: Option<String>,
-    pub created_at: chrono::NaiveDateTime,
+    pub created_at: chrono::DateTime<chrono::Utc>,
     pub rank: f32,
 }
 
@@ -61,7 +61,7 @@ impl SearchEngine {
                 c.bio,
                 ts_rank(c.search_vector, to_tsquery('english', $1)) as "rank!",
                 COUNT(DISTINCT t.id) as "tip_count!",
-                COALESCE(SUM(t.amount), 0) as "total_received!"
+                COALESCE(SUM(t.amount::decimal), 0) as "total_received!"
             FROM creators c
             LEFT JOIN tips t ON c.id = t.creator_id
             WHERE 
@@ -69,7 +69,7 @@ impl SearchEngine {
                 AND ($2::uuid IS NULL OR c.id = $2)
                 AND ($3::boolean IS NULL OR c.verified = $3)
             GROUP BY c.id, c.username, c.display_name, c.bio, c.search_vector
-            ORDER BY rank DESC, tip_count DESC
+            ORDER BY "rank!" DESC, "tip_count!" DESC
             LIMIT $4 OFFSET $5
             "#,
             search_query,
@@ -99,14 +99,14 @@ impl SearchEngine {
                 c.bio,
                 similarity(c.username, $1) as "rank!",
                 COUNT(DISTINCT t.id) as "tip_count!",
-                COALESCE(SUM(t.amount), 0) as "total_received!"
+                COALESCE(SUM(t.amount::decimal), 0) as "total_received!"
             FROM creators c
             LEFT JOIN tips t ON c.id = t.creator_id
             WHERE 
                 c.username % $1
                 OR c.display_name % $1
             GROUP BY c.id, c.username, c.display_name, c.bio
-            ORDER BY rank DESC
+            ORDER BY "rank!" DESC
             LIMIT $2
             "#,
             query,
@@ -130,23 +130,23 @@ impl SearchEngine {
         let results = sqlx::query_as!(
             TipSearchResult,
             r#"
-            SELECT 
+            SELECT
                 t.id,
                 c.username as creator_username,
-                t.amount,
+                t.amount::decimal as "amount!",
                 t.message,
                 t.created_at,
                 ts_rank(t.search_vector, to_tsquery('english', $1)) as "rank!"
             FROM tips t
             JOIN creators c ON t.creator_id = c.id
-            WHERE 
+            WHERE
                 t.search_vector @@ to_tsquery('english', $1)
                 AND ($2::uuid IS NULL OR t.creator_id = $2)
                 AND ($3::timestamp IS NULL OR t.created_at >= $3)
                 AND ($4::timestamp IS NULL OR t.created_at <= $4)
-                AND ($5::decimal IS NULL OR t.amount >= $5)
-                AND ($6::decimal IS NULL OR t.amount <= $6)
-            ORDER BY rank DESC, t.created_at DESC
+                AND ($5::decimal IS NULL OR t.amount::decimal >= $5)
+                AND ($6::decimal IS NULL OR t.amount::decimal <= $6)
+            ORDER BY "rank!" DESC, t.created_at DESC
             LIMIT $7 OFFSET $8
             "#,
             search_query,

@@ -146,13 +146,15 @@ impl ShardRouter {
     /// containing the first failure.
     pub async fn fan_out<F, Fut, T>(&self, f: F) -> Result<Vec<(u32, T)>, AppError>
     where
-        F: Fn(u32, &PgPool) -> Fut + Send + Sync,
+        F: Fn(u32, PgPool) -> Fut + Send + Sync,
         Fut: std::future::Future<Output = Result<T, AppError>> + Send,
         T: Send,
     {
         let mut futures = Vec::with_capacity(self.num_shards as usize);
+        let f = &f;
 
         for (shard_id, pool) in self.all_pools() {
+            let pool = pool.clone();
             futures.push(async move {
                 let result = f(shard_id, pool).await?;
                 Ok::<(u32, T), AppError>((shard_id, result))

@@ -8,7 +8,7 @@ pub mod scoring;
 pub mod training;
 
 pub use feature_extractor::FeatureExtractor;
-pub use fraud_detector::FraudDetector;
+pub use fraud_detector::{FraudDetector, FraudScore, RiskLevel};
 pub use recommendation_engine::RecommendationEngine;
-pub use scoring::{FraudScore, RealtimeFraudScorer, RiskLevel};
+pub use scoring::RealtimeFraudScorer;
 pub use training::ModelTrainer;

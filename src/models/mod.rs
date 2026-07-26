@@ -15,6 +15,7 @@ pub mod location;
 pub mod notification;
 pub mod oauth2;
 pub mod pagination;
+pub mod portfolio;
 pub mod receipt;
 pub mod refund;
 pub mod scheduled_tip;

@@ -1,0 +1,46 @@
+name: Audit
+
+# Dependency vulnerability/license/duplicate-crate audit. Runs on every PR
+# (so a newly-added dependency with a known advisory is caught before merge)
+# and once a week on main (so advisories published *after* a dependency was
+# already merged still get flagged promptly).
+on:
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "deny.toml"
+      - ".github/workflows/audit.yml"
+  schedule:
+    # Every Monday at 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+
+jobs:
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cargo-linux
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      # Checks advisories (RustSec vulnerability DB), license compatibility,
+      # banned/duplicate crates, and untrusted registry sources in one pass.
+      - name: cargo deny check
+        run: cargo deny check advisories licenses bans sources

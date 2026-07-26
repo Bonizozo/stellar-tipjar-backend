@@ -1,4 +1,4 @@
-use image::{imageops::FilterType, DynamicImage, ImageFormat};
+use image::{imageops::FilterType, DynamicImage, GenericImageView, ImageFormat};
 use std::io::Cursor;
 use crate::upload::validator::UploadError;
 

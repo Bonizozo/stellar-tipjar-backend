@@ -40,7 +40,7 @@ impl SearchCache {
             ))
         })?;
         
-        self.redis.set_ex(key, json, ttl.as_secs() as u64).await?;
+        self.redis.set_ex::<_, _, ()>(key, json, ttl.as_secs() as u64).await?;
         Ok(())
     }
 
@@ -55,7 +55,7 @@ impl SearchCache {
             .await?;
         
         if !keys.is_empty() {
-            self.redis.del(keys).await?;
+            self.redis.del::<_, ()>(keys).await?;
         }
         
         Ok(())

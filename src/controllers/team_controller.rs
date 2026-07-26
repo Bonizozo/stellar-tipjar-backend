@@ -120,7 +120,7 @@ pub async fn list_teams(state: &AppState) -> AppResult<Vec<TeamResponse>> {
     Ok(results)
 }
 
-#[tracing::instrument(skip(state), fields(team_id = %team_id, username = %member_username))]
+#[tracing::instrument(skip(state, member), fields(team_id = %team_id, username = %member.creator_username))]
 pub async fn add_member(
     state: &AppState,
     team_id: Uuid,
@@ -209,11 +209,11 @@ pub async fn record_tip_splits(
     amount: &str,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> AppResult<()> {
-    let team_id = sqlx::query_scalar(
+    let team_id = sqlx::query_scalar::<_, Uuid>(
         "SELECT team_id FROM team_members WHERE creator_username = $1",
     )
     .bind(recipient_username)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await?;
 
     let team_id = if let Some(team_id) = team_id {
@@ -226,7 +226,7 @@ pub async fn record_tip_splits(
         "SELECT team_id, creator_username, share_percentage, added_at FROM team_members WHERE team_id = $1 ORDER BY creator_username ASC",
     )
     .bind(team_id)
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut **tx)
     .await?;
 
     if members.is_empty() {
@@ -262,7 +262,7 @@ pub async fn record_tip_splits(
         .bind(team_id)
         .bind(&member.creator_username)
         .bind(member_amount.to_string())
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     }
 

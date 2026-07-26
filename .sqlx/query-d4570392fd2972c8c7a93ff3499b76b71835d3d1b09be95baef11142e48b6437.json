@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO email_deliveries (id, creator_id, email_type, recipient, subject, status)\n            VALUES ($1, $2, $3, $4, $5, 'pending')\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d4570392fd2972c8c7a93ff3499b76b71835d3d1b09be95baef11142e48b6437"
+}

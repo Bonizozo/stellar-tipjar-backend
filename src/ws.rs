@@ -628,12 +628,16 @@ mod integration {
             .expect("connect_lazy never dials the network");
         let (broadcast_tx, _) = broadcast::channel(capacity);
         let (ws_shutdown_tx, _) = watch::channel(false);
+        let stellar = Arc::new(crate::services::stellar_service::StellarService::new(
+            "https://example.invalid".to_string(),
+            "testnet".to_string(),
+        ));
+        let (queue, _rx) = crate::queue::VerificationQueue::new();
         Arc::new(AppState {
             db: db.clone(),
-            stellar: crate::services::stellar_service::StellarService::new(
-                "https://example.invalid".to_string(),
-                "testnet".to_string(),
-            ),
+            verifier: stellar.clone(),
+            stellar,
+            queue,
             performance: Arc::new(crate::db::performance::PerformanceMonitor::new()),
             redis: None,
             broadcast_tx,
@@ -649,6 +653,12 @@ mod integration {
             lock_service: None,
             ws_shutdown_tx,
             ws_config: config,
+            idempotency: Arc::new(crate::idempotency::IdempotencyService::new(
+                db,
+                None,
+                crate::idempotency::IdempotencyConfig::default(),
+            )),
+            sharding: None,
         })
     }
 

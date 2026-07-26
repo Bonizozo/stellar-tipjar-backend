@@ -1,4 +1,6 @@
 pub mod connection;
+
+pub type DatabasePool = sqlx::PgPool;
 pub mod health;
 pub mod index_advisor;
 pub mod performance;

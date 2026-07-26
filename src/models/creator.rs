@@ -66,7 +66,7 @@ pub struct SocialLink {
 }
 
 /// Request body for creating a new creator
-#[derive(Debug, Deserialize, Validate, ToSchema)]
+#[derive(Debug, Default, Deserialize, Validate, ToSchema)]
 pub struct CreateCreatorRequest {
     /// Unique username (3–30 chars, alphanumeric/underscore/hyphen)
     #[validate(length(
@@ -171,7 +171,7 @@ pub struct UpdateCreatorProfileRequest {
     pub avatar_url: Option<String>,
 
     /// Optional list of social links
-    #[validate]
+    #[validate(nested)]
     pub social_links: Option<Vec<SocialLink>>,
 
     /// Optional categories

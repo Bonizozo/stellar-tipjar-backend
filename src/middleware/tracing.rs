@@ -55,6 +55,10 @@ pub async fn trace_request(req: Request, next: Next) -> Response {
     // is correctly parented in the distributed trace.
     span.set_parent(parent_cx);
 
+    // `_guard` is thread-local-based and not `Send`; it must not be held
+    // across the `.await` below (the whole handler future needs to be Send).
+    drop(_guard);
+
     // Capture the trace-id before we move into the instrumented future.
     let trace_id = {
         let cx = span.context();

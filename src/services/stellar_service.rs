@@ -136,6 +136,7 @@ impl StellarService {
                 .timeout(Duration::from_secs(10))
                 .build()
                 .expect("failed to build reqwest client"),
+            horizon_url,
             rpc_url,
             network,
             submit_timeout: Duration::from_secs(30),
@@ -248,8 +249,6 @@ impl StellarService {
                 } else {
                     Err(AppError::Stellar(StellarError::NetworkUnavailable))
                 }
-                .instrument(span)
-                .await
             }
         })
         .await;

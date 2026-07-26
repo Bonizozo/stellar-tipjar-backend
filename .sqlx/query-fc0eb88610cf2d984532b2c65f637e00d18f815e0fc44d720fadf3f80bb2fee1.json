@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT \n            c.id,\n            c.username,\n            c.email,\n            COUNT(t.id) as tip_count,\n            COALESCE(SUM(t.amount::decimal), 0) as total_amount\n        FROM creators c\n        LEFT JOIN tips t ON c.id = t.creator_id \n            AND t.created_at >= $1\n        WHERE c.email IS NOT NULL\n        GROUP BY c.id, c.username, c.email\n        HAVING COUNT(t.id) > 0\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "tip_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "total_amount",
+        "type_info": "Numeric"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "fc0eb88610cf2d984532b2c65f637e00d18f815e0fc44d720fadf3f80bb2fee1"
+}

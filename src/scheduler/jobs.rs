@@ -6,7 +6,7 @@ use tracing::{info, warn};
 use crate::models::creator::Creator;
 
 /// Generate daily tip summary
-pub async fn generate_daily_summary(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn generate_daily_summary(pool: &PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let yesterday = Utc::now() - Duration::days(1);
     
     let summary = sqlx::query!(
@@ -15,9 +15,9 @@ pub async fn generate_daily_summary(pool: &PgPool) -> Result<(), Box<dyn std::er
         SELECT 
             DATE($1) as date,
             COUNT(*) as total_tips,
-            SUM(amount) as total_amount,
+            SUM(amount::decimal) as total_amount,
             COUNT(DISTINCT creator_id) as unique_creators,
-            COUNT(DISTINCT tipper_address) as unique_tippers
+            COUNT(DISTINCT tipper_wallet) as unique_tippers
         FROM tips
         WHERE created_at >= $1 AND created_at < $1 + INTERVAL '1 day'
         ON CONFLICT (date) DO UPDATE SET
@@ -26,7 +26,7 @@ pub async fn generate_daily_summary(pool: &PgPool) -> Result<(), Box<dyn std::er
             unique_creators = EXCLUDED.unique_creators,
             unique_tippers = EXCLUDED.unique_tippers
         "#,
-        yesterday.naive_utc()
+        yesterday
     )
     .execute(pool)
     .await?;
@@ -36,7 +36,7 @@ pub async fn generate_daily_summary(pool: &PgPool) -> Result<(), Box<dyn std::er
 }
 
 /// Generate weekly creator reports
-pub async fn generate_weekly_report(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn generate_weekly_report(pool: &PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let last_week = Utc::now() - Duration::weeks(1);
     
     let reports = sqlx::query!(
@@ -46,7 +46,7 @@ pub async fn generate_weekly_report(pool: &PgPool) -> Result<(), Box<dyn std::er
             c.username,
             c.email,
             COUNT(t.id) as tip_count,
-            COALESCE(SUM(t.amount), 0) as total_amount
+            COALESCE(SUM(t.amount::decimal), 0) as total_amount
         FROM creators c
         LEFT JOIN tips t ON c.id = t.creator_id 
             AND t.created_at >= $1
@@ -54,7 +54,7 @@ pub async fn generate_weekly_report(pool: &PgPool) -> Result<(), Box<dyn std::er
         GROUP BY c.id, c.username, c.email
         HAVING COUNT(t.id) > 0
         "#,
-        last_week.naive_utc()
+        last_week
     )
     .fetch_all(pool)
     .await?;
@@ -73,13 +73,13 @@ pub async fn generate_weekly_report(pool: &PgPool) -> Result<(), Box<dyn std::er
 }
 
 /// Cleanup old data (logs, expired sessions, etc.)
-pub async fn cleanup_old_data(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn cleanup_old_data(pool: &PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cutoff_date = Utc::now() - Duration::days(90);
     
     // Clean up old tip logs
     let deleted_logs = sqlx::query!(
-        "DELETE FROM tip_logs WHERE created_at < $1",
-        cutoff_date.naive_utc()
+        "DELETE FROM tip_logs WHERE logged_at < $1",
+        cutoff_date
     )
     .execute(pool)
     .await?;
@@ -88,8 +88,8 @@ pub async fn cleanup_old_data(pool: &PgPool) -> Result<(), Box<dyn std::error::E
 
     // Clean up old events
     let deleted_events = sqlx::query!(
-        "DELETE FROM events WHERE created_at < $1 AND processed = true",
-        cutoff_date.naive_utc()
+        "DELETE FROM events WHERE created_at < $1",
+        cutoff_date
     )
     .execute(pool)
     .await?;
@@ -106,7 +106,7 @@ pub async fn cleanup_old_data(pool: &PgPool) -> Result<(), Box<dyn std::error::E
 }
 
 /// Warm cache with frequently accessed data using the multi-layer cache.
-pub async fn warm_cache(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn warm_cache(pool: &PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cache = std::sync::Arc::new(crate::cache::MultiLayerCache::with_defaults());
     let warm_source = std::sync::Arc::new(crate::cache::CreatorWarmSource { pool: pool.clone() });
     let warmer = crate::cache::CacheWarmer::new(
@@ -143,7 +143,7 @@ pub async fn warm_cache(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>>
 }
 
 /// Aggregate analytics data
-pub async fn aggregate_analytics(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn aggregate_analytics(pool: &PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let now = Utc::now();
     let hour_ago = now - Duration::hours(1);
     
@@ -152,10 +152,10 @@ pub async fn aggregate_analytics(pool: &PgPool) -> Result<(), Box<dyn std::error
         r#"
         INSERT INTO hourly_analytics (hour, total_tips, total_amount, avg_amount)
         SELECT 
-            DATE_TRUNC('hour', $1) as hour,
+            DATE_TRUNC('hour', $1::timestamp) as hour,
             COUNT(*) as total_tips,
-            SUM(amount) as total_amount,
-            AVG(amount) as avg_amount
+            SUM(amount::decimal) as total_amount,
+            AVG(amount::decimal) as avg_amount
         FROM tips
         WHERE created_at >= $2 AND created_at < $1
         ON CONFLICT (hour) DO UPDATE SET
@@ -164,7 +164,7 @@ pub async fn aggregate_analytics(pool: &PgPool) -> Result<(), Box<dyn std::error
             avg_amount = EXCLUDED.avg_amount
         "#,
         now.naive_utc(),
-        hour_ago.naive_utc()
+        hour_ago
     )
     .execute(pool)
     .await?;

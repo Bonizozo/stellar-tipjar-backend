@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO email_preferences (creator_id, tip_notifications, weekly_summary, marketing_emails)\n            VALUES ($1, true, true, true)\n            ON CONFLICT (creator_id) DO NOTHING\n            RETURNING creator_id, tip_notifications, weekly_summary, marketing_emails, unsubscribed_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "creator_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tip_notifications",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "weekly_summary",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "marketing_emails",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "unsubscribed_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "55e71bd551c0e7c2eaf90084a6e19c570b1733f68c64018d1b70f7b5178b10ab"
+}

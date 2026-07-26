@@ -165,7 +165,7 @@ impl ShardingManager {
             .router
             .fan_out(|shard_id, pool| async move {
                 let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tips")
-                    .fetch_one(pool)
+                    .fetch_one(&pool)
                     .await
                     .map_err(AppError::from)?;
                 Ok(count)
@@ -183,7 +183,7 @@ impl ShardingManager {
             .router
             .fan_out(|shard_id, pool| async move {
                 let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM creators")
-                    .fetch_one(pool)
+                    .fetch_one(&pool)
                     .await
                     .map_err(AppError::from)?;
                 Ok(count)

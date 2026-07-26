@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT creator_id, tip_notifications, weekly_summary, marketing_emails, unsubscribed_at\n            FROM email_preferences\n            WHERE creator_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "creator_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tip_notifications",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "weekly_summary",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "marketing_emails",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "unsubscribed_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "9a8a713c21e7231bb90ab454fd70903a8d0d1b9c9cd7aefd8b2b0a0282362fbe"
+}

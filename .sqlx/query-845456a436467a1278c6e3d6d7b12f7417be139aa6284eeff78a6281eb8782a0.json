@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE email_preferences\n            SET \n                tip_notifications = COALESCE($2, tip_notifications),\n                weekly_summary = COALESCE($3, weekly_summary),\n                marketing_emails = COALESCE($4, marketing_emails)\n            WHERE creator_id = $1\n            RETURNING creator_id, tip_notifications, weekly_summary, marketing_emails, unsubscribed_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "creator_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tip_notifications",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "weekly_summary",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "marketing_emails",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "unsubscribed_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "845456a436467a1278c6e3d6d7b12f7417be139aa6284eeff78a6281eb8782a0"
+}

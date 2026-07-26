@@ -249,7 +249,7 @@ fn inject_quota_headers(resp: &mut Response, quota: &ClientQuota) {
     );
     let _ = headers.insert(
         "X-Quota-Period",
-        HeaderValue::from_static(quota.period.as_str()),
+        HeaderValue::from_str(quota.period.as_str()).unwrap_or(HeaderValue::from_static("unknown")),
     );
 }
 

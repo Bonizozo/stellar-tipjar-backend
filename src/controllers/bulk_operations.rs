@@ -9,7 +9,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::errors::AppError;
-use crate::models::{Creator, Tip};
+use crate::models::creator::Creator;
+use crate::models::tip::Tip;
 use crate::db::DatabasePool;
 
 /// Configuration for bulk operations
@@ -177,8 +178,8 @@ fn validate_bulk_request_size<T>(items: &[T], config: &BulkOperationConfig) -> R
 /// Create bulk creators endpoint
 pub async fn bulk_create_creators(
     State(state): State<Arc<BulkOperationState>>,
-    Json(request): Json<BulkCreateCreatorsRequest>,
     Query(query): Query<BulkOperationQuery>,
+    Json(request): Json<BulkCreateCreatorsRequest>,
 ) -> Result<Json<BulkOperationResponse<Creator>>, AppError> {
     let start_time = std::time::Instant::now();
     let request_id = request.metadata.request_id.unwrap_or_else(generate_operation_id);
@@ -269,8 +270,8 @@ pub async fn bulk_create_creators(
 /// Update bulk creators endpoint
 pub async fn bulk_update_creators(
     State(state): State<Arc<BulkOperationState>>,
-    Json(request): Json<BulkUpdateCreatorsRequest>,
     Query(query): Query<BulkOperationQuery>,
+    Json(request): Json<BulkUpdateCreatorsRequest>,
 ) -> Result<Json<BulkOperationResponse<Creator>>, AppError> {
     let start_time = std::time::Instant::now();
     let request_id = request.metadata.request_id.unwrap_or_else(generate_operation_id);
@@ -358,8 +359,8 @@ pub async fn bulk_update_creators(
 /// Bulk delete creators endpoint
 pub async fn bulk_delete_creators(
     State(state): State<Arc<BulkOperationState>>,
-    Json(request): Json<BulkDeleteRequest>,
     Query(query): Query<BulkOperationQuery>,
+    Json(request): Json<BulkDeleteRequest>,
 ) -> Result<Json<BulkOperationResponse<Uuid>>, AppError> {
     let start_time = std::time::Instant::now();
     let request_id = request.metadata.request_id.unwrap_or_else(generate_operation_id);
@@ -451,7 +452,7 @@ async fn create_single_creator(
 ) -> Result<Creator, AppError> {
     // This would typically use SQLx to insert into the database
     // For now, we'll simulate the operation
-    tracing::info!("Creating creator: {}", creator.name);
+    tracing::info!("Creating creator: {}", creator.username);
     
     // Simulate database operation
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -490,12 +491,21 @@ async fn update_single_creator(
     // For now, return a mock creator
     Ok(Creator {
         id: update.id,
-        name: update.name.unwrap_or_default(),
+        username: update.name.unwrap_or_default(),
+        wallet_address: String::new(),
         email: update.email,
-        bio: update.bio,
-        avatar_url: update.avatar_url,
+        password_hash: Default::default(),
+        totp_secret: None,
+        totp_enabled: false,
+        backup_code_hashes: Vec::new(),
         created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        bio: update.bio,
+        display_name: None,
+        avatar_url: update.avatar_url,
+        is_verified: false,
+        social_links: serde_json::Value::Null,
+        categories: Vec::new(),
+        tags: Vec::new(),
     })
 }
 

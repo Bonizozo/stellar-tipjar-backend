@@ -69,7 +69,7 @@ impl CompensationHandler {
     }
 
     pub async fn save_workflow_state(&self, workflow: &SagaWorkflow) -> Result<(), AppError> {
-        let workflow_json = serde_json::to_string(workflow)?;
+        let workflow_json = serde_json::to_value(workflow)?;
 
         sqlx::query(
             "INSERT INTO saga_workflows (id, name, state, status, created_at, updated_at)
@@ -96,7 +96,7 @@ impl CompensationHandler {
         .fetch_one(&self.pool)
         .await?;
 
-        let workflow: SagaWorkflow = serde_json::from_str(&row.state)?;
+        let workflow: SagaWorkflow = serde_json::from_value(row.state)?;
         Ok(workflow)
     }
 }
