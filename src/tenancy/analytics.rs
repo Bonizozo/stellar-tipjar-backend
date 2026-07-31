@@ -1,6 +1,6 @@
+use crate::errors::AppError;
 use sqlx::PgPool;
 use uuid::Uuid;
-use crate::errors::AppError;
 
 /// Aggregated analytics for a tenant over a time window
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, utoipa::ToSchema)]
@@ -47,10 +47,7 @@ impl TenantAnalyticsService {
         Ok(analytics)
     }
 
-    pub async fn get_tenant_usage(
-        &self,
-        tenant_id: Uuid,
-    ) -> Result<TenantUsage, AppError> {
+    pub async fn get_tenant_usage(&self, tenant_id: Uuid) -> Result<TenantUsage, AppError> {
         let usage = sqlx::query_as::<_, TenantUsage>(
             "SELECT
                 $1::uuid AS tenant_id,

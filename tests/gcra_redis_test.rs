@@ -56,14 +56,20 @@ async fn admits_exactly_burst_then_rejects() {
     // should be admitted, the 6th should not.
     let mut admitted = 0;
     for _ in 0..5 {
-        let d = limiter.check(&mut conn, &key, 600, 5, 60, now).await.unwrap();
+        let d = limiter
+            .check(&mut conn, &key, 600, 5, 60, now)
+            .await
+            .unwrap();
         if d.allowed {
             admitted += 1;
         }
     }
     assert_eq!(admitted, 5, "all 5 burst slots should be admitted");
 
-    let sixth = limiter.check(&mut conn, &key, 600, 5, 60, now).await.unwrap();
+    let sixth = limiter
+        .check(&mut conn, &key, 600, 5, 60, now)
+        .await
+        .unwrap();
     assert!(!sixth.allowed, "6th immediate request must be rejected");
     assert!(sixth.retry_after_secs > 0);
 }
@@ -122,10 +128,16 @@ async fn window_rollover_recovers_capacity() {
 
     // limit=60/min (1 req/s), burst=3: consume the full burst immediately.
     for _ in 0..3 {
-        let d = limiter.check(&mut conn, &key, 60, 3, 60, now).await.unwrap();
+        let d = limiter
+            .check(&mut conn, &key, 60, 3, 60, now)
+            .await
+            .unwrap();
         assert!(d.allowed);
     }
-    let exhausted = limiter.check(&mut conn, &key, 60, 3, 60, now).await.unwrap();
+    let exhausted = limiter
+        .check(&mut conn, &key, 60, 3, 60, now)
+        .await
+        .unwrap();
     assert!(!exhausted.allowed);
 
     // Advancing the clock a full burst window (3 * 1000ms = 3000ms) should
@@ -149,12 +161,18 @@ async fn rejected_requests_do_not_consume_capacity() {
     let key = unique_key("no-consume-on-reject");
     let now = now_ms();
 
-    let first = limiter.check(&mut conn, &key, 60, 1, 60, now).await.unwrap();
+    let first = limiter
+        .check(&mut conn, &key, 60, 1, 60, now)
+        .await
+        .unwrap();
     assert!(first.allowed);
 
     // Several rapid, rejected retries at the same instant.
     for _ in 0..5 {
-        let d = limiter.check(&mut conn, &key, 60, 1, 60, now).await.unwrap();
+        let d = limiter
+            .check(&mut conn, &key, 60, 1, 60, now)
+            .await
+            .unwrap();
         assert!(!d.allowed);
     }
 
@@ -162,8 +180,14 @@ async fn rejected_requests_do_not_consume_capacity() {
     // request should be admitted — proving the rejections above never ate
     // into capacity.
     let later = now + 1000;
-    let admitted = limiter.check(&mut conn, &key, 60, 1, 60, later).await.unwrap();
+    let admitted = limiter
+        .check(&mut conn, &key, 60, 1, 60, later)
+        .await
+        .unwrap();
     assert!(admitted.allowed);
-    let rejected_again = limiter.check(&mut conn, &key, 60, 1, 60, later).await.unwrap();
+    let rejected_again = limiter
+        .check(&mut conn, &key, 60, 1, 60, later)
+        .await
+        .unwrap();
     assert!(!rejected_again.allowed);
 }

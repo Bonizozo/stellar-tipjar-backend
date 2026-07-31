@@ -17,7 +17,10 @@ use crate::validation::ValidatedJson;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/tips/:tip_id/comments", post(create_comment).get(list_comments))
+        .route(
+            "/tips/:tip_id/comments",
+            post(create_comment).get(list_comments),
+        )
         .route("/tips/:tip_id/comments/:id/replies", get(list_replies))
         .route("/tips/:tip_id/comments/:id", delete(delete_comment))
         .route("/tips/:tip_id/comments/:id/flag", post(flag_comment))
@@ -34,19 +37,20 @@ async fn create_comment(
         .check_content(&body.body, ContentType::TipMessage, None)
         .await;
     if moderation.has_high_confidence_violation(0.90) {
-        return Err(AppError::bad_request("Comment was rejected by content moderation"));
+        return Err(AppError::bad_request(
+            "Comment was rejected by content moderation",
+        ));
     }
 
     let comment = comment_controller::create_comment(&state.db, tip_id, body).await?;
 
     // Notify the tip's creator that a new comment was posted.
     // Look up the creator username from the tip; ignore errors so the comment still succeeds.
-    if let Ok(row) = sqlx::query_scalar::<_, String>(
-        "SELECT creator_username FROM tips WHERE id = $1",
-    )
-    .bind(tip_id)
-    .fetch_one(&state.db)
-    .await
+    if let Ok(row) =
+        sqlx::query_scalar::<_, String>("SELECT creator_username FROM tips WHERE id = $1")
+            .bind(tip_id)
+            .fetch_one(&state.db)
+            .await
     {
         let _ = notification_controller::create_notification(
             &state.db,

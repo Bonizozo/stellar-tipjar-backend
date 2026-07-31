@@ -5,7 +5,7 @@ pub async fn create_test_creator(pool: &PgPool, username: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO creators (id, username, wallet_address, email, created_at) \
-         VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT (username) DO NOTHING"
+         VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT (username) DO NOTHING",
     )
     .bind(id)
     .bind(username)

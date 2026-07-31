@@ -68,14 +68,12 @@ impl TenantProvisioner {
         max_creators: i32,
         max_tips_per_day: i32,
     ) -> Result<(), AppError> {
-        sqlx::query(
-            "UPDATE tenants SET max_creators = $1, max_tips_per_day = $2 WHERE id = $3",
-        )
-        .bind(max_creators)
-        .bind(max_tips_per_day)
-        .bind(tenant_id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE tenants SET max_creators = $1, max_tips_per_day = $2 WHERE id = $3")
+            .bind(max_creators)
+            .bind(max_tips_per_day)
+            .bind(tenant_id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }

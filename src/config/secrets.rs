@@ -36,7 +36,8 @@ impl SecretsManager {
             vault_addr: std::env::var("VAULT_ADDR").ok(),
             vault_token: std::env::var("VAULT_TOKEN").ok(),
             vault_mount: std::env::var("VAULT_MOUNT").unwrap_or_else(|_| "secret".to_string()),
-            vault_path: std::env::var("VAULT_PATH").unwrap_or_else(|_| "stellar-tipjar".to_string()),
+            vault_path: std::env::var("VAULT_PATH")
+                .unwrap_or_else(|_| "stellar-tipjar".to_string()),
             http: reqwest::Client::new(),
             cache: Arc::new(RwLock::new(HashMap::new())),
             ttl: Duration::from_secs(300),
@@ -57,10 +58,7 @@ impl SecretsManager {
             }
         }
 
-        let url = format!(
-            "{}/v1/{}/data/{}",
-            addr, self.vault_mount, self.vault_path
-        );
+        let url = format!("{}/v1/{}/data/{}", addr, self.vault_mount, self.vault_path);
 
         let resp = self
             .http
@@ -83,7 +81,10 @@ impl SecretsManager {
         let mut cache = self.cache.write().await;
         cache.insert(
             key.to_string(),
-            CacheEntry { value: value.clone(), fetched_at: Instant::now() },
+            CacheEntry {
+                value: value.clone(),
+                fetched_at: Instant::now(),
+            },
         );
 
         Some(value)

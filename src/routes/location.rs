@@ -38,7 +38,11 @@ async fn get_location(
 ) -> Result<impl IntoResponse, AppError> {
     match location_controller::get_location(&state, creator_id).await? {
         Some(loc) => Ok((StatusCode::OK, Json(serde_json::json!(loc))).into_response()),
-        None => Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "location not found"}))).into_response()),
+        None => Ok((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "location not found"})),
+        )
+            .into_response()),
     }
 }
 
@@ -60,9 +64,7 @@ async fn geofence(
     Ok((StatusCode::OK, Json(creators)))
 }
 
-async fn analytics(
-    State(state): State<Arc<AppState>>,
-) -> Result<impl IntoResponse, AppError> {
+async fn analytics(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
     let stats = location_controller::location_analytics(&state).await?;
     Ok((StatusCode::OK, Json(stats)))
 }

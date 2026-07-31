@@ -1,6 +1,8 @@
 use chrono::Utc;
 use data_encoding::BASE32_NOPAD;
-use jsonwebtoken::{decode, decode_header, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{
+    decode, decode_header, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation,
+};
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use std::collections::HashMap;
 use totp_lite::{totp_custom, Sha1};
@@ -82,10 +84,18 @@ fn load_keyset() -> AppResult<KeySet> {
 }
 
 fn sign(claims: &Claims, keyset: &KeySet) -> AppResult<String> {
-    let secret = keyset.keys.get(&keyset.active_kid).ok_or_else(AppError::internal)?;
+    let secret = keyset
+        .keys
+        .get(&keyset.active_kid)
+        .ok_or_else(AppError::internal)?;
     let mut header = Header::new(Algorithm::HS256);
     header.kid = Some(keyset.active_kid.clone());
-    encode(&header, claims, &EncodingKey::from_secret(secret.as_bytes())).map_err(|e| {
+    encode(
+        &header,
+        claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .map_err(|e| {
         tracing::error!(error = %e, "Token signing failed");
         AppError::internal()
     })
@@ -103,7 +113,12 @@ pub struct IssuedTokens {
 /// Issues a new access/refresh token pair belonging to refresh-token family
 /// `family_id`, stamped with token version `tv` (see `Claims::tv`).
 #[tracing::instrument(skip_all, fields(username = %username, role = %role))]
-pub fn issue_tokens(username: &str, role: &str, family_id: Uuid, tv: i64) -> AppResult<IssuedTokens> {
+pub fn issue_tokens(
+    username: &str,
+    role: &str,
+    family_id: Uuid,
+    tv: i64,
+) -> AppResult<IssuedTokens> {
     let keyset = load_keyset()?;
     let now = Utc::now().timestamp() as usize;
     let iss = jwt_issuer();
@@ -153,7 +168,12 @@ pub fn issue_tokens(username: &str, role: &str, family_id: Uuid, tv: i64) -> App
 
 /// Convenience wrapper for callers that only need the wire response shape
 /// (register/login/recover — first token issuance for a brand-new family).
-pub fn generate_tokens(username: &str, role: &str, family_id: Uuid, tv: i64) -> AppResult<AuthResponse> {
+pub fn generate_tokens(
+    username: &str,
+    role: &str,
+    family_id: Uuid,
+    tv: i64,
+) -> AppResult<AuthResponse> {
     let issued = issue_tokens(username, role, family_id, tv)?;
     Ok(AuthResponse {
         access_token: issued.access_token,
@@ -187,7 +207,10 @@ pub fn validate_token(token: &str, expected_kind: &str) -> AppResult<Claims> {
         return Err(unauthorized());
     }
 
-    let kid = header.kid.clone().unwrap_or_else(|| keyset.active_kid.clone());
+    let kid = header
+        .kid
+        .clone()
+        .unwrap_or_else(|| keyset.active_kid.clone());
     let secret = keyset.keys.get(&kid).ok_or_else(|| {
         tracing::warn!(kid = %kid, "Rejected token signed with unknown key id");
         unauthorized()
@@ -199,11 +222,15 @@ pub fn validate_token(token: &str, expected_kind: &str) -> AppResult<Claims> {
     validation.validate_aud = false; // checked manually below for a clearer error path
     validation.set_required_spec_claims(&["exp", "iat", "nbf"]);
 
-    let token_data = decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes()), &validation)
-        .map_err(|e| {
-            tracing::warn!(error = %e, "Token validation failed");
-            unauthorized()
-        })?;
+    let token_data = decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &validation,
+    )
+    .map_err(|e| {
+        tracing::warn!(error = %e, "Token validation failed");
+        unauthorized()
+    })?;
 
     let claims = token_data.claims;
 
@@ -247,12 +274,10 @@ pub fn generate_totp_secret() -> AppResult<String> {
 
 #[tracing::instrument(skip_all)]
 pub fn validate_totp_code(secret: &str, code: &str) -> AppResult<bool> {
-    let secret_bytes = BASE32_NOPAD
-        .decode(secret.as_bytes())
-        .map_err(|e| {
-            tracing::error!(error = %e, "Invalid TOTP secret encoding");
-            AppError::unauthorized("Invalid two-factor secret")
-        })?;
+    let secret_bytes = BASE32_NOPAD.decode(secret.as_bytes()).map_err(|e| {
+        tracing::error!(error = %e, "Invalid TOTP secret encoding");
+        AppError::unauthorized("Invalid two-factor secret")
+    })?;
 
     let now = Utc::now().timestamp() as i64;
 
@@ -313,7 +338,9 @@ mod tests {
     #[test]
     fn totp_secret_generation_and_validation() {
         let secret = generate_totp_secret().expect("generate secret");
-        let secret_bytes = BASE32_NOPAD.decode(secret.as_bytes()).expect("decode secret");
+        let secret_bytes = BASE32_NOPAD
+            .decode(secret.as_bytes())
+            .expect("decode secret");
         let timestamp = Utc::now().timestamp() as u64;
         let step = timestamp / 30;
         let code = totp_custom::<Sha1>(step, 6, &secret_bytes, 30);
@@ -325,9 +352,19 @@ mod tests {
     fn backup_code_hash_and_verify() {
         let code = "RECOVERY123";
         let hashed = hash_backup_code(code).expect("hash backup code");
-        let index = verify_backup_code(code, &[hashed.clone()]).expect("verify backup code");
+        let index = verify_backup_code(
+            code,
+            &[crate::crypto::encryption::EncryptedString::new(
+                hashed.clone(),
+            )],
+        )
+        .expect("verify backup code");
         assert_eq!(index, Some(0));
-        let missing = verify_backup_code("WRONGCODE", &[hashed]).expect("verify wrong backup code");
+        let missing = verify_backup_code(
+            "WRONGCODE",
+            &[crate::crypto::encryption::EncryptedString::new(hashed)],
+        )
+        .expect("verify wrong backup code");
         assert_eq!(missing, None);
     }
 
@@ -355,12 +392,14 @@ mod tests {
         let family = Uuid::new_v4();
         let issued = issue_tokens("dave", "creator", family, 3).expect("issue tokens");
 
-        let access_claims = validate_token(&issued.access_token, "access").expect("valid access token");
+        let access_claims =
+            validate_token(&issued.access_token, "access").expect("valid access token");
         assert_eq!(access_claims.tv, 3);
         assert_eq!(access_claims.jti, issued.access_jti.to_string());
         assert!(access_claims.family.is_none());
 
-        let refresh_claims = validate_token(&issued.refresh_token, "refresh").expect("valid refresh token");
+        let refresh_claims =
+            validate_token(&issued.refresh_token, "refresh").expect("valid refresh token");
         assert_eq!(refresh_claims.family, Some(family.to_string()));
         assert_eq!(refresh_claims.jti, issued.refresh_jti.to_string());
 
@@ -376,16 +415,18 @@ mod tests {
         let keys = "old:old-secret-aaaaaaaaaaaaaaaaaaaa,new:new-secret-bbbbbbbbbbbbbbbbbbbb";
         set_keyset_env(keys, "old");
         let family = Uuid::new_v4();
-        let issued_old = issue_tokens("alice", "creator", family, 0).expect("issue with old active key");
+        let issued_old =
+            issue_tokens("alice", "creator", family, 0).expect("issue with old active key");
 
         // Rotate: `new` becomes active, `old` stays in the set for overlap.
         set_keyset_env(keys, "new");
-        let issued_new = issue_tokens("alice", "creator", family, 0).expect("issue with new active key");
+        let issued_new =
+            issue_tokens("alice", "creator", family, 0).expect("issue with new active key");
 
         let old_claims = validate_token(&issued_old.access_token, "access")
             .expect("pre-rotation token must still verify during overlap");
-        let new_claims =
-            validate_token(&issued_new.access_token, "access").expect("post-rotation token must verify");
+        let new_claims = validate_token(&issued_new.access_token, "access")
+            .expect("post-rotation token must verify");
         assert_eq!(old_claims.sub, "alice");
         assert_eq!(new_claims.sub, "alice");
 
@@ -402,7 +443,10 @@ mod tests {
         // Admin finishes the rotation runbook: the retiring kid is dropped entirely.
         set_keyset_env("fresh:fresh-secret-dddddddddddddddddddd", "fresh");
         let result = validate_token(&issued.access_token, "access");
-        assert!(result.is_err(), "token signed with a fully-retired key must be rejected");
+        assert!(
+            result.is_err(),
+            "token signed with a fully-retired key must be rejected"
+        );
 
         clear_keyset_env();
     }
@@ -466,8 +510,12 @@ mod tests {
         // Forge a token using HS384 instead of the pinned HS256.
         let mut header = Header::new(Algorithm::HS384);
         header.kid = Some("alg".to_string());
-        let forged = encode(&header, &claims, &EncodingKey::from_secret(secret.as_bytes()))
-            .expect("encode forged token");
+        let forged = encode(
+            &header,
+            &claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .expect("encode forged token");
 
         assert!(
             validate_token(&forged, "access").is_err(),

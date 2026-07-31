@@ -19,14 +19,14 @@ use tracing_subscriber::layer::Layer;
 /// - `OTEL_SERVICE_VERSION`     (default: Cargo package version)
 /// - `DEPLOYMENT_ENVIRONMENT`   (default: `"development"`)
 fn build_resource() -> Resource {
-    let service_name = std::env::var("OTEL_SERVICE_NAME")
-        .unwrap_or_else(|_| "stellar-tipjar-backend".to_string());
+    let service_name =
+        std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "stellar-tipjar-backend".to_string());
 
     let service_version = std::env::var("OTEL_SERVICE_VERSION")
         .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
 
-    let environment = std::env::var("DEPLOYMENT_ENVIRONMENT")
-        .unwrap_or_else(|_| "development".to_string());
+    let environment =
+        std::env::var("DEPLOYMENT_ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
 
     let hostname = hostname::get()
         .ok()
@@ -107,16 +107,13 @@ pub fn init_tracer() -> Option<impl Layer<tracing_subscriber::Registry> + Send +
 
     // Register W3C TraceContext propagator globally so outbound HTTP clients
     // (reqwest, etc.) can inject the `traceparent` header automatically.
-    global::set_text_map_propagator(
-        opentelemetry_sdk::propagation::TraceContextPropagator::new(),
-    );
+    global::set_text_map_propagator(opentelemetry_sdk::propagation::TraceContextPropagator::new());
 
     let trace_config = sdktrace::config()
         .with_sampler(build_sampler())
         .with_resource(build_resource());
 
-    let mut builder = opentelemetry_sdk::trace::TracerProvider::builder()
-        .with_config(trace_config);
+    let mut builder = opentelemetry_sdk::trace::TracerProvider::builder().with_config(trace_config);
 
     // Attach OTLP batch exporter when an endpoint is configured.
     if let Some(endpoint) = otlp_endpoint {

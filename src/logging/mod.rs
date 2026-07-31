@@ -26,15 +26,9 @@ pub fn init() {
 
     if json_format {
         registry
-            .with(
-                tracing_subscriber::fmt::layer()
-                    .json()
-                    .flatten_event(true),
-            )
+            .with(tracing_subscriber::fmt::layer().json().flatten_event(true))
             .init();
     } else {
-        registry
-            .with(tracing_subscriber::fmt::layer())
-            .init();
+        registry.with(tracing_subscriber::fmt::layer()).init();
     }
 }

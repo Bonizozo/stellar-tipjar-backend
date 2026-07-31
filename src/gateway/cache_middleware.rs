@@ -101,7 +101,8 @@ impl CacheMetrics {
     }
 
     pub fn increment_misses(&self) {
-        self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.misses
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn increment_sets(&self) {
@@ -109,11 +110,13 @@ impl CacheMetrics {
     }
 
     pub fn increment_invalidations(&self) {
-        self.invalidations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.invalidations
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn increment_warm_requests(&self) {
-        self.warm_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.warm_requests
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -141,20 +144,16 @@ fn generate_cache_key(req: &Request, strategy: &CacheKeyStrategy) -> String {
         CacheKeyStrategy::Path => {
             format!("gateway:{}", req.uri().path())
         }
-        CacheKeyStrategy::PathQuery => {
-            format!(
-                "gateway:{}{}",
-                req.uri().path(),
-                req.uri().query().unwrap_or("")
-            )
-        }
+        CacheKeyStrategy::PathQuery => match req.uri().query() {
+            Some(query) => format!("gateway:{}?{}", req.uri().path(), query),
+            None => format!("gateway:{}", req.uri().path()),
+        },
         CacheKeyStrategy::PathQueryHeaders(headers) => {
-            let mut key = format!(
-                "gateway:{}{}",
-                req.uri().path(),
-                req.uri().query().unwrap_or("")
-            );
-            
+            let mut key = match req.uri().query() {
+                Some(query) => format!("gateway:{}?{}", req.uri().path(), query),
+                None => format!("gateway:{}", req.uri().path()),
+            };
+
             for header_name in headers {
                 if let Some(value) = req.headers().get(header_name) {
                     if let Ok(value_str) = value.to_str() {
@@ -163,7 +162,7 @@ fn generate_cache_key(req: &Request, strategy: &CacheKeyStrategy) -> String {
                     }
                 }
             }
-            
+
             key
         }
         CacheKeyStrategy::Custom(func) => func(req),
@@ -199,7 +198,11 @@ fn should_cache_response(
 }
 
 /// Extract TTL from response headers or use default
-fn extract_cache_ttl(headers: &axum::http::HeaderMap, default_ttl: Duration, max_ttl: Duration) -> Duration {
+fn extract_cache_ttl(
+    headers: &axum::http::HeaderMap,
+    default_ttl: Duration,
+    max_ttl: Duration,
+) -> Duration {
     if let Some(cache_control) = headers.get(header::CACHE_CONTROL) {
         if let Ok(cache_control_str) = cache_control.to_str() {
             // Parse max-age directive
@@ -235,36 +238,38 @@ pub async fn gateway_cache_middleware(
     // Try to get from cache
     if let Ok(Some(cached_response)) = state.cache.get_http_response(&cache_key).await {
         state.metrics.increment_hits();
-        
+
         let mut response = cached_response.status().into_response();
-        
+
         // Copy cached headers
         for (name, values) in &cached_response.headers {
             if let Ok(header_name) = HeaderName::from_bytes(name.as_bytes()) {
                 for value in values {
                     if let Ok(header_value) = HeaderValue::from_str(value) {
-                        response.headers_mut().append(header_name.clone(), header_value);
+                        response
+                            .headers_mut()
+                            .append(header_name.clone(), header_value);
                     }
                 }
             }
         }
-        
+
         // Add cache headers
-        response.headers_mut().insert(
-            x_cache_header(),
-            HeaderValue::from_static("HIT"),
-        );
-        
+        response
+            .headers_mut()
+            .insert(x_cache_header(), HeaderValue::from_static("HIT"));
+
         response.headers_mut().insert(
             header::AGE,
             HeaderValue::from_str(
                 &chrono::Utc::now()
                     .signed_duration_since(cached_response.cached_at)
                     .num_seconds()
-                    .to_string()
-            ).unwrap_or(HeaderValue::from_static("0")),
+                    .to_string(),
+            )
+            .unwrap_or(HeaderValue::from_static("0")),
         );
-        
+
         return Ok(response);
     }
 
@@ -287,22 +292,28 @@ pub async fn gateway_cache_middleware(
         for (name, value) in response.headers() {
             let name_str = name.to_string();
             let value_str = value.to_str().unwrap_or("");
-            headers_map.entry(name_str).or_insert_with(Vec::new).push(value_str.to_string());
+            headers_map
+                .entry(name_str)
+                .or_insert_with(Vec::new)
+                .push(value_str.to_string());
         }
 
         // Get response body
         let (parts, body) = response.into_parts();
-        let body_bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap_or_default();
+        let body_bytes = axum::body::to_bytes(body, usize::MAX)
+            .await
+            .unwrap_or_default();
 
         // Create cached response
-        let cached_response = CachedHttpResponse::new(
-            parts.status,
-            headers_map,
-            body_bytes.to_vec(),
-        );
+        let cached_response =
+            CachedHttpResponse::new(parts.status, headers_map, body_bytes.to_vec());
 
         // Store in cache
-        if let Err(e) = state.cache.set_http_response(&cache_key, &cached_response, ttl).await {
+        if let Err(e) = state
+            .cache
+            .set_http_response(&cache_key, &cached_response, ttl)
+            .await
+        {
             tracing::warn!("Failed to cache response: {}", e);
         } else {
             state.metrics.increment_sets();
@@ -312,15 +323,13 @@ pub async fn gateway_cache_middleware(
         response = Response::from_parts(parts, axum::body::Body::from(body_bytes));
 
         // Add cache headers
-        response.headers_mut().insert(
-            x_cache_header(),
-            HeaderValue::from_static("MISS"),
-        );
+        response
+            .headers_mut()
+            .insert(x_cache_header(), HeaderValue::from_static("MISS"));
     } else {
-        response.headers_mut().insert(
-            x_cache_header(),
-            HeaderValue::from_static("BYPASS"),
-        );
+        response
+            .headers_mut()
+            .insert(x_cache_header(), HeaderValue::from_static("BYPASS"));
     }
 
     Ok(response)
@@ -341,7 +350,7 @@ pub async fn cache_invalidation_middleware(
 
         // Invalidate patterns based on the path
         let patterns = generate_invalidation_patterns(path);
-        
+
         for pattern in patterns {
             if let Err(e) = state.cache.invalidate_pattern(&pattern).await {
                 tracing::warn!("Failed to invalidate cache pattern '{}': {}", pattern, e);
@@ -357,16 +366,19 @@ pub async fn cache_invalidation_middleware(
 /// Generate cache invalidation patterns based on request path
 fn generate_invalidation_patterns(path: &str) -> Vec<String> {
     let mut patterns = Vec::new();
-    
+
     // Invalidate exact path
     patterns.push(format!("gateway:{}", path));
-    
+
     // Invalidate parent collections
     let path_parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     if path_parts.len() > 1 {
-        patterns.push(format!("gateway:/{}", path_parts[..path_parts.len()-1].join("/")));
+        patterns.push(format!(
+            "gateway:/{}",
+            path_parts[..path_parts.len() - 1].join("/")
+        ));
     }
-    
+
     // Invalidate list endpoints
     if path.contains("/creators/") {
         patterns.push("gateway:/api/v*/creators".to_string());
@@ -374,7 +386,7 @@ fn generate_invalidation_patterns(path: &str) -> Vec<String> {
     if path.contains("/tips/") {
         patterns.push("gateway:/api/v*/tips".to_string());
     }
-    
+
     patterns
 }
 
@@ -413,7 +425,7 @@ mod tests {
         metrics.increment_hits();
         metrics.increment_hits();
         metrics.increment_misses();
-        
+
         assert_eq!(metrics.hit_rate(), 2.0 / 3.0);
     }
 }

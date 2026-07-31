@@ -38,7 +38,11 @@ async fn get_by_id(
 ) -> Result<impl IntoResponse, AppError> {
     match tx_pool_service::get_by_id(&state, id).await? {
         Some(e) => Ok((StatusCode::OK, Json(TxPoolStatusResponse::from(e))).into_response()),
-        None => Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))).into_response()),
+        None => Ok((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not found"})),
+        )
+            .into_response()),
     }
 }
 
@@ -48,13 +52,15 @@ async fn get_by_hash(
 ) -> Result<impl IntoResponse, AppError> {
     match tx_pool_service::get_by_hash(&state, &tx_hash).await? {
         Some(e) => Ok((StatusCode::OK, Json(TxPoolStatusResponse::from(e))).into_response()),
-        None => Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))).into_response()),
+        None => Ok((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not found"})),
+        )
+            .into_response()),
     }
 }
 
-async fn stats(
-    State(state): State<Arc<AppState>>,
-) -> Result<impl IntoResponse, AppError> {
+async fn stats(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
     let s = tx_pool_service::stats(&state).await?;
     Ok((StatusCode::OK, Json(s)))
 }

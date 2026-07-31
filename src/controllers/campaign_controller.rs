@@ -4,7 +4,9 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::errors::AppResult;
-use crate::models::campaign::{Campaign, CampaignContribution, CampaignMatchResult, CampaignResponse};
+use crate::models::campaign::{
+    Campaign, CampaignContribution, CampaignMatchResult, CampaignResponse,
+};
 
 /// Find the highest-value active campaign for a creator and lock it for the duration of the tip update.
 pub async fn find_active_campaign_for_creator(
@@ -44,8 +46,8 @@ pub async fn apply_tip_matching_campaign(
         return Ok(None);
     };
 
-    let tip_amount = Decimal::from_str(tip_amount)
-        .map_err(|_| crate::errors::AppError::internal())?;
+    let tip_amount =
+        Decimal::from_str(tip_amount).map_err(|_| crate::errors::AppError::internal())?;
     let match_ratio = Decimal::from_str(&campaign.match_ratio)
         .map_err(|_| crate::errors::AppError::internal())?;
     let mut matched_amount = tip_amount * match_ratio;

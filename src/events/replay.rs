@@ -38,10 +38,7 @@ impl<'a> Replayer<'a> {
         up_to_sequence: i64,
     ) -> Result<CreatorProjection, sqlx::Error> {
         // Load events scoped to this aggregate up to the requested sequence.
-        let events = self
-            .store
-            .load_up_to(creator_id, up_to_sequence)
-            .await?;
+        let events = self.store.load_up_to(creator_id, up_to_sequence).await?;
         Ok(CreatorProjection::from_events(&events))
     }
 }

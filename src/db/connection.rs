@@ -5,17 +5,17 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
 
-use crate::services::stellar_service::TipVerifier;
-use crate::queue::VerificationQueue;
 use super::performance::PerformanceMonitor;
 use super::replica::ReplicaManager;
 use crate::cache::{CacheInvalidator, MultiLayerCache};
 use crate::crypto::encryption::EncryptionKeyManager;
 use crate::idempotency::IdempotencyService;
 use crate::moderation::ModerationService;
+use crate::queue::VerificationQueue;
 use crate::services::circuit_breaker::CircuitBreaker;
 use crate::services::distributed_lock::DistributedLockService;
 use crate::services::stellar_service::StellarService;
+use crate::services::stellar_service::TipVerifier;
 use crate::ws::TipEvent;
 
 #[derive(Clone)]
@@ -143,8 +143,8 @@ fn is_retryable_connect_error(e: &sqlx::Error) -> bool {
         e,
         sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed | sqlx::Error::Io(_)
     ) || matches!(e, sqlx::Error::Database(db_err)
-        if db_err.code().map_or(false, |c| {
-            // 57P03 = cannot_connect_now, 08006 = connection_failure
-            c == "57P03" || c == "08006" || c == "08001" || c == "08004"
-        }))
+    if db_err.code().map_or(false, |c| {
+        // 57P03 = cannot_connect_now, 08006 = connection_failure
+        c == "57P03" || c == "08006" || c == "08001" || c == "08004"
+    }))
 }

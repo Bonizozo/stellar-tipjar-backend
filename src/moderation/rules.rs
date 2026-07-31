@@ -19,10 +19,6 @@ lazy_static! {
         r"(?i)\b(buy\s+now|click\s+here|free\s+money|make\s+money\s+fast|crypto\s+giveaway|double\s+your|guaranteed\s+(profit|returns?)|act\s+now|limited\s+time\s+offer|earn\s+\$\d+)\b"
     ).unwrap();
 
-    // Excessive repetition (e.g. "aaaaaa", "!!!!!!") often indicates spam or abuse.
-    static ref REPEATED_CHARS: Regex =
-        Regex::new(r"(.)\1{6,}").unwrap();
-
     // E-mail addresses should not appear in public-facing fields.
     static ref EMAIL_PATTERN: Regex =
         Regex::new(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}").unwrap();
@@ -41,9 +37,21 @@ lazy_static! {
 
 /// Usernames that are reserved and must not be registered.
 const RESERVED_USERNAMES: &[&str] = &[
-    "admin", "administrator", "root", "system", "support",
-    "help", "api", "null", "undefined", "moderator", "mod",
-    "staff", "official", "tipjar", "stellar",
+    "admin",
+    "administrator",
+    "root",
+    "system",
+    "support",
+    "help",
+    "api",
+    "null",
+    "undefined",
+    "moderator",
+    "mod",
+    "staff",
+    "official",
+    "tipjar",
+    "stellar",
 ];
 
 /// Pattern-matching rule engine.
@@ -52,6 +60,30 @@ pub struct RulesEngine;
 impl RulesEngine {
     pub fn new() -> Self {
         Self
+    }
+
+    /// True if `text` contains a run of 7 or more consecutive identical
+    /// characters (e.g. "aaaaaaa", "!!!!!!!"). Checked with a manual scan
+    /// rather than a regex backreference — the `regex` crate doesn't support
+    /// backreferences, so `(.)\1{6,}` can never compile.
+    fn has_repeated_chars(text: &str) -> bool {
+        let mut chars = text.chars();
+        let Some(mut prev) = chars.next() else {
+            return false;
+        };
+        let mut run = 1;
+        for c in chars {
+            if c == prev {
+                run += 1;
+                if run >= 7 {
+                    return true;
+                }
+            } else {
+                prev = c;
+                run = 1;
+            }
+        }
+        false
     }
 
     /// Run all applicable rules for the given content type and return the list
@@ -104,7 +136,7 @@ impl RulesEngine {
             });
         }
 
-        if REPEATED_CHARS.is_match(text) {
+        if Self::has_repeated_chars(text) {
             violations.push(Violation {
                 violation_type: ViolationType::Spam,
                 description: "Content contains excessive repeated characters".to_string(),
@@ -153,7 +185,9 @@ mod tests {
     #[test]
     fn reserved_username_flagged() {
         let v = engine().check("admin", &ContentType::Username);
-        assert!(v.iter().any(|x| x.violation_type == ViolationType::PolicyViolation));
+        assert!(v
+            .iter()
+            .any(|x| x.violation_type == ViolationType::PolicyViolation));
     }
 
     #[test]

@@ -1,14 +1,16 @@
+use chrono::{Duration, Utc};
 use sqlx::PgPool;
-use chrono::{Utc, Duration};
 use std::env;
 use tracing::{info, warn};
 
 use crate::models::creator::Creator;
 
 /// Generate daily tip summary
-pub async fn generate_daily_summary(pool: &PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn generate_daily_summary(
+    pool: &PgPool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let yesterday = Utc::now() - Duration::days(1);
-    
+
     let summary = sqlx::query!(
         r#"
         INSERT INTO daily_summaries (date, total_tips, total_amount, unique_creators, unique_tippers)
@@ -31,14 +33,19 @@ pub async fn generate_daily_summary(pool: &PgPool) -> Result<(), Box<dyn std::er
     .execute(pool)
     .await?;
 
-    info!("Daily summary generated: {} rows affected", summary.rows_affected());
+    info!(
+        "Daily summary generated: {} rows affected",
+        summary.rows_affected()
+    );
     Ok(())
 }
 
 /// Generate weekly creator reports
-pub async fn generate_weekly_report(pool: &PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn generate_weekly_report(
+    pool: &PgPool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let last_week = Utc::now() - Duration::weeks(1);
-    
+
     let reports = sqlx::query!(
         r#"
         SELECT 
@@ -60,12 +67,14 @@ pub async fn generate_weekly_report(pool: &PgPool) -> Result<(), Box<dyn std::er
     .await?;
 
     info!("Generated {} weekly reports", reports.len());
-    
+
     // TODO: Send email notifications with reports
     for report in reports {
         info!(
             "Creator {} received {} tips totaling {} in the last week",
-            report.username, report.tip_count.unwrap_or(0), report.total_amount.unwrap_or(rust_decimal::Decimal::ZERO)
+            report.username,
+            report.tip_count.unwrap_or(0),
+            report.total_amount.unwrap_or(rust_decimal::Decimal::ZERO)
         );
     }
 
@@ -73,26 +82,22 @@ pub async fn generate_weekly_report(pool: &PgPool) -> Result<(), Box<dyn std::er
 }
 
 /// Cleanup old data (logs, expired sessions, etc.)
-pub async fn cleanup_old_data(pool: &PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn cleanup_old_data(
+    pool: &PgPool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cutoff_date = Utc::now() - Duration::days(90);
-    
+
     // Clean up old tip logs
-    let deleted_logs = sqlx::query!(
-        "DELETE FROM tip_logs WHERE logged_at < $1",
-        cutoff_date
-    )
-    .execute(pool)
-    .await?;
+    let deleted_logs = sqlx::query!("DELETE FROM tip_logs WHERE logged_at < $1", cutoff_date)
+        .execute(pool)
+        .await?;
 
     info!("Deleted {} old tip logs", deleted_logs.rows_affected());
 
     // Clean up old events
-    let deleted_events = sqlx::query!(
-        "DELETE FROM events WHERE created_at < $1",
-        cutoff_date
-    )
-    .execute(pool)
-    .await?;
+    let deleted_events = sqlx::query!("DELETE FROM events WHERE created_at < $1", cutoff_date)
+        .execute(pool)
+        .await?;
 
     info!("Deleted {} old events", deleted_events.rows_affected());
 
@@ -126,10 +131,7 @@ pub async fn warm_cache(pool: &PgPool) -> Result<(), Box<dyn std::error::Error +
     for board_type in &board_types {
         for period in &periods {
             let response = crate::controllers::leaderboard_controller::get_leaderboard(
-                pool,
-                period,
-                board_type,
-                50,
+                pool, period, board_type, 50,
             )
             .await;
             if let Ok(result) = response {
@@ -143,10 +145,12 @@ pub async fn warm_cache(pool: &PgPool) -> Result<(), Box<dyn std::error::Error +
 }
 
 /// Aggregate analytics data
-pub async fn aggregate_analytics(pool: &PgPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn aggregate_analytics(
+    pool: &PgPool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let now = Utc::now();
     let hour_ago = now - Duration::hours(1);
-    
+
     // Aggregate hourly stats
     let stats = sqlx::query!(
         r#"
@@ -169,6 +173,9 @@ pub async fn aggregate_analytics(pool: &PgPool) -> Result<(), Box<dyn std::error
     .execute(pool)
     .await?;
 
-    info!("Aggregated analytics: {} rows affected", stats.rows_affected());
+    info!(
+        "Aggregated analytics: {} rows affected",
+        stats.rows_affected()
+    );
     Ok(())
 }

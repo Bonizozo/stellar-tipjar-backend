@@ -1,6 +1,8 @@
 //! Job queue management and database operations
 
-use crate::jobs::{Job, JobError, JobId, JobPayload, JobResult, JobRow, JobStatus, JobType, RetryPolicy, WorkerId};
+use crate::jobs::{
+    Job, JobError, JobId, JobPayload, JobResult, JobRow, JobStatus, JobType, RetryPolicy, WorkerId,
+};
 use chrono::Utc;
 use sqlx::PgPool;
 use std::sync::Arc;

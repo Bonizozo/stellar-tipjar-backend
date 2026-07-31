@@ -9,7 +9,7 @@ mod common;
 async fn test_username_too_short_rejected() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let resp = server
         .post("/creators")
@@ -26,7 +26,7 @@ async fn test_username_too_short_rejected() {
 async fn test_username_invalid_chars_rejected() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let resp = server
         .post("/creators")
@@ -41,7 +41,7 @@ async fn test_username_invalid_chars_rejected() {
 async fn test_invalid_stellar_address_rejected() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     // Wrong prefix
     let resp = server
@@ -64,7 +64,7 @@ async fn test_invalid_stellar_address_rejected() {
 async fn test_invalid_email_rejected() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let resp = server
         .post("/creators")
@@ -87,7 +87,7 @@ async fn test_invalid_email_rejected() {
 async fn test_invalid_tx_hash_rejected() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     // Not 64 chars
     let resp = server
@@ -114,7 +114,7 @@ async fn test_invalid_tx_hash_rejected() {
 async fn test_invalid_amount_rejected() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let valid_hash = "a".repeat(64);
 
@@ -128,7 +128,9 @@ async fn test_invalid_amount_rejected() {
     // Too many decimal places
     let resp = server
         .post("/tips")
-        .json(&json!({ "username": "alice", "amount": "1.12345678", "transaction_hash": valid_hash }))
+        .json(
+            &json!({ "username": "alice", "amount": "1.12345678", "transaction_hash": valid_hash }),
+        )
         .await;
     resp.assert_status(StatusCode::BAD_REQUEST);
 
@@ -146,7 +148,7 @@ async fn test_invalid_amount_rejected() {
 async fn test_tip_message_too_long_rejected() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let resp = server
         .post("/tips")
@@ -166,7 +168,7 @@ async fn test_tip_message_too_long_rejected() {
 async fn test_malformed_json_rejected() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let resp = server
         .post("/creators")

@@ -7,9 +7,13 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::errors::AppError;
-use crate::sharding::monitor::{record_cross_query, record_query, ShardClusterHealth, ShardMonitor};
+use crate::sharding::monitor::{
+    record_cross_query, record_query, ShardClusterHealth, ShardMonitor,
+};
 use crate::sharding::rebalancer::{RebalanceReport, ShardRebalancer};
-use crate::sharding::router::{ShardDescriptor, ShardRouter, ShardRouterBuilder, ShardStats, ShardStatus};
+use crate::sharding::router::{
+    ShardDescriptor, ShardRouter, ShardRouterBuilder, ShardStats, ShardStatus,
+};
 use crate::sharding::strategy::ShardingStrategy;
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -234,10 +238,7 @@ pub async fn init_sharding(primary_dsn: &str) -> Option<Arc<ShardingManager>> {
     match ShardingManager::from_config(&config).await {
         Ok(manager) => {
             manager.start_monitor();
-            tracing::info!(
-                num_shards = config.num_shards,
-                "Sharding manager started"
-            );
+            tracing::info!(num_shards = config.num_shards, "Sharding manager started");
             Some(Arc::new(manager))
         }
         Err(e) => {

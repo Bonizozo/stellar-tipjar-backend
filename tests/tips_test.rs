@@ -8,12 +8,13 @@ use axum_test::TestServer;
 use httpmock::prelude::*;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::task::JoinSet;
 use uuid::Uuid;
 
 mod common;
 
-use common::{cleanup_test_db, create_test_app, create_test_app_with_verifier, setup_test_db, MockTipVerifier};
+use common::{
+    cleanup_test_db, create_test_app, create_test_app_with_verifier, setup_test_db, MockTipVerifier,
+};
 use stellar_tipjar_backend::controllers::tip_controller;
 use stellar_tipjar_backend::errors::AppError;
 use stellar_tipjar_backend::services::stellar_service::VerifyOutcome;
@@ -60,15 +61,21 @@ fn tip_body(username: &str, tx_hash: &str) -> Value {
 async fn test_happy_path_tip_submitted_as_pending() {
     let pool = setup_test_db().await;
     let (app, _) = create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     create_creator(&server, "happy_creator").await;
 
-    let resp = server.post("/tips").json(&tip_body("happy_creator", TX_HASH)).await;
+    let resp = server
+        .post("/tips")
+        .json(&tip_body("happy_creator", TX_HASH))
+        .await;
     resp.assert_status(StatusCode::CREATED);
 
     let body: Value = resp.json();
-    assert_eq!(body["status"], "pending_verification", "Tip should enter as pending_verification");
+    assert_eq!(
+        body["status"], "pending_verification",
+        "Tip should enter as pending_verification"
+    );
     assert_eq!(body["creator_username"], "happy_creator");
     assert_eq!(body["amount"], "10.5");
 
@@ -76,7 +83,10 @@ async fn test_happy_path_tip_submitted_as_pending() {
     let list_resp = server.get("/creators/happy_creator/tips").await;
     list_resp.assert_status(StatusCode::OK);
     let tips: Vec<Value> = list_resp.json();
-    assert!(tips.is_empty(), "Pending tip should not appear in public list");
+    assert!(
+        tips.is_empty(),
+        "Pending tip should not appear in public list"
+    );
 
     cleanup_test_db(&pool).await;
 }
@@ -86,21 +96,27 @@ async fn test_happy_path_tip_submitted_as_pending() {
 async fn test_confirmed_tip_appears_in_list() {
     let pool = setup_test_db().await;
     let (app, _) = create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     create_creator(&server, "confirm_creator").await;
 
     // Submit tip
-    let resp = server.post("/tips").json(&tip_body("confirm_creator", TX_HASH)).await;
+    let resp = server
+        .post("/tips")
+        .json(&tip_body("confirm_creator", TX_HASH))
+        .await;
     resp.assert_status(StatusCode::CREATED);
     let body: Value = resp.json();
     let tip_id: uuid::Uuid = body["id"].as_str().unwrap().parse().unwrap();
 
     // Build a minimal AppState for calling confirm_tip directly
     let state = {
-        let performance = Arc::new(stellar_tipjar_backend::db::performance::PerformanceMonitor::new());
+        let performance =
+            Arc::new(stellar_tipjar_backend::db::performance::PerformanceMonitor::new());
         let (queue, _) = stellar_tipjar_backend::queue::VerificationQueue::new();
-        let moderation = Arc::new(stellar_tipjar_backend::moderation::ModerationService::new(pool.clone()));
+        let moderation = Arc::new(stellar_tipjar_backend::moderation::ModerationService::new(
+            pool.clone(),
+        ));
         Arc::new(stellar_tipjar_backend::db::connection::AppState {
             db: pool.clone(),
             verifier: MockTipVerifier::always_confirm(),
@@ -111,20 +127,40 @@ async fn test_confirmed_tip_appears_in_list() {
             broadcast_tx: tokio::sync::broadcast::channel(16).0,
             cache: None,
             invalidator: None,
-            db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
+            db_circuit_breaker: Arc::new(
+                stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
+                    5,
+                    std::time::Duration::from_secs(60),
+                ),
+            ),
             lock_service: None,
-        stellar: Arc::new(stellar_tipjar_backend::services::stellar_service::StellarService::new("https://horizon-testnet.stellar.org".to_string(), "testnet".to_string())),
-        encryption: Arc::new(stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new()),
-        replicas: None,
-        ws_shutdown_tx: tokio::sync::watch::channel(false).0,
-        ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
-        idempotency: Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(pool.clone(), None, stellar_tipjar_backend::idempotency::IdempotencyConfig::default())),
-        sharding: None,
+            stellar: Arc::new(
+                stellar_tipjar_backend::services::stellar_service::StellarService::new(
+                    "https://horizon-testnet.stellar.org".to_string(),
+                    "testnet".to_string(),
+                ),
+            ),
+            encryption: Arc::new(
+                stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new(),
+            ),
+            replicas: None,
+            ws_shutdown_tx: tokio::sync::watch::channel(false).0,
+            ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
+            idempotency: Arc::new(
+                stellar_tipjar_backend::idempotency::IdempotencyService::new(
+                    pool.clone(),
+                    None,
+                    stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
+                ),
+            ),
+            sharding: None,
         })
     };
 
     // Drive to confirmed
-    tip_controller::confirm_tip(&state, tip_id).await.expect("confirm_tip failed");
+    tip_controller::confirm_tip(&state, tip_id)
+        .await
+        .expect("confirm_tip failed");
 
     // Now the tip should appear in the list
     let list_resp = server.get("/creators/confirm_creator/tips").await;
@@ -141,18 +177,28 @@ async fn test_confirmed_tip_appears_in_list() {
 async fn test_rejected_tip_hidden_from_list() {
     let pool = setup_test_db().await;
     let (app, _) = create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     create_creator(&server, "reject_creator").await;
 
-    let resp = server.post("/tips").json(&tip_body("reject_creator", TX_HASH)).await;
+    let resp = server
+        .post("/tips")
+        .json(&tip_body("reject_creator", TX_HASH))
+        .await;
     resp.assert_status(StatusCode::CREATED);
-    let tip_id: uuid::Uuid = resp.json::<Value>()["id"].as_str().unwrap().parse().unwrap();
+    let tip_id: uuid::Uuid = resp.json::<Value>()["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
 
     let state = {
-        let performance = Arc::new(stellar_tipjar_backend::db::performance::PerformanceMonitor::new());
+        let performance =
+            Arc::new(stellar_tipjar_backend::db::performance::PerformanceMonitor::new());
         let (queue, _) = stellar_tipjar_backend::queue::VerificationQueue::new();
-        let moderation = Arc::new(stellar_tipjar_backend::moderation::ModerationService::new(pool.clone()));
+        let moderation = Arc::new(stellar_tipjar_backend::moderation::ModerationService::new(
+            pool.clone(),
+        ));
         Arc::new(stellar_tipjar_backend::db::connection::AppState {
             db: pool.clone(),
             verifier: MockTipVerifier::always_confirm(),
@@ -163,24 +209,47 @@ async fn test_rejected_tip_hidden_from_list() {
             broadcast_tx: tokio::sync::broadcast::channel(16).0,
             cache: None,
             invalidator: None,
-            db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
+            db_circuit_breaker: Arc::new(
+                stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
+                    5,
+                    std::time::Duration::from_secs(60),
+                ),
+            ),
             lock_service: None,
-        stellar: Arc::new(stellar_tipjar_backend::services::stellar_service::StellarService::new("https://horizon-testnet.stellar.org".to_string(), "testnet".to_string())),
-        encryption: Arc::new(stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new()),
-        replicas: None,
-        ws_shutdown_tx: tokio::sync::watch::channel(false).0,
-        ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
-        idempotency: Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(pool.clone(), None, stellar_tipjar_backend::idempotency::IdempotencyConfig::default())),
-        sharding: None,
+            stellar: Arc::new(
+                stellar_tipjar_backend::services::stellar_service::StellarService::new(
+                    "https://horizon-testnet.stellar.org".to_string(),
+                    "testnet".to_string(),
+                ),
+            ),
+            encryption: Arc::new(
+                stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new(),
+            ),
+            replicas: None,
+            ws_shutdown_tx: tokio::sync::watch::channel(false).0,
+            ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
+            idempotency: Arc::new(
+                stellar_tipjar_backend::idempotency::IdempotencyService::new(
+                    pool.clone(),
+                    None,
+                    stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
+                ),
+            ),
+            sharding: None,
         })
     };
 
-    tip_controller::reject_tip(&state, tip_id, "amount mismatch").await.expect("reject_tip failed");
+    tip_controller::reject_tip(&state, tip_id, "amount mismatch")
+        .await
+        .expect("reject_tip failed");
 
     let list_resp = server.get("/creators/reject_creator/tips").await;
     list_resp.assert_status(StatusCode::OK);
     let tips: Vec<Value> = list_resp.json();
-    assert!(tips.is_empty(), "Rejected tip must not appear in public list");
+    assert!(
+        tips.is_empty(),
+        "Rejected tip must not appear in public list"
+    );
 
     cleanup_test_db(&pool).await;
 }
@@ -193,11 +262,14 @@ async fn test_amount_mismatch_is_rejected() {
         reason: "Amount mismatch: expected 105000000 stroops, on-chain 100000000".to_string(),
     })]);
     let (app, _) = create_test_app_with_verifier(pool.clone(), verifier).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     create_creator(&server, "amount_creator").await;
 
-    let resp = server.post("/tips").json(&tip_body("amount_creator", TX_HASH)).await;
+    let resp = server
+        .post("/tips")
+        .json(&tip_body("amount_creator", TX_HASH))
+        .await;
     // The tip is accepted into pending_verification (HTTP 201) – rejection happens asynchronously.
     resp.assert_status(StatusCode::CREATED);
     let body: Value = resp.json();
@@ -214,10 +286,13 @@ async fn test_destination_mismatch_rejected() {
         reason: "No native payment to GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5 found in transaction".to_string(),
     })]);
     let (app, _) = create_test_app_with_verifier(pool.clone(), verifier).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     create_creator(&server, "dest_creator").await;
-    let resp = server.post("/tips").json(&tip_body("dest_creator", TX_HASH)).await;
+    let resp = server
+        .post("/tips")
+        .json(&tip_body("dest_creator", TX_HASH))
+        .await;
     resp.assert_status(StatusCode::CREATED);
     assert_eq!(resp.json::<Value>()["status"], "pending_verification");
 
@@ -232,7 +307,7 @@ async fn test_memo_mismatch_rejected() {
         reason: "Memo mismatch: expected 'expected_memo', got 'wrong_memo'".to_string(),
     })]);
     let (app, _) = create_test_app_with_verifier(pool.clone(), verifier).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     create_creator(&server, "memo_creator").await;
     let resp = server
@@ -260,26 +335,35 @@ async fn test_duplicate_tx_hash_race() {
     // Pre-create the creator outside the race so the FK constraint is satisfied.
     {
         let (app, _) = create_test_app(pool.clone()).await;
-        let server = TestServer::new(app).unwrap();
+        let server = common::test_server(app);
         create_creator(&server, "race_creator").await;
     }
 
     // Fire 5 concurrent submissions of the same tx_hash.
-    let mut join_set = JoinSet::new();
+    //
+    // `TestServer`'s request future isn't `Send` (axum-test's internal
+    // cookie-jar state isn't thread-safe), so `JoinSet::spawn`/`tokio::spawn`
+    // can't be used here — `futures::future::join_all` interleaves polling on
+    // the current task instead, which is all this race test needs.
+    let mut tasks: Vec<std::pin::Pin<Box<dyn std::future::Future<Output = StatusCode>>>> =
+        Vec::new();
     for _ in 0..5 {
         let pool_clone = pool.clone();
-        join_set.spawn(async move {
+        tasks.push(Box::pin(async move {
             let (app, _) = create_test_app(pool_clone).await;
-            let server = TestServer::new(app).unwrap();
-            let resp = server.post("/tips").json(&tip_body("race_creator", TX_HASH)).await;
+            let server = common::test_server(app);
+            let resp = server
+                .post("/tips")
+                .json(&tip_body("race_creator", TX_HASH))
+                .await;
             resp.status_code()
-        });
+        }));
     }
 
     let mut created = 0u32;
     let mut conflict = 0u32;
-    while let Some(res) = join_set.join_next().await {
-        match res.unwrap() {
+    for status in futures::future::join_all(tasks).await {
+        match status {
             StatusCode::CREATED => created += 1,
             StatusCode::CONFLICT => conflict += 1,
             other => panic!("Unexpected status code: {}", other),
@@ -287,7 +371,10 @@ async fn test_duplicate_tx_hash_race() {
     }
 
     assert_eq!(created, 1, "Exactly one submission should succeed");
-    assert_eq!(conflict, 4, "The other four should be rejected as duplicates");
+    assert_eq!(
+        conflict, 4,
+        "The other four should be rejected as duplicates"
+    );
 
     // Verify only one record in the database
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tips WHERE transaction_hash = $1")
@@ -295,7 +382,10 @@ async fn test_duplicate_tx_hash_race() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(count, 1, "Database must contain exactly one tip for this tx_hash");
+    assert_eq!(
+        count, 1,
+        "Database must contain exactly one tip for this tx_hash"
+    );
 
     cleanup_test_db(&pool).await;
 }
@@ -318,7 +408,9 @@ async fn test_horizon_5xx_retry_eventual_confirm() {
 
     let performance = Arc::new(stellar_tipjar_backend::db::performance::PerformanceMonitor::new());
     let (queue, queue_rx) = stellar_tipjar_backend::queue::VerificationQueue::new();
-    let moderation = Arc::new(stellar_tipjar_backend::moderation::ModerationService::new(pool.clone()));
+    let moderation = Arc::new(stellar_tipjar_backend::moderation::ModerationService::new(
+        pool.clone(),
+    ));
 
     let state = Arc::new(stellar_tipjar_backend::db::connection::AppState {
         db: pool.clone(),
@@ -330,14 +422,32 @@ async fn test_horizon_5xx_retry_eventual_confirm() {
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
         cache: None,
         invalidator: None,
-        db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
+        db_circuit_breaker: Arc::new(
+            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(60),
+            ),
+        ),
         lock_service: None,
-        stellar: Arc::new(stellar_tipjar_backend::services::stellar_service::StellarService::new("https://horizon-testnet.stellar.org".to_string(), "testnet".to_string())),
-        encryption: Arc::new(stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new()),
+        stellar: Arc::new(
+            stellar_tipjar_backend::services::stellar_service::StellarService::new(
+                "https://horizon-testnet.stellar.org".to_string(),
+                "testnet".to_string(),
+            ),
+        ),
+        encryption: Arc::new(
+            stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new(),
+        ),
         replicas: None,
         ws_shutdown_tx: tokio::sync::watch::channel(false).0,
         ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
-        idempotency: Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(pool.clone(), None, stellar_tipjar_backend::idempotency::IdempotencyConfig::default())),
+        idempotency: Arc::new(
+            stellar_tipjar_backend::idempotency::IdempotencyService::new(
+                pool.clone(),
+                None,
+                stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
+            ),
+        ),
         sharding: None,
     });
 
@@ -359,7 +469,10 @@ async fn test_horizon_5xx_retry_eventual_confirm() {
         stellar_tipjar_backend::models::tip::RecordTipRequest {
             username: "retry_creator".to_string(),
             amount: "10.5".to_string(),
+            tipper_wallet: None,
             transaction_hash: TX_HASH.to_string(),
+            message: None,
+            message_visibility: stellar_tipjar_backend::models::tip::MessageVisibility::Public,
             tipper_source_account: TIPPER_ADDR.to_string(),
             memo: None,
         },
@@ -376,18 +489,20 @@ async fn test_horizon_5xx_retry_eventual_confirm() {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         sleep(Duration::from_millis(200)).await;
-        let status: Option<String> =
-            sqlx::query_scalar("SELECT status FROM tips WHERE id = $1")
-                .bind(tip.id)
-                .fetch_optional(&pool)
-                .await
-                .unwrap();
+        let status: Option<String> = sqlx::query_scalar("SELECT status FROM tips WHERE id = $1")
+            .bind(tip.id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
 
         if status.as_deref() == Some("confirmed") {
             break; // ✅
         }
         if std::time::Instant::now() > deadline {
-            panic!("Tip was not confirmed within the deadline. Status: {:?}", status);
+            panic!(
+                "Tip was not confirmed within the deadline. Status: {:?}",
+                status
+            );
         }
     }
 
@@ -402,7 +517,9 @@ async fn test_reconciliation_re_enqueues_stuck_tips() {
 
     let performance = Arc::new(stellar_tipjar_backend::db::performance::PerformanceMonitor::new());
     let (queue, _queue_rx) = stellar_tipjar_backend::queue::VerificationQueue::new();
-    let moderation = Arc::new(stellar_tipjar_backend::moderation::ModerationService::new(pool.clone()));
+    let moderation = Arc::new(stellar_tipjar_backend::moderation::ModerationService::new(
+        pool.clone(),
+    ));
 
     let state = Arc::new(stellar_tipjar_backend::db::connection::AppState {
         db: pool.clone(),
@@ -414,14 +531,32 @@ async fn test_reconciliation_re_enqueues_stuck_tips() {
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
         cache: None,
         invalidator: None,
-        db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
+        db_circuit_breaker: Arc::new(
+            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(60),
+            ),
+        ),
         lock_service: None,
-        stellar: Arc::new(stellar_tipjar_backend::services::stellar_service::StellarService::new("https://horizon-testnet.stellar.org".to_string(), "testnet".to_string())),
-        encryption: Arc::new(stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new()),
+        stellar: Arc::new(
+            stellar_tipjar_backend::services::stellar_service::StellarService::new(
+                "https://horizon-testnet.stellar.org".to_string(),
+                "testnet".to_string(),
+            ),
+        ),
+        encryption: Arc::new(
+            stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new(),
+        ),
         replicas: None,
         ws_shutdown_tx: tokio::sync::watch::channel(false).0,
         ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
-        idempotency: Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(pool.clone(), None, stellar_tipjar_backend::idempotency::IdempotencyConfig::default())),
+        idempotency: Arc::new(
+            stellar_tipjar_backend::idempotency::IdempotencyService::new(
+                pool.clone(),
+                None,
+                stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
+            ),
+        ),
         sharding: None,
     });
 
@@ -450,7 +585,10 @@ async fn test_reconciliation_re_enqueues_stuck_tips() {
 
     // Run reconciliation
     let enqueued = stellar_tipjar_backend::jobs::reconciliation::run_once(Arc::clone(&state)).await;
-    assert_eq!(enqueued, 1, "Reconciliation should have re-enqueued 1 stuck tip");
+    assert_eq!(
+        enqueued, 1,
+        "Reconciliation should have re-enqueued 1 stuck tip"
+    );
 
     cleanup_test_db(&pool).await;
 }
@@ -460,7 +598,7 @@ async fn test_reconciliation_re_enqueues_stuck_tips() {
 async fn test_invalid_request_missing_source_account() {
     let pool = setup_test_db().await;
     let (app, _) = create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     create_creator(&server, "valid_creator2").await;
 
@@ -485,7 +623,7 @@ async fn test_invalid_request_missing_source_account() {
 async fn test_invalid_amount_too_many_decimals() {
     let pool = setup_test_db().await;
     let (app, _) = create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     create_creator(&server, "decimal_creator").await;
 
@@ -508,7 +646,7 @@ async fn test_invalid_amount_too_many_decimals() {
 async fn test_get_creator_tips_paginated() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     server
         .post("/creators")
@@ -530,9 +668,7 @@ async fn test_get_creator_tips_paginated() {
     }
 
     // Page 1, limit 2
-    let resp = server
-        .get("/creators/paguser/tips?page=1&limit=2")
-        .await;
+    let resp = server.get("/creators/paguser/tips?page=1&limit=2").await;
     resp.assert_status(StatusCode::OK);
     let body = resp.json::<serde_json::Value>();
     assert_eq!(body["data"].as_array().unwrap().len(), 2);
@@ -542,9 +678,7 @@ async fn test_get_creator_tips_paginated() {
     assert_eq!(body["has_prev"], false);
 
     // Page 3 (last page, 1 item)
-    let resp = server
-        .get("/creators/paguser/tips?page=3&limit=2")
-        .await;
+    let resp = server.get("/creators/paguser/tips?page=3&limit=2").await;
     resp.assert_status(StatusCode::OK);
     let body = resp.json::<serde_json::Value>();
     assert_eq!(body["data"].as_array().unwrap().len(), 1);
@@ -558,7 +692,7 @@ async fn test_get_creator_tips_paginated() {
 async fn test_list_tips_with_filters() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     server
         .post("/creators")
@@ -609,8 +743,8 @@ async fn test_list_tips_with_filters() {
 
 #[cfg(test)]
 mod unit {
-    use stellar_tipjar_backend::validation::amount::xlm_to_stroops_str;
     use stellar_tipjar_backend::services::stellar_service::StellarService;
+    use stellar_tipjar_backend::validation::amount::xlm_to_stroops_str;
 
     /// Integer stroop conversion must be exact.
     #[test]
@@ -629,7 +763,10 @@ mod unit {
     /// StellarService::xlm_to_stroops must match our helper.
     #[test]
     fn stellar_service_xlm_to_stroops() {
-        assert_eq!(StellarService::xlm_to_stroops("10.5000000").unwrap(), 105_000_000);
+        assert_eq!(
+            StellarService::xlm_to_stroops("10.5000000").unwrap(),
+            105_000_000
+        );
         assert_eq!(StellarService::xlm_to_stroops("0.0000001").unwrap(), 1);
     }
 }

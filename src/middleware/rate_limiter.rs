@@ -8,11 +8,11 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use governor::middleware::StateInformationMiddleware;
 use tower_governor::{
     errors::GovernorError, governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor,
     GovernorLayer,
 };
-use governor::middleware::StateInformationMiddleware;
 
 // ---------------------------------------------------------------------------
 // User tier definitions
@@ -75,10 +75,9 @@ fn is_whitelisted(ip: IpAddr) -> bool {
 
 fn rate_limit_error_handler(err: GovernorError) -> Response {
     let (retry_after, message) = match &err {
-        GovernorError::TooManyRequests { wait_time, .. } => (
-            *wait_time,
-            "Rate limit exceeded. Please slow down.",
-        ),
+        GovernorError::TooManyRequests { wait_time, .. } => {
+            (*wait_time, "Rate limit exceeded. Please slow down.")
+        }
         GovernorError::UnableToExtractKey => (0, "Unable to identify client."),
         GovernorError::Other { code, msg, .. } => {
             tracing::warn!(code = ?code, msg = ?msg, "Governor: unexpected error");
@@ -98,10 +97,8 @@ fn rate_limit_error_handler(err: GovernorError) -> Response {
 
     let mut resp = (StatusCode::TOO_MANY_REQUESTS, axum::Json(body)).into_response();
     if retry_after > 0 {
-        resp.headers_mut().insert(
-            "Retry-After",
-            retry_after.to_string().parse().unwrap(),
-        );
+        resp.headers_mut()
+            .insert("Retry-After", retry_after.to_string().parse().unwrap());
     }
     resp
 }
@@ -157,7 +154,9 @@ pub fn write_limiter() -> GovernorLayer<PeerIpKeyExtractor, StateInformationMidd
 }
 
 /// Build a limiter for a specific user tier.
-pub fn tier_limiter(tier: UserTier) -> GovernorLayer<PeerIpKeyExtractor, StateInformationMiddleware> {
+pub fn tier_limiter(
+    tier: UserTier,
+) -> GovernorLayer<PeerIpKeyExtractor, StateInformationMiddleware> {
     let (per_second, burst_size) = tier.limits();
     build_layer(per_second, burst_size)
 }
@@ -173,10 +172,7 @@ pub fn tier_limiter(tier: UserTier) -> GovernorLayer<PeerIpKeyExtractor, StateIn
 ///
 /// Key: `throttle:{ip}:{window_secs_bucket}`
 /// Limit: `REDIS_RATE_LIMIT` requests per `REDIS_RATE_WINDOW_SECS` window.
-pub async fn redis_throttle_middleware(
-    req: Request,
-    next: Next,
-) -> Response {
+pub async fn redis_throttle_middleware(req: Request, next: Next) -> Response {
     use redis::AsyncCommands;
 
     let limit = env_u64("REDIS_RATE_LIMIT", 100) as i64;
@@ -227,17 +223,26 @@ pub async fn redis_throttle_middleware(
                 "request_id": crate::middleware::request_id::current_request_id(),
             });
             let mut resp = (StatusCode::TOO_MANY_REQUESTS, axum::Json(body)).into_response();
-            resp.headers_mut().insert("X-RateLimit-Limit", limit.to_string().parse().unwrap());
-            resp.headers_mut().insert("X-RateLimit-Remaining", "0".parse().unwrap());
-            resp.headers_mut().insert("X-RateLimit-Reset", reset_secs.to_string().parse().unwrap());
-            resp.headers_mut().insert("Retry-After", reset_secs.to_string().parse().unwrap());
+            resp.headers_mut()
+                .insert("X-RateLimit-Limit", limit.to_string().parse().unwrap());
+            resp.headers_mut()
+                .insert("X-RateLimit-Remaining", "0".parse().unwrap());
+            resp.headers_mut()
+                .insert("X-RateLimit-Reset", reset_secs.to_string().parse().unwrap());
+            resp.headers_mut()
+                .insert("Retry-After", reset_secs.to_string().parse().unwrap());
             return resp;
         }
 
         let mut resp = next.run(req).await;
-        resp.headers_mut().insert("X-RateLimit-Limit", limit.to_string().parse().unwrap());
-        resp.headers_mut().insert("X-RateLimit-Remaining", remaining.to_string().parse().unwrap());
-        resp.headers_mut().insert("X-RateLimit-Reset", reset_secs.to_string().parse().unwrap());
+        resp.headers_mut()
+            .insert("X-RateLimit-Limit", limit.to_string().parse().unwrap());
+        resp.headers_mut().insert(
+            "X-RateLimit-Remaining",
+            remaining.to_string().parse().unwrap(),
+        );
+        resp.headers_mut()
+            .insert("X-RateLimit-Reset", reset_secs.to_string().parse().unwrap());
         resp
     } else {
         // No Redis – fall through (local governor layers still apply).

@@ -33,10 +33,7 @@ impl ReceiptData {
         let (tax_amount, total) = if let Some(rate) = tax_rate {
             let tax = amount * rate;
             let total = amount + tax;
-            (
-                Some(format!("{:.7}", tax)),
-                format!("{:.7}", total),
-            )
+            (Some(format!("{:.7}", tax)), format!("{:.7}", total))
         } else {
             (None, amount_xlm.clone())
         };

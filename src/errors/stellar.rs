@@ -167,9 +167,7 @@ pub fn map_op_result_code(code: &str) -> Option<&'static str> {
         "op_malformed" => Some("Operation is malformed or invalid."),
         "op_underfunded" => Some("Insufficient balance to send this amount."),
         "op_src_no_trust" => Some("Source account is missing a trustline for this asset."),
-        "op_src_not_authorized" => {
-            Some("Source account is not authorized to send this asset.")
-        }
+        "op_src_not_authorized" => Some("Source account is not authorized to send this asset."),
         "op_no_destination" => {
             Some("Destination account does not exist and must be created with at least 1 XLM.")
         }

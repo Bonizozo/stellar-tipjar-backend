@@ -42,9 +42,7 @@ pub fn cors_layer_from_env() -> CorsLayer {
         // No specific origins configured — allow any (no credentials)
         layer.allow_origin(tower_http::cors::Any)
     } else {
-        layer
-            .allow_origin(origins)
-            .allow_credentials(true)
+        layer.allow_origin(origins).allow_credentials(true)
     }
 }
 
@@ -61,7 +59,10 @@ mod tests {
 
     #[test]
     fn builds_with_specific_origins() {
-        std::env::set_var("CORS_ALLOWED_ORIGINS", "http://localhost:3000,https://example.com");
+        std::env::set_var(
+            "CORS_ALLOWED_ORIGINS",
+            "http://localhost:3000,https://example.com",
+        );
         let _layer = cors_layer_from_env();
         std::env::remove_var("CORS_ALLOWED_ORIGINS");
     }

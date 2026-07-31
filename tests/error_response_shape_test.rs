@@ -84,8 +84,15 @@ async fn fetch(path: &str) -> (StatusCode, serde_json::Value, Option<String>) {
 }
 
 /// Asserts the common envelope shape every error response must satisfy.
-fn assert_envelope_shape(json: &serde_json::Value, expected_status: StatusCode, expected_code: &str) {
-    assert!(json["error"].is_string(), "`error` must be a string: {json}");
+fn assert_envelope_shape(
+    json: &serde_json::Value,
+    expected_status: StatusCode,
+    expected_code: &str,
+) {
+    assert!(
+        json["error"].is_string(),
+        "`error` must be a string: {json}"
+    );
     assert_eq!(json["code"], expected_code);
     assert_eq!(json["status"], expected_status.as_u16());
     assert!(
@@ -123,7 +130,11 @@ async fn returns_structured_404_for_not_found() {
 async fn returns_structured_422_for_unprocessable_entity() {
     let (status, json, header_id) = fetch("/unprocessable").await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_envelope_shape(&json, StatusCode::UNPROCESSABLE_ENTITY, "STELLAR_INVALID_TX");
+    assert_envelope_shape(
+        &json,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "STELLAR_INVALID_TX",
+    );
     assert_eq!(json["details"]["reason"], "signature mismatch");
     assert_eq!(json["request_id"], header_id.unwrap());
 }

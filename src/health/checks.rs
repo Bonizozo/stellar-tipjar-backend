@@ -142,24 +142,26 @@ impl DatabaseHealthCheck {
 impl HealthCheck for DatabaseHealthCheck {
     async fn check(&self) -> Result<HealthCheckResult, HealthCheckError> {
         let start = std::time::Instant::now();
-        
-        let result = tokio::time::timeout(
-            Duration::from_millis(self.config.timeout_ms),
-            async {
-                sqlx::query("SELECT 1")
-                    .fetch_one(self.pool.as_ref())
-                    .await
-            }
-        ).await;
+
+        let result = tokio::time::timeout(Duration::from_millis(self.config.timeout_ms), async {
+            sqlx::query("SELECT 1").fetch_one(self.pool.as_ref()).await
+        })
+        .await;
 
         let response_time = start.elapsed().as_millis() as u64;
 
         match result {
-            Ok(Ok(_)) => {
-                Ok(HealthCheckResult::healthy("database".to_string(), response_time)
-                    .with_metadata("connection_pool_size".to_string(), self.pool.size().to_string())
-                    .with_metadata("idle_connections".to_string(), self.pool.num_idle().to_string()))
-            }
+            Ok(Ok(_)) => Ok(
+                HealthCheckResult::healthy("database".to_string(), response_time)
+                    .with_metadata(
+                        "connection_pool_size".to_string(),
+                        self.pool.size().to_string(),
+                    )
+                    .with_metadata(
+                        "idle_connections".to_string(),
+                        self.pool.num_idle().to_string(),
+                    ),
+            ),
             Ok(Err(e)) => Ok(HealthCheckResult::unhealthy(
                 "database".to_string(),
                 format!("Database query failed: {}", e),
@@ -195,20 +197,22 @@ impl HealthCheck for RedisHealthCheck {
         let start = std::time::Instant::now();
 
         if let Some(redis) = &self.redis {
-            let result = tokio::time::timeout(
-                Duration::from_millis(self.config.timeout_ms),
-                async {
+            let result =
+                tokio::time::timeout(Duration::from_millis(self.config.timeout_ms), async {
                     let mut conn = redis.as_ref().clone();
                     redis::cmd("PING").query_async::<String>(&mut conn).await
-                }
-            ).await;
+                })
+                .await;
 
             let response_time = start.elapsed().as_millis() as u64;
 
             match result {
                 Ok(Ok(response)) => {
                     if response == "PONG" {
-                        Ok(HealthCheckResult::healthy("redis".to_string(), response_time))
+                        Ok(HealthCheckResult::healthy(
+                            "redis".to_string(),
+                            response_time,
+                        ))
                     } else {
                         Ok(HealthCheckResult::degraded(
                             "redis".to_string(),
@@ -263,15 +267,19 @@ impl HealthCheck for StellarHealthCheck {
 
         let result = tokio::time::timeout(
             Duration::from_millis(self.config.timeout_ms),
-            client.get(&url).send()
-        ).await;
+            client.get(&url).send(),
+        )
+        .await;
 
         let response_time = start.elapsed().as_millis() as u64;
 
         match result {
             Ok(Ok(response)) => {
                 if response.status().is_success() {
-                    Ok(HealthCheckResult::healthy("stellar".to_string(), response_time))
+                    Ok(HealthCheckResult::healthy(
+                        "stellar".to_string(),
+                        response_time,
+                    ))
                 } else {
                     Ok(HealthCheckResult::degraded(
                         "stellar".to_string(),
@@ -305,7 +313,11 @@ pub struct DiskSpaceHealthCheck {
 }
 
 impl DiskSpaceHealthCheck {
-    pub fn new(config: HealthCheckConfig, warning_threshold_bytes: u64, critical_threshold_bytes: u64) -> Self {
+    pub fn new(
+        config: HealthCheckConfig,
+        warning_threshold_bytes: u64,
+        critical_threshold_bytes: u64,
+    ) -> Self {
         Self {
             config,
             warning_threshold_bytes,
@@ -321,13 +333,17 @@ impl HealthCheck for DiskSpaceHealthCheck {
 
         match self.get_disk_space().await {
             Ok((total_bytes, free_bytes)) => {
-                let used_percentage = ((total_bytes - free_bytes) as f64 / total_bytes as f64) * 100.0;
+                let used_percentage =
+                    ((total_bytes - free_bytes) as f64 / total_bytes as f64) * 100.0;
                 let response_time = start.elapsed().as_millis() as u64;
 
                 let mut metadata = HashMap::new();
                 metadata.insert("total_bytes".to_string(), total_bytes.to_string());
                 metadata.insert("free_bytes".to_string(), free_bytes.to_string());
-                metadata.insert("used_percentage".to_string(), format!("{:.2}", used_percentage));
+                metadata.insert(
+                    "used_percentage".to_string(),
+                    format!("{:.2}", used_percentage),
+                );
 
                 if free_bytes < self.critical_threshold_bytes {
                     Ok(HealthCheckResult::unhealthy(
@@ -342,7 +358,10 @@ impl HealthCheck for DiskSpaceHealthCheck {
                         response_time,
                     ))
                 } else {
-                    Ok(HealthCheckResult::healthy("disk_space".to_string(), response_time))
+                    Ok(HealthCheckResult::healthy(
+                        "disk_space".to_string(),
+                        response_time,
+                    ))
                 }
             }
             Err(e) => Ok(HealthCheckResult::unhealthy(
@@ -363,17 +382,17 @@ impl DiskSpaceHealthCheck {
         // This is a simplified implementation
         // In a real implementation, you would use sysinfo or similar crate
         use std::fs;
-        
+
         let current_dir = std::env::current_dir()
             .map_err(|e| HealthCheckError::ConfigurationError(e.to_string()))?;
-        
+
         let metadata = fs::metadata(&current_dir)
             .map_err(|e| HealthCheckError::ConfigurationError(e.to_string()))?;
 
         // For demonstration, return dummy values
         // In production, you'd use a proper disk space checking library
         let total_bytes = 100_000_000_000u64; // 100GB
-        let free_bytes = 50_000_000_000u64;  // 50GB
+        let free_bytes = 50_000_000_000u64; // 50GB
 
         Ok((total_bytes, free_bytes))
     }
@@ -386,7 +405,11 @@ pub struct MemoryHealthCheck {
 }
 
 impl MemoryHealthCheck {
-    pub fn new(config: HealthCheckConfig, warning_threshold_percentage: f64, critical_threshold_percentage: f64) -> Self {
+    pub fn new(
+        config: HealthCheckConfig,
+        warning_threshold_percentage: f64,
+        critical_threshold_percentage: f64,
+    ) -> Self {
         Self {
             config,
             warning_threshold_percentage,
@@ -408,7 +431,10 @@ impl HealthCheck for MemoryHealthCheck {
                 let mut metadata = HashMap::new();
                 metadata.insert("total_bytes".to_string(), total_bytes.to_string());
                 metadata.insert("used_bytes".to_string(), used_bytes.to_string());
-                metadata.insert("used_percentage".to_string(), format!("{:.2}", used_percentage));
+                metadata.insert(
+                    "used_percentage".to_string(),
+                    format!("{:.2}", used_percentage),
+                );
 
                 if used_percentage > self.critical_threshold_percentage {
                     Ok(HealthCheckResult::unhealthy(
@@ -423,7 +449,10 @@ impl HealthCheck for MemoryHealthCheck {
                         response_time,
                     ))
                 } else {
-                    Ok(HealthCheckResult::healthy("memory".to_string(), response_time))
+                    Ok(HealthCheckResult::healthy(
+                        "memory".to_string(),
+                        response_time,
+                    ))
                 }
             }
             Err(e) => Ok(HealthCheckResult::unhealthy(
@@ -443,11 +472,11 @@ impl MemoryHealthCheck {
     async fn get_memory_usage(&self) -> Result<(u64, u64), HealthCheckError> {
         // This is a simplified implementation
         // In a real implementation, you would use sysinfo or similar crate
-        
+
         // For demonstration, return dummy values
         // In production, you'd use a proper memory checking library
         let total_bytes = 8_000_000_000u64; // 8GB
-        let used_bytes = 4_000_000_000u64;   // 4GB
+        let used_bytes = 4_000_000_000u64; // 4GB
 
         Ok((total_bytes, used_bytes))
     }
@@ -547,9 +576,9 @@ mod tests {
     fn test_health_check_registry() {
         let config = HealthCheckConfig::default();
         let mut registry = HealthCheckRegistry::new(config);
-        
+
         assert_eq!(registry.get_check_names().len(), 0);
-        
+
         // Note: Can't easily test without mock implementations
         // In real tests, you'd use mock health checks
     }

@@ -1,23 +1,19 @@
+use crate::upload::validator::UploadError;
 use image::{imageops::FilterType, DynamicImage, GenericImageView, ImageFormat};
 use std::io::Cursor;
-use crate::upload::validator::UploadError;
 
 pub struct ImageProcessor;
 
 impl ImageProcessor {
-    pub fn process(
-        data: &[u8],
-        max_width: u32,
-        max_height: u32,
-    ) -> Result<Vec<u8>, UploadError> {
+    pub fn process(data: &[u8], max_width: u32, max_height: u32) -> Result<Vec<u8>, UploadError> {
         let img = image::load_from_memory(data)
             .map_err(|e| UploadError::ProcessingError(format!("Failed to load image: {}", e)))?;
 
         let processed = Self::resize_and_optimize(img, max_width, max_height)?;
-        
+
         let mut buffer = Vec::new();
         let mut cursor = Cursor::new(&mut buffer);
-        
+
         processed
             .write_to(&mut cursor, ImageFormat::Jpeg)
             .map_err(|e| UploadError::ProcessingError(format!("Failed to encode image: {}", e)))?;
@@ -31,7 +27,7 @@ impl ImageProcessor {
         max_height: u32,
     ) -> Result<DynamicImage, UploadError> {
         let (width, height) = img.dimensions();
-        
+
         if width <= max_width && height <= max_height {
             return Ok(img);
         }

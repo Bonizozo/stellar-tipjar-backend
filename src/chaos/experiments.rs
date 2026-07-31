@@ -131,7 +131,9 @@ pub struct ChaosRunner {
 
 impl Default for ChaosRunner {
     fn default() -> Self {
-        Self { cool_down: Duration::from_secs(10) }
+        Self {
+            cool_down: Duration::from_secs(10),
+        }
     }
 }
 
@@ -152,7 +154,9 @@ impl ChaosRunner {
         let mut results = Vec::new();
 
         for (experiment, mut baseline, mut chaos, mut recovery) in experiments {
-            let result = experiment.run(&mut baseline, &mut chaos, &mut recovery).await?;
+            let result = experiment
+                .run(&mut baseline, &mut chaos, &mut recovery)
+                .await?;
             results.push(result);
             tokio::time::sleep(self.cool_down).await;
         }

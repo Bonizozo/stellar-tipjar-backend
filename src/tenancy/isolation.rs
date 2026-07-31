@@ -34,17 +34,12 @@ impl TenantAwareQuery {
         .map_err(|e| AppError::database_error(e.to_string()))
     }
 
-    pub async fn count_creators(
-        pool: &PgPool,
-        tenant: &TenantContext,
-    ) -> Result<i64, AppError> {
-        let result: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM creators WHERE tenant_id = $1"
-        )
-        .bind(tenant.tenant_id)
-        .fetch_one(pool)
-        .await
-        .map_err(|e| AppError::database_error(e.to_string()))?;
+    pub async fn count_creators(pool: &PgPool, tenant: &TenantContext) -> Result<i64, AppError> {
+        let result: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM creators WHERE tenant_id = $1")
+            .bind(tenant.tenant_id)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| AppError::database_error(e.to_string()))?;
 
         Ok(result.0)
     }

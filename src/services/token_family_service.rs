@@ -62,7 +62,11 @@ pub enum RotationOutcome {
 
 /// Pure decision function — no I/O — so the critical reuse-detection path is
 /// exhaustively unit-testable without a database.
-fn decide_rotation(family: &TokenFamily, presented_jti: Uuid, now: DateTime<Utc>) -> RotationOutcome {
+fn decide_rotation(
+    family: &TokenFamily,
+    presented_jti: Uuid,
+    now: DateTime<Utc>,
+) -> RotationOutcome {
     if family.revoked {
         return RotationOutcome::AlreadyRevoked;
     }
@@ -231,7 +235,10 @@ mod tests {
     fn rotation_happy_path_advances_family() {
         let current = Uuid::new_v4();
         let f = family(current, false, Utc::now() + Duration::days(1));
-        assert_eq!(decide_rotation(&f, current, Utc::now()), RotationOutcome::Rotated);
+        assert_eq!(
+            decide_rotation(&f, current, Utc::now()),
+            RotationOutcome::Rotated
+        );
     }
 
     /// The critical test: a refresh token that was already rotated away
@@ -262,7 +269,10 @@ mod tests {
     fn expired_family_rejected_even_with_current_jti() {
         let current = Uuid::new_v4();
         let f = family(current, false, Utc::now() - Duration::seconds(1));
-        assert_eq!(decide_rotation(&f, current, Utc::now()), RotationOutcome::Expired);
+        assert_eq!(
+            decide_rotation(&f, current, Utc::now()),
+            RotationOutcome::Expired
+        );
     }
 
     #[test]
@@ -270,6 +280,9 @@ mod tests {
         let current = Uuid::new_v4();
         let other = Uuid::new_v4();
         let f = family(current, false, Utc::now() + Duration::days(1));
-        assert_eq!(decide_rotation(&f, other, Utc::now()), RotationOutcome::ReuseDetected);
+        assert_eq!(
+            decide_rotation(&f, other, Utc::now()),
+            RotationOutcome::ReuseDetected
+        );
     }
 }

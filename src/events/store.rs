@@ -34,12 +34,10 @@ impl EventStore {
         let seq = row.sequence_number;
 
         // Write a snapshot every N events for this aggregate.
-        let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM events WHERE aggregate_id = $1",
-        )
-        .bind(event.aggregate_id())
-        .fetch_one(&self.pool)
-        .await?;
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM events WHERE aggregate_id = $1")
+            .bind(event.aggregate_id())
+            .fetch_one(&self.pool)
+            .await?;
 
         if count.0 % SNAPSHOT_THRESHOLD == 0 {
             let _ = self.write_snapshot(event.aggregate_id(), seq).await;
@@ -168,8 +166,6 @@ impl EventStore {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.and_then(|(seq, data)| {
-            serde_json::from_value(data).ok().map(|p| (seq, p))
-        }))
+        Ok(row.and_then(|(seq, data)| serde_json::from_value(data).ok().map(|p| (seq, p))))
     }
 }

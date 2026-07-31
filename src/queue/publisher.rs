@@ -1,8 +1,5 @@
 use super::connection::RabbitMQConnection;
-use lapin::{
-    options::BasicPublishOptions,
-    BasicProperties,
-};
+use lapin::{options::BasicPublishOptions, BasicProperties};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -35,13 +32,20 @@ pub struct Message {
 
 impl Message {
     pub fn new(message_type: impl Into<String>, payload: serde_json::Value) -> Self {
-        // Capture the current OTel context into a HashMap carrier so the
-        // consumer can reconstruct the trace across the AMQP boundary.
-        let mut carrier = crate::telemetry::propagation::HashMapCarrier(
-            std::collections::HashMap::new(),
-        );
+        // Capture the OTel context of the *active tracing span* into a HashMap
+        // carrier so the consumer can reconstruct the trace across the AMQP
+        // boundary. `opentelemetry::Context::current()` is a separate,
+        // thread-local OTel context that isn't kept in sync with `tracing`
+        // spans unless something explicitly calls `Context::attach()` — the
+        // `tracing-opentelemetry` bridge tracks span context on the `tracing`
+        // side instead, so it must be read via `Span::current().context()`.
+        use tracing_opentelemetry::OpenTelemetrySpanExt;
+        let cx = tracing::Span::current().context();
+
+        let mut carrier =
+            crate::telemetry::propagation::HashMapCarrier(std::collections::HashMap::new());
         opentelemetry::global::get_text_map_propagator(|p| {
-            p.inject_context(&opentelemetry::Context::current(), &mut carrier);
+            p.inject_context(&cx, &mut carrier);
         });
 
         Self {
@@ -64,8 +68,7 @@ impl Message {
 
     /// Extract the OTel parent context carried in this message's `trace_context`.
     pub fn extract_trace_context(&self) -> opentelemetry::Context {
-        let carrier =
-            crate::telemetry::propagation::HashMapCarrier(self.trace_context.clone());
+        let carrier = crate::telemetry::propagation::HashMapCarrier(self.trace_context.clone());
         opentelemetry::global::get_text_map_propagator(|p| p.extract(&carrier))
     }
 }

@@ -32,7 +32,11 @@ pub struct GoalMilestone {
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CreateGoalRequest {
     /// Short title for the goal (max 100 chars).
-    #[validate(length(min = 1, max = 100, message = "Title must be between 1 and 100 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 100,
+        message = "Title must be between 1 and 100 characters"
+    ))]
     pub title: String,
 
     /// Optional description of the goal.

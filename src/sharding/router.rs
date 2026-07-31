@@ -7,8 +7,8 @@ use sqlx::PgPool;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::errors::AppError;
 use super::strategy::{fnv1a_shard, ShardKey, ShardingStrategy};
+use crate::errors::AppError;
 
 // ── Shard descriptor ──────────────────────────────────────────────────────────
 
@@ -212,12 +212,11 @@ impl ShardRouter {
                     .await
                     .unwrap_or(0);
 
-                let tips_size_bytes: i64 = sqlx::query_scalar(
-                    "SELECT COALESCE(pg_total_relation_size('tips'), 0)",
-                )
-                .fetch_one(&pool)
-                .await
-                .unwrap_or(0);
+                let tips_size_bytes: i64 =
+                    sqlx::query_scalar("SELECT COALESCE(pg_total_relation_size('tips'), 0)")
+                        .fetch_one(&pool)
+                        .await
+                        .unwrap_or(0);
 
                 ShardStats {
                     shard_id: desc.shard_id,
@@ -272,8 +271,8 @@ impl ShardRouterBuilder {
 mod tests {
     use super::*;
 
-    #[test]
-    fn shard_for_username_is_stable() {
+    #[tokio::test]
+    async fn shard_for_username_is_stable() {
         // Build a minimal router with lazy pools (no real DB needed).
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap();
         let router = ShardRouterBuilder::new(ShardingStrategy::Hash)
@@ -303,8 +302,8 @@ mod tests {
         assert!(s1 < 2);
     }
 
-    #[test]
-    fn pool_returns_error_for_unknown_shard() {
+    #[tokio::test]
+    async fn pool_returns_error_for_unknown_shard() {
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap();
         let router = ShardRouterBuilder::new(ShardingStrategy::Hash)
             .add_shard(

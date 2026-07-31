@@ -32,10 +32,7 @@ impl QueueSystem {
     ///
     /// Returns `None` when `RABBITMQ_URL` is not set, so the app starts
     /// cleanly in environments without a broker.
-    pub async fn start(
-        config: QueueConfig,
-        state: Arc<AppState>,
-    ) -> anyhow::Result<Self> {
+    pub async fn start(config: QueueConfig, state: Arc<AppState>) -> anyhow::Result<Self> {
         tracing::info!("Initialising RabbitMQ queue system");
 
         let conn = Arc::new(RabbitMQConnection::connect(&config.rabbitmq_url).await?);
@@ -45,9 +42,21 @@ impl QueueSystem {
 
         let queues = [
             (QueueNames::TIPS, ExchangeNames::TIPS, QueueNames::TIPS),
-            (QueueNames::NOTIFICATIONS, ExchangeNames::NOTIFICATIONS, QueueNames::NOTIFICATIONS),
-            (QueueNames::ANALYTICS, ExchangeNames::ANALYTICS, QueueNames::ANALYTICS),
-            (QueueNames::WEBHOOKS, ExchangeNames::WEBHOOKS, QueueNames::WEBHOOKS),
+            (
+                QueueNames::NOTIFICATIONS,
+                ExchangeNames::NOTIFICATIONS,
+                QueueNames::NOTIFICATIONS,
+            ),
+            (
+                QueueNames::ANALYTICS,
+                ExchangeNames::ANALYTICS,
+                QueueNames::ANALYTICS,
+            ),
+            (
+                QueueNames::WEBHOOKS,
+                ExchangeNames::WEBHOOKS,
+                QueueNames::WEBHOOKS,
+            ),
         ];
 
         for (queue, exchange, routing_key) in &queues {

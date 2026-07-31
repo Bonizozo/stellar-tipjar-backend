@@ -37,12 +37,11 @@ impl SyncManager {
     }
 
     async fn get_latest_indexed_ledger(&self) -> Result<u32, AppError> {
-        let result: (Option<i32>,) = sqlx::query_as(
-            "SELECT MAX(ledger_sequence) FROM indexed_events"
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| AppError::database_error(e.to_string()))?;
+        let result: (Option<i32>,) =
+            sqlx::query_as("SELECT MAX(ledger_sequence) FROM indexed_events")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| AppError::database_error(e.to_string()))?;
 
         Ok(result.0.unwrap_or(0) as u32)
     }

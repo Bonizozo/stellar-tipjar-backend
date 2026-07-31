@@ -5,19 +5,19 @@ use thiserror::Error;
 pub enum UploadError {
     #[error("File too large: {0} bytes (max: {1} bytes)")]
     FileTooLarge(usize, usize),
-    
+
     #[error("Invalid file type: {0}")]
     InvalidFileType(String),
-    
+
     #[error("Invalid image format")]
     InvalidImageFormat,
-    
+
     #[error("Upload rate limit exceeded")]
     RateLimitExceeded,
-    
+
     #[error("Storage error: {0}")]
     StorageError(String),
-    
+
     #[error("Processing error: {0}")]
     ProcessingError(String),
 }
@@ -30,9 +30,11 @@ impl axum::response::IntoResponse for UploadError {
             UploadError::InvalidImageFormat => (StatusCode::BAD_REQUEST, self.to_string()),
             UploadError::RateLimitExceeded => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
             UploadError::StorageError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
-            UploadError::ProcessingError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            UploadError::ProcessingError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            }
         };
-        
+
         (status, message).into_response()
     }
 }

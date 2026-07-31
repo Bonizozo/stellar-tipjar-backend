@@ -16,8 +16,14 @@ use crate::validation::ValidatedJson;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/creators/:username/goals", post(create_goal).get(list_goals))
-        .route("/creators/:username/goals/:goal_id", get(get_goal).delete(cancel_goal))
+        .route(
+            "/creators/:username/goals",
+            post(create_goal).get(list_goals),
+        )
+        .route(
+            "/creators/:username/goals/:goal_id",
+            get(get_goal).delete(cancel_goal),
+        )
 }
 
 async fn create_goal(

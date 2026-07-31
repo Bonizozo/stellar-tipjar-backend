@@ -14,12 +14,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # .cargo/config.toml pins this workspace to build for x86_64-pc-windows-gnu
-  # by default (kept for Windows/Git-Bash contributors). Every job here runs
-  # on a native Linux runner, so override the target explicitly — otherwise
-  # cargo tries to cross-compile without a mingw toolchain and fails
-  # immediately on `cargo check`.
-  CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
   # sqlx query! / query_as! macros validate against the committed .sqlx/
   # metadata instead of opening a DB connection at compile time. The `sqlx`
   # job below is the one place that regenerates/validates that metadata
@@ -97,6 +91,8 @@ jobs:
       REDIS_URL: redis://127.0.0.1:6379
       STELLAR_NETWORK: testnet
       STELLAR_RPC_URL: https://soroban-testnet.stellar.org
+      # Test-only dummy key for EncryptionKeyManager; never use in production.
+      ENCRYPTION_KEY_CURRENT: "0000000000000000000000000000000000000000000000000000000000000000"
     steps:
       - uses: actions/checkout@v4
 

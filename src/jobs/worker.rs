@@ -1,8 +1,8 @@
 //! Job worker implementation and worker pool management
 
-use crate::jobs::{JobError, JobQueueManager, JobResult, WorkerConfig, WorkerId};
 use crate::jobs::handlers::JobHandlerRegistry;
 use crate::jobs::types::JobContext;
+use crate::jobs::{JobError, JobQueueManager, JobResult, WorkerConfig, WorkerId};
 use chrono::Utc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -87,7 +87,10 @@ impl JobWorker {
                         "Processing job"
                     );
 
-                    let result = handler.handle(&job, &ctx).instrument(job_span.clone()).await;
+                    let result = handler
+                        .handle(&job, &ctx)
+                        .instrument(job_span.clone())
+                        .await;
                     match result {
                         Ok(()) => {
                             if let Err(e) = self.queue.complete(job.id).await {
@@ -106,10 +109,14 @@ impl JobWorker {
                                 "Job execution failed"
                             );
                             let policy = self.registry.retry_policy(&job.job_type);
-                            if let Err(db_err) = self.queue.fail(job.id, e.to_string(), &policy).await {
+                            if let Err(db_err) =
+                                self.queue.fail(job.id, e.to_string(), &policy).await
+                            {
                                 tracing::error!(job_id = %job.id, error = %db_err, "Failed to record job failure");
-                            }                        }
-                    }                }
+                            }
+                        }
+                    }
+                }
                 Ok(None) => {
                     // No jobs available — wait before polling again
                     tokio::time::sleep(self.poll_interval).await;

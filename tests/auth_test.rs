@@ -7,7 +7,7 @@ mod common;
 async fn test_admin_auth_wrong_key() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let response = server
         .get("/creators/search?q=test")
@@ -22,7 +22,7 @@ async fn test_admin_auth_wrong_key() {
 async fn test_admin_auth_missing_header() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let response = server.get("/creators/search?q=test").await;
 

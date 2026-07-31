@@ -15,7 +15,10 @@ use crate::models::leaderboard::LeaderboardQuery;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/leaderboard/:board_type", get(get_leaderboard))
-        .route("/leaderboard/:board_type/refresh", axum::routing::post(refresh_leaderboard))
+        .route(
+            "/leaderboard/:board_type/refresh",
+            axum::routing::post(refresh_leaderboard),
+        )
 }
 
 /// Get leaderboard entries for a board type (top_creators, top_tippers, trending)
@@ -57,8 +60,14 @@ async fn refresh_leaderboard(
     // Invalidate cached leaderboard HTTP responses and entity cache entries
     if let Some(ref inv) = state.invalidator {
         let _ = inv.invalidate_pattern("leaderboard:*").await;
-        let _ = inv.invalidate_pattern(&crate::cache::keys::http_response_pattern("/leaderboard/")).await;
+        let _ = inv
+            .invalidate_pattern(&crate::cache::keys::http_response_pattern("/leaderboard/"))
+            .await;
     }
 
-    Ok((StatusCode::OK, Json(serde_json::json!({ "status": "refreshed" }))).into_response())
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "refreshed" })),
+    )
+        .into_response())
 }

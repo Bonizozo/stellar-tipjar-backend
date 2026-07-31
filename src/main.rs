@@ -2,17 +2,16 @@ use axum::{http::Method, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::broadcast;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use tokio::sync::broadcast;
 
+mod admin;
 mod analytics;
 mod anonymization;
-mod admin;
 mod cache;
-mod mocking;
 mod cdn;
 mod chaos;
 mod collaboration;
@@ -24,8 +23,6 @@ mod currency;
 mod db;
 mod deployment;
 mod docs;
-mod jobs;
-mod metrics;
 mod email;
 mod errors;
 mod events;
@@ -34,11 +31,14 @@ mod graphql;
 mod health;
 mod idempotency;
 mod indexer;
+mod jobs;
 mod logging;
+mod metrics;
 mod middleware;
 mod ml;
-mod moderation;
+mod mocking;
 mod models;
+mod moderation;
 mod pagination;
 mod queue;
 mod routes;
@@ -58,16 +58,16 @@ mod webhooks;
 mod webrtc;
 mod ws;
 
+use crate::jobs::reconciliation;
 use crate::metrics::{metrics_handler, metrics_summary_handler};
 use crate::middleware::metrics::track_metrics;
+use crate::queue::worker::spawn_worker;
+use crate::queue::VerificationQueue;
 use db::connection::AppState;
 use docs::ApiDoc;
 use graphql::schema::graphql_handler;
 use service_mesh::discovery::ServiceRegistry;
 use services::stellar_service::StellarService;
-use crate::queue::VerificationQueue;
-use crate::queue::worker::spawn_worker;
-use crate::jobs::reconciliation;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -84,17 +84,21 @@ async fn main() -> anyhow::Result<()> {
     let stellar_network = secrets.stellar_network;
 
     // --- Encryption Manager Initialization ---
-    let encryption_manager = Arc::new(crate::crypto::encryption::EncryptionKeyManager::new().load().await?);
+    let encryption_manager = Arc::new(
+        crate::crypto::encryption::EncryptionKeyManager::new()
+            .load()
+            .await?,
+    );
     crate::crypto::encryption::set_global_encryption_manager(Arc::clone(&encryption_manager))?;
 
     let pool = db::connection::connect_with_retry(
         &database_url,
-        20,   // max_connections
-        5,    // min_connections
+        20, // max_connections
+        5,  // min_connections
         Duration::from_secs(3),
-        5,    // max_retries
-        5,    // circuit breaker threshold
-        60,   // circuit breaker recovery secs
+        5,  // max_retries
+        5,  // circuit breaker threshold
+        60, // circuit breaker recovery secs
     )
     .await?;
 
@@ -134,12 +138,24 @@ async fn main() -> anyhow::Result<()> {
             let key = format!("DATABASE_REPLICA_URL_{}", idx);
             match std::env::var(&key) {
                 Ok(url) => {
-                    match db::connection::connect_with_retry(&url, 10, 2, Duration::from_secs(3), 3, 3, 30).await {
+                    match db::connection::connect_with_retry(
+                        &url,
+                        10,
+                        2,
+                        Duration::from_secs(3),
+                        3,
+                        3,
+                        30,
+                    )
+                    .await
+                    {
                         Ok(replica_pool) => {
                             tracing::info!(replica = idx, "Read replica connected");
                             mgr.add_replica(url, replica_pool).await;
                         }
-                        Err(e) => tracing::warn!(replica = idx, error = %e, "Failed to connect replica"),
+                        Err(e) => {
+                            tracing::warn!(replica = idx, error = %e, "Failed to connect replica")
+                        }
                     }
                     idx += 1;
                 }
@@ -166,7 +182,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Build distributed lock service before AppState so it can be stored directly.
     let lock_service = redis.as_ref().map(|conn| {
-        Arc::new(services::distributed_lock::DistributedLockService::new(conn.clone()))
+        Arc::new(services::distributed_lock::DistributedLockService::new(
+            conn.clone(),
+        ))
     });
 
     // Idempotency-Key store (#342): Redis primary, Postgres fallback table.
@@ -201,6 +219,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Build CommandBus after state is constructed (avoids circular dependency).
+    let event_store = Arc::new(events::EventStore::new(pool.clone()));
     let command_bus = Arc::new(cqrs::CommandBus::new(
         Arc::clone(&state),
         Arc::clone(&event_store),
@@ -211,7 +230,10 @@ async fn main() -> anyhow::Result<()> {
         let mgr = Arc::clone(mgr);
         let primary = pool.clone();
         tokio::spawn(async move {
-            mgr.as_ref().clone().monitor_loop(primary, Duration::from_secs(10)).await;
+            mgr.as_ref()
+                .clone()
+                .monitor_loop(primary, Duration::from_secs(10))
+                .await;
         });
     }
 
@@ -224,7 +246,9 @@ async fn main() -> anyhow::Result<()> {
             std::time::Duration::from_secs(300),
         ));
         tokio::spawn(async move {
-            warmer.warm_on_schedule(std::time::Duration::from_secs(300), 100).await;
+            warmer
+                .warm_on_schedule(std::time::Duration::from_secs(300), 100)
+                .await;
         });
     }
 
@@ -239,16 +263,16 @@ async fn main() -> anyhow::Result<()> {
     let (_job_queue, _job_scheduler) = jobs::start(Arc::clone(&state), jobs::JobConfig::default());
 
     // Start job monitoring
-    let job_monitor = jobs::monitoring::JobMonitor::new(
-        Arc::new(pool.clone()),
-        Arc::clone(&_job_queue),
-    );
+    let job_monitor =
+        jobs::monitoring::JobMonitor::new(Arc::new(pool.clone()), Arc::clone(&_job_queue));
     Arc::clone(&job_monitor).spawn();
 
     // Collaboration session registry and presence manager
     let collab_sessions = collaboration::crdt::SessionRegistry::new();
     let collab_presence = collaboration::presence::PresenceManager::new();
-    let collab_history = Arc::new(collaboration::history::CollaborationHistory::new(pool.clone()));
+    let collab_history = Arc::new(collaboration::history::CollaborationHistory::new(
+        pool.clone(),
+    ));
     let collab_state = Arc::new(routes::collaboration::CollabState {
         sessions: collab_sessions,
         presence: collab_presence,
@@ -297,8 +321,8 @@ async fn main() -> anyhow::Result<()> {
     let service_registry = Arc::new(ServiceRegistry::new());
 
     // CDN service — endpoint and TTL configurable via env vars.
-    let cdn_endpoint = std::env::var("CDN_ENDPOINT")
-        .unwrap_or_else(|_| "https://cdn.example.com".to_string());
+    let cdn_endpoint =
+        std::env::var("CDN_ENDPOINT").unwrap_or_else(|_| "https://cdn.example.com".to_string());
     let cdn_ttl: u32 = std::env::var("CDN_CACHE_TTL")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -356,26 +380,16 @@ async fn main() -> anyhow::Result<()> {
     //   • Caller identity header (dev/staging only)
     //   • Advanced per-identity rate limiting with burst handling (gateway_rate_limit)
     //   • Per-client daily/monthly quota enforcement (quota_enforcement)
-    let gateway_auth_layer = axum::middleware::from_fn_with_state(
-        Arc::clone(&state),
-        gateway::gateway_auth,
-    );
-    let gateway_rate_limit_layer_v1 = axum::middleware::from_fn_with_state(
-        Arc::clone(&state),
-        gateway::gateway_rate_limit,
-    );
-    let quota_enforcement_layer_v1 = axum::middleware::from_fn_with_state(
-        Arc::clone(&state),
-        gateway::quota_enforcement,
-    );
-    let gateway_rate_limit_layer_v2 = axum::middleware::from_fn_with_state(
-        Arc::clone(&state),
-        gateway::gateway_rate_limit,
-    );
-    let quota_enforcement_layer_v2 = axum::middleware::from_fn_with_state(
-        Arc::clone(&state),
-        gateway::quota_enforcement,
-    );
+    let gateway_auth_layer =
+        axum::middleware::from_fn_with_state(Arc::clone(&state), gateway::gateway_auth);
+    let gateway_rate_limit_layer_v1 =
+        axum::middleware::from_fn_with_state(Arc::clone(&state), gateway::gateway_rate_limit);
+    let quota_enforcement_layer_v1 =
+        axum::middleware::from_fn_with_state(Arc::clone(&state), gateway::quota_enforcement);
+    let gateway_rate_limit_layer_v2 =
+        axum::middleware::from_fn_with_state(Arc::clone(&state), gateway::gateway_rate_limit);
+    let quota_enforcement_layer_v2 =
+        axum::middleware::from_fn_with_state(Arc::clone(&state), gateway::quota_enforcement);
 
     // Versioned API Routes (Merged from Main)
     let v1 = Router::new()
@@ -427,91 +441,117 @@ async fn main() -> anyhow::Result<()> {
                 // Inject deprecation tracker for the /deprecation-status endpoint.
                 // Extension layer is outermost so it runs first, making the tracker
                 // available to the deprecation_notice middleware below.
-                .layer(axum::middleware::from_fn(middleware::deprecation::deprecation_notice))
+                .layer(axum::middleware::from_fn(
+                    middleware::deprecation::deprecation_notice,
+                ))
                 .layer(axum::Extension(Arc::clone(&deprecation_tracker))),
         )
         // Gateway layers (innermost → outermost, applied bottom-up by Tower)
         .layer(axum::middleware::from_fn(gateway::inject_identity_header))
         .layer(axum::middleware::from_fn(gateway::gateway_metrics))
-        .layer(axum::middleware::from_fn(gateway::propagate_request_id_to_response))
+        .layer(axum::middleware::from_fn(
+            gateway::propagate_request_id_to_response,
+        ))
         .layer(axum::middleware::from_fn(gateway::transform_request))
         .layer(axum::middleware::from_fn(gateway::version_negotiation))
         .layer(quota_enforcement_layer_v1)
         .layer(gateway_rate_limit_layer_v1)
         .layer(gateway_auth_layer.clone());
 
-    let v2 = Router::new().nest(
-        "/api/v2",
-        Router::new()
-            .merge(routes::admin::router(Arc::clone(&state)))
-            .merge(routes::api_keys::router(Arc::clone(&state)))
-            .merge(routes::verification::admin_router(Arc::clone(&state)))
-            .merge(routes::feature_flags::router(Arc::clone(&state)))
-            .merge(routes::usage_analytics::router(Arc::clone(&state)))
-            .merge(routes::refunds::admin_router(Arc::clone(&state)))
-            .merge(routes::audit_logs::router(Arc::clone(&state)))
-            .merge(routes::export::router(Arc::clone(&state)))
-            .merge(routes::tenants::router())
-            .merge(
-                Router::new()
-                    .merge(routes::auth::router(Arc::clone(&state)))
-                    .merge(routes::teams::router())
-                    .merge(routes::tips::router(Arc::clone(&state)))
-                    .merge(routes::creators::write_router())
-                    .merge(routes::verification::router())
-                    .merge(routes::goals::router())
-                    .merge(routes::scheduled_tips::router(Arc::clone(&state)))
-                    .merge(routes::tx_pool::router())
-                    .merge(routes::v2::router())
-                    .layer(axum::middleware::from_fn(
-                        middleware::body_limit::require_json_content_type,
-                    ))
-                    .layer(write_limiter_v2),
-            )
-            .merge(
-                Router::new()
-                    .merge(routes::creators::read_router())
-                    .merge(routes::health::router())
-                    .merge(routes::notifications::router())
-                    .merge(routes::leaderboard::router())
-                    .merge(routes::stats::router())
-                    .merge(routes::analytics::router())
-                    .merge(routes::receipts::router())
-                    .merge(routes::location::router())
-                    .merge(routes::locks::router())
-                    .layer(general_limiter_v2),
-            ),
-    )
-    // Gateway layers
-    .layer(axum::middleware::from_fn(gateway::inject_identity_header))
-    .layer(axum::middleware::from_fn(gateway::gateway_metrics))
-    .layer(axum::middleware::from_fn(gateway::propagate_request_id_to_response))
-    .layer(axum::middleware::from_fn(gateway::transform_request))
-    .layer(axum::middleware::from_fn(gateway::version_negotiation))
-    .layer(quota_enforcement_layer_v2)
-    .layer(gateway_rate_limit_layer_v2)
-    .layer(gateway_auth_layer);
+    let v2 = Router::new()
+        .nest(
+            "/api/v2",
+            Router::new()
+                .merge(routes::admin::router(Arc::clone(&state)))
+                .merge(routes::api_keys::router(Arc::clone(&state)))
+                .merge(routes::verification::admin_router(Arc::clone(&state)))
+                .merge(routes::feature_flags::router(Arc::clone(&state)))
+                .merge(routes::usage_analytics::router(Arc::clone(&state)))
+                .merge(routes::refunds::admin_router(Arc::clone(&state)))
+                .merge(routes::audit_logs::router(Arc::clone(&state)))
+                .merge(routes::export::router(Arc::clone(&state)))
+                .merge(routes::tenants::router())
+                .merge(
+                    Router::new()
+                        .merge(routes::auth::router(Arc::clone(&state)))
+                        .merge(routes::teams::router())
+                        .merge(routes::tips::router(Arc::clone(&state)))
+                        .merge(routes::creators::write_router())
+                        .merge(routes::verification::router())
+                        .merge(routes::goals::router())
+                        .merge(routes::scheduled_tips::router(Arc::clone(&state)))
+                        .merge(routes::tx_pool::router())
+                        .merge(routes::v2::router())
+                        .layer(axum::middleware::from_fn(
+                            middleware::body_limit::require_json_content_type,
+                        ))
+                        .layer(write_limiter_v2),
+                )
+                .merge(
+                    Router::new()
+                        .merge(routes::creators::read_router())
+                        .merge(routes::health::router())
+                        .merge(routes::notifications::router())
+                        .merge(routes::leaderboard::router())
+                        .merge(routes::stats::router())
+                        .merge(routes::analytics::router())
+                        .merge(routes::receipts::router())
+                        .merge(routes::location::router())
+                        .merge(routes::locks::router())
+                        .layer(general_limiter_v2),
+                ),
+        )
+        // Gateway layers
+        .layer(axum::middleware::from_fn(gateway::inject_identity_header))
+        .layer(axum::middleware::from_fn(gateway::gateway_metrics))
+        .layer(axum::middleware::from_fn(
+            gateway::propagate_request_id_to_response,
+        ))
+        .layer(axum::middleware::from_fn(gateway::transform_request))
+        .layer(axum::middleware::from_fn(gateway::version_negotiation))
+        .layer(quota_enforcement_layer_v2)
+        .layer(gateway_rate_limit_layer_v2)
+        .layer(gateway_auth_layer);
 
     let gql_schema = graphql::schema::build_schema(Arc::clone(&state));
+    let x_request_id = axum::http::HeaderName::from_static("x-request-id");
 
     let app = Router::new()
         .route("/ws", axum::routing::get(ws::ws_handler))
-        .route(
-            "/graphql",
-            axum::routing::post(graphql_handler),
-        )
+        .route("/graphql", axum::routing::post(graphql_handler))
         .route("/metrics", axum::routing::get(metrics_handler))
-        .route("/metrics/summary", axum::routing::get(metrics_summary_handler))
+        .route(
+            "/metrics/summary",
+            axum::routing::get(metrics_summary_handler),
+        )
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .merge(docs::portal::router())
-        .merge(routes::monitoring::router(Arc::clone(&state), Arc::clone(&monitor)))
-        .merge(routes::mesh::router(Arc::clone(&state), Arc::clone(&service_registry)))
-        .merge(routes::load_balancer::router(Arc::clone(&state), Arc::clone(&service_registry)))
-        .merge(routes::cdn::router(Arc::clone(&cdn_service)))
-        .merge(routes::profiling::router(Arc::clone(&state)))
-        .merge(routes::job_monitoring::router(Arc::clone(&state), Arc::clone(&job_monitor)))
-        .merge(routes::collaboration::router(collab_state))
-        .merge(routes::anonymization::router(anon_state))
+        // These sub-routers close over their own extra state (monitor, service
+        // registry, etc.) and resolve it internally via `.with_state(...)`, so
+        // they come back as a fully-typed `Router<()>` — a different state type
+        // than this tree's `Router<Arc<AppState>>`. `.merge()` requires matching
+        // state types; `.nest_service("/", ...)` mounts an already-resolved
+        // router regardless of its original state type.
+        .nest_service(
+            "/",
+            routes::monitoring::router(Arc::clone(&state), Arc::clone(&monitor)),
+        )
+        .nest_service(
+            "/",
+            routes::mesh::router(Arc::clone(&state), Arc::clone(&service_registry)),
+        )
+        .nest_service(
+            "/",
+            routes::load_balancer::router(Arc::clone(&state), Arc::clone(&service_registry)),
+        )
+        .nest_service("/", routes::cdn::router(Arc::clone(&cdn_service)))
+        .nest_service("/", routes::profiling::router(Arc::clone(&state)))
+        .nest_service(
+            "/",
+            routes::job_monitoring::router(Arc::clone(&state), Arc::clone(&job_monitor)),
+        )
+        .nest_service("/", routes::collaboration::router(collab_state))
+        .nest_service("/", routes::anonymization::router(anon_state))
         .merge(v1)
         .merge(v2)
         .layer(axum::Extension(gql_schema))
@@ -522,7 +562,9 @@ async fn main() -> anyhow::Result<()> {
         // Inject CommandBus for event-sourcing write operations.
         .layer(axum::Extension(command_bus))
         .layer(cors)
-        .layer(axum::middleware::map_response(middleware::cors::security_headers))
+        .layer(axum::middleware::map_response(
+            middleware::cors::security_headers,
+        ))
         .layer(axum::middleware::from_fn(
             middleware::tracing::trace_request,
         ))

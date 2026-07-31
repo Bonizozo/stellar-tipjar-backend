@@ -1,10 +1,6 @@
 use crate::errors::app_error::AppError;
 use crate::tenancy::context::TenantContext;
-use axum::{
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, middleware::Next, response::Response};
 use std::sync::Arc;
 
 pub async fn tenant_middleware(

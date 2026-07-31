@@ -4,7 +4,10 @@ use async_trait::async_trait;
 use futures_lite::StreamExt;
 use lapin::{
     message::Delivery,
-    options::{BasicAckOptions, BasicConsumeOptions, BasicNackOptions, BasicPublishOptions, BasicQosOptions},
+    options::{
+        BasicAckOptions, BasicConsumeOptions, BasicNackOptions, BasicPublishOptions,
+        BasicQosOptions,
+    },
     BasicProperties,
 };
 use std::sync::Arc;
@@ -192,7 +195,13 @@ impl MessageConsumer {
                 tracing::error!(error = %e, "Failed to deserialise message, dead-lettering");
                 // Nack without requeue → broker routes to DLX/DLQ.
                 let _ = channel
-                    .basic_nack(tag, BasicNackOptions { requeue: false, ..Default::default() })
+                    .basic_nack(
+                        tag,
+                        BasicNackOptions {
+                            requeue: false,
+                            ..Default::default()
+                        },
+                    )
                     .await;
                 return;
             }
@@ -221,9 +230,7 @@ impl MessageConsumer {
         match registry.dispatch(&message).await {
             Ok(()) => {
                 tracing::debug!(message.id = %message.id, "Message handled successfully");
-                let _ = channel
-                    .basic_ack(tag, BasicAckOptions::default())
-                    .await;
+                let _ = channel.basic_ack(tag, BasicAckOptions::default()).await;
             }
             Err(e) => {
                 message.increment_retry();
@@ -238,9 +245,7 @@ impl MessageConsumer {
                 if message.should_retry(self.max_retries) {
                     // Ack the original delivery, then re-publish with updated
                     // retry_count so the envelope stays accurate.
-                    let _ = channel
-                        .basic_ack(tag, BasicAckOptions::default())
-                        .await;
+                    let _ = channel.basic_ack(tag, BasicAckOptions::default()).await;
                     self.requeue_with_backoff(channel, &message).await;
                 } else {
                     tracing::error!(
@@ -248,9 +253,7 @@ impl MessageConsumer {
                         "Message exceeded max retries, sending to DLQ"
                     );
                     // Ack original, publish to DLQ directly.
-                    let _ = channel
-                        .basic_ack(tag, BasicAckOptions::default())
-                        .await;
+                    let _ = channel.basic_ack(tag, BasicAckOptions::default()).await;
                     self.publish_to_dlq(channel, &message, &e.to_string()).await;
                 }
             }
@@ -288,8 +291,8 @@ impl MessageConsumer {
 
         if let Err(e) = channel
             .basic_publish(
-                "",                  // default exchange
-                &self.queue_name,    // route directly to queue
+                "",               // default exchange
+                &self.queue_name, // route directly to queue
                 BasicPublishOptions::default(),
                 &payload,
                 props,

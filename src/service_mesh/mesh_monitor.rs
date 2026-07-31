@@ -13,7 +13,12 @@ pub async fn mesh_health(registry: &ServiceRegistry) -> Vec<ServiceHealth> {
     // We iterate over known service names by discovering all instances.
     // In practice the registry would expose an `all_names()` helper; here we
     // use the public `discover_all` API with a fixed set of well-known names.
-    let known = ["stellar-tipjar-backend", "stellar-horizon", "database", "redis"];
+    let known = [
+        "stellar-tipjar-backend",
+        "stellar-horizon",
+        "database",
+        "redis",
+    ];
     let mut out = Vec::new();
     for name in known {
         let instances = registry.discover_all(name).await;

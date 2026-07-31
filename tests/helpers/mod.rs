@@ -2,6 +2,7 @@
 
 use axum_test::TestServer;
 use httpmock::prelude::*;
+use httpmock::Mock;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -14,29 +15,30 @@ pub mod test_data;
 
 /// Test context containing server, database, and mock services
 pub struct TestContext {
-    pub server: TestServer,
+    pub server: Arc<TestServer>,
     pub pool: PgPool,
-    pub mock_server: MockServer,
+    pub mock_server: Arc<MockServer>,
     pub stellar_mocks: StellarMocks,
 }
 
-/// Stellar API mock handlers
+/// Stellar API mock handlers. Each `mock_*` method just registers an
+/// expectation on the shared mock server as a side effect — none of the
+/// call sites across the test suite use the returned handle, so there's no
+/// need to store it (a `Mock<'a>` borrows the server it came from, which
+/// would make storing it alongside that same server in this struct a
+/// self-referential-struct problem for no actual benefit).
 pub struct StellarMocks {
-    pub mock_server: MockServer,
-    pub transaction_mocks: HashMap<String, Mock>,
+    pub mock_server: Arc<MockServer>,
 }
 
 impl StellarMocks {
-    pub fn new(mock_server: MockServer) -> Self {
-        Self {
-            mock_server,
-            transaction_mocks: HashMap::new(),
-        }
+    pub fn new(mock_server: Arc<MockServer>) -> Self {
+        Self { mock_server }
     }
 
     /// Mock a successful transaction verification
-    pub fn mock_successful_transaction(&mut self, tx_hash: &str) -> &Mock {
-        let mock = self.mock_server.mock(|when, then| {
+    pub fn mock_successful_transaction(&self, tx_hash: &str) {
+        self.mock_server.mock(|when, then| {
             when.method(GET).path(format!("/transactions/{}", tx_hash));
             then.status(200).json_body(json!({
                 "id": tx_hash,
@@ -50,14 +52,11 @@ impl StellarMocks {
                 }]
             }));
         });
-
-        self.transaction_mocks.insert(tx_hash.to_string(), mock);
-        self.transaction_mocks.get(tx_hash).unwrap()
     }
 
     /// Mock a failed transaction verification
-    pub fn mock_failed_transaction(&mut self, tx_hash: &str) -> &Mock {
-        let mock = self.mock_server.mock(|when, then| {
+    pub fn mock_failed_transaction(&self, tx_hash: &str) {
+        self.mock_server.mock(|when, then| {
             when.method(GET).path(format!("/transactions/{}", tx_hash));
             then.status(200).json_body(json!({
                 "id": tx_hash,
@@ -65,14 +64,11 @@ impl StellarMocks {
                 "successful": false
             }));
         });
-
-        self.transaction_mocks.insert(tx_hash.to_string(), mock);
-        self.transaction_mocks.get(tx_hash).unwrap()
     }
 
     /// Mock a non-existent transaction
-    pub fn mock_nonexistent_transaction(&mut self, tx_hash: &str) -> &Mock {
-        let mock = self.mock_server.mock(|when, then| {
+    pub fn mock_nonexistent_transaction(&self, tx_hash: &str) {
+        self.mock_server.mock(|when, then| {
             when.method(GET).path(format!("/transactions/{}", tx_hash));
             then.status(404).json_body(json!({
                 "type": "https://stellar.org/horizon-errors/not_found",
@@ -80,20 +76,14 @@ impl StellarMocks {
                 "status": 404
             }));
         });
-
-        self.transaction_mocks.insert(tx_hash.to_string(), mock);
-        self.transaction_mocks.get(tx_hash).unwrap()
     }
 
     /// Mock Stellar network timeout
-    pub fn mock_network_timeout(&mut self, tx_hash: &str) -> &Mock {
-        let mock = self.mock_server.mock(|when, then| {
+    pub fn mock_network_timeout(&self, tx_hash: &str) {
+        self.mock_server.mock(|when, then| {
             when.method(GET).path(format!("/transactions/{}", tx_hash));
             then.status(500).delay(Duration::from_secs(30)); // Simulate timeout
         });
-
-        self.transaction_mocks.insert(tx_hash.to_string(), mock);
-        self.transaction_mocks.get(tx_hash).unwrap()
     }
 }
 
@@ -101,7 +91,7 @@ impl TestContext {
     /// Create a new test context with database, server, and mocks
     pub async fn new() -> Self {
         let pool = crate::common::setup_test_db().await;
-        let mock_server = MockServer::start();
+        let mock_server = Arc::new(MockServer::start());
         let stellar_mocks = StellarMocks::new(mock_server.clone());
 
         // Create app with mocked stellar service
@@ -109,7 +99,7 @@ impl TestContext {
             crate::common::create_test_app_with_mock_stellar(pool.clone(), &mock_server.base_url())
                 .await;
 
-        let server = TestServer::new(app).unwrap();
+        let server = Arc::new(crate::common::test_server(app));
 
         Self {
             server,
@@ -253,9 +243,16 @@ impl PerformanceMetrics {
     }
 }
 
-/// Concurrent test utilities
+/// Concurrent test utilities.
+///
+/// Polls tasks concurrently via `join_all` rather than `tokio::spawn`, since
+/// `TestServer`'s request future isn't `Send` (axum-test's internal cookie-jar
+/// state isn't thread-safe) — `tokio::spawn` requires `Send` because it can
+/// hop the future across OS threads, but `join_all` just interleaves polling
+/// on the current task, which is all these tests actually need to exercise
+/// the app's own concurrency handling (e.g. DB unique-constraint races).
 pub struct ConcurrentTestRunner {
-    pub tasks: Vec<tokio::task::JoinHandle<()>>,
+    pub tasks: Vec<std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>>,
 }
 
 impl ConcurrentTestRunner {
@@ -265,16 +262,13 @@ impl ConcurrentTestRunner {
 
     pub fn spawn<F>(&mut self, future: F)
     where
-        F: std::future::Future<Output = ()> + Send + 'static,
+        F: std::future::Future<Output = ()> + 'static,
     {
-        let handle = tokio::spawn(future);
-        self.tasks.push(handle);
+        self.tasks.push(Box::pin(future));
     }
 
     pub async fn wait_all(self) {
-        for task in self.tasks {
-            task.await.unwrap();
-        }
+        futures::future::join_all(self.tasks).await;
     }
 }
 

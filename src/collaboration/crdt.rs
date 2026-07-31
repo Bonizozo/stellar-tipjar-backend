@@ -54,8 +54,7 @@ impl Operation {
             }
             (OperationType::Insert, OperationType::Delete) => {
                 if other.position < self.position {
-                    transformed.position =
-                        self.position.saturating_sub(other.length);
+                    transformed.position = self.position.saturating_sub(other.length);
                 }
             }
             (OperationType::Delete, OperationType::Insert) => {
@@ -65,8 +64,7 @@ impl Operation {
             }
             (OperationType::Delete, OperationType::Delete) => {
                 if other.position < self.position {
-                    transformed.position =
-                        self.position.saturating_sub(other.length);
+                    transformed.position = self.position.saturating_sub(other.length);
                 }
             }
             _ => {}
@@ -183,10 +181,7 @@ impl CollaborationSession {
 
     pub async fn operations_since(&self, version: u64) -> Vec<Operation> {
         let ops = self.operations.read().await;
-        ops.iter()
-            .skip(version as usize)
-            .cloned()
-            .collect()
+        ops.iter().skip(version as usize).cloned().collect()
     }
 }
 

@@ -28,10 +28,7 @@ pub async fn get_api_key(state: &Arc<AppState>, key: &str) -> Result<ApiKeyView,
         })
 }
 
-pub async fn rotate_api_key(
-    state: &Arc<AppState>,
-    key: &str,
-) -> Result<ApiKeyCreated, AppError> {
+pub async fn rotate_api_key(state: &Arc<AppState>, key: &str) -> Result<ApiKeyCreated, AppError> {
     ApiKey::rotate(&state.db, key).await.map_err(|e| match e {
         sqlx::Error::RowNotFound => AppError::unauthorized("API key not found or already inactive"),
         other => AppError::from(other),

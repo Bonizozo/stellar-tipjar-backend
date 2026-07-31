@@ -1,9 +1,15 @@
 //! Webhook retry engine with exponential backoff + jitter, per-endpoint
 //! circuit breaking, stable delivery IDs, and dead-letter re-drive.
 
-use crate::metrics::collectors::{WEBHOOK_DELIVERIES_TOTAL, WEBHOOK_DLQ_TOTAL, WEBHOOK_RETRY_ATTEMPTS_TOTAL};
+use crate::metrics::collectors::{
+    WEBHOOK_DELIVERIES_TOTAL, WEBHOOK_DLQ_TOTAL, WEBHOOK_RETRY_ATTEMPTS_TOTAL,
+};
 use crate::services::circuit_breaker::{CircuitBreaker, CircuitState};
-use crate::webhooks::{log_delivery, sender::{DeliveryContext, send_webhook}, Webhook};
+use crate::webhooks::{
+    log_delivery,
+    sender::{send_webhook, DeliveryContext},
+    Webhook,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -50,8 +56,8 @@ impl Default for WebhookRetryConfig {
 impl WebhookRetryConfig {
     /// Compute the capped deterministic delay for attempt `n` (pre-jitter).
     pub fn base_delay_ms(&self, attempt: u32) -> u64 {
-        let ms = (self.initial_delay_ms as f64
-            * self.backoff_multiplier.powi(attempt as i32)) as u64;
+        let ms =
+            (self.initial_delay_ms as f64 * self.backoff_multiplier.powi(attempt as i32)) as u64;
         ms.min(self.max_delay_ms)
     }
 
@@ -78,8 +84,7 @@ impl WebhookRetryConfig {
 ///
 /// Shared across all delivery tasks in the process so a consistently
 /// failing endpoint is quarantined regardless of which task drives it.
-static ENDPOINT_CIRCUITS: Mutex<Option<HashMap<String, Arc<CircuitBreaker>>>> =
-    Mutex::new(None);
+static ENDPOINT_CIRCUITS: Mutex<Option<HashMap<String, Arc<CircuitBreaker>>>> = Mutex::new(None);
 
 fn get_or_create_circuit(url: &str, config: &WebhookRetryConfig) -> Arc<CircuitBreaker> {
     let mut guard = ENDPOINT_CIRCUITS.lock().unwrap_or_else(|p| p.into_inner());
@@ -220,7 +225,9 @@ pub async fn deliver_with_context(
         match send_webhook(&webhook.url, &ctx, payload.clone()).await {
             Ok(status) => {
                 circuit.record_success();
-                WEBHOOK_DELIVERIES_TOTAL.with_label_values(&["success"]).inc();
+                WEBHOOK_DELIVERIES_TOTAL
+                    .with_label_values(&["success"])
+                    .inc();
                 last_status_code = Some(status as i32);
 
                 let _ = log_delivery(
@@ -257,7 +264,9 @@ pub async fn deliver_with_context(
             Err(e) => {
                 circuit.record_failure();
                 last_error = e.to_string();
-                WEBHOOK_DELIVERIES_TOTAL.with_label_values(&["failure"]).inc();
+                WEBHOOK_DELIVERIES_TOTAL
+                    .with_label_values(&["failure"])
+                    .inc();
                 tracing::warn!(
                     webhook_id  = %webhook.id,
                     delivery_id = %ctx.delivery_id,
@@ -379,8 +388,7 @@ pub async fn replay_dlq_entry(
     let mut ctx = DeliveryContext::new(&entry.event_type, webhook.secret.clone());
     ctx.delivery_id = entry.delivery_id;
 
-    let status =
-        deliver_with_context(pool, &webhook, ctx, entry.payload, config).await;
+    let status = deliver_with_context(pool, &webhook, ctx, entry.payload, config).await;
 
     if status.success {
         sqlx::query("DELETE FROM webhook_dead_letter_queue WHERE id = $1")

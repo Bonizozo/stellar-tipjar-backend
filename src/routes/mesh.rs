@@ -2,8 +2,8 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::ge
 use std::sync::Arc;
 
 use crate::db::connection::AppState;
-use crate::service_mesh::mesh_monitor::mesh_health;
 use crate::service_mesh::discovery::ServiceRegistry;
+use crate::service_mesh::mesh_monitor::mesh_health;
 
 /// GET /mesh/health
 ///

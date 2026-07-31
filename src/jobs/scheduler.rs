@@ -1,8 +1,6 @@
 //! Periodic job scheduling (cron-style)
 
-use crate::jobs::{
-    CleanupType, JobConfig, JobPayload, JobQueueManager, JobResult, JobType,
-};
+use crate::jobs::{CleanupType, JobConfig, JobPayload, JobQueueManager, JobResult, JobType};
 use chrono::Utc;
 use std::sync::Arc;
 use std::time::Duration;

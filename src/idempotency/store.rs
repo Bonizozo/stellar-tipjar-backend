@@ -500,10 +500,18 @@ pub mod memory {
             let mut entries = self.entries.lock().await;
 
             if let Some(entry) = entries.get(scope_hash) {
-                let expired = entry.expires_at.map(|e| Instant::now() >= e).unwrap_or(false);
+                let expired = entry
+                    .expires_at
+                    .map(|e| Instant::now() >= e)
+                    .unwrap_or(false);
                 if !entry.in_flight && !expired {
                     return Ok(if entry.fingerprint == fingerprint {
-                        Decision::Replay(entry.response.clone().expect("completed entry has response"))
+                        Decision::Replay(
+                            entry
+                                .response
+                                .clone()
+                                .expect("completed entry has response"),
+                        )
                     } else {
                         Decision::Mismatch
                     });

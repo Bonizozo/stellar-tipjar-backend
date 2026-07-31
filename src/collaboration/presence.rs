@@ -86,12 +86,7 @@ impl PresenceManager {
         let presence = self.presence.read().await;
         presence
             .get(document_id)
-            .map(|m| {
-                m.values()
-                    .filter(|p| !p.is_stale())
-                    .cloned()
-                    .collect()
-            })
+            .map(|m| m.values().filter(|p| !p.is_stale()).cloned().collect())
             .unwrap_or_default()
     }
 

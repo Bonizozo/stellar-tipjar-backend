@@ -105,7 +105,14 @@ impl IdempotencyService {
 
         let decision = if let Some(redis) = &self.redis_backend {
             match redis
-                .begin(&scope_hash, principal, route, idempotency_key, fingerprint, self.config.lock_ttl)
+                .begin(
+                    &scope_hash,
+                    principal,
+                    route,
+                    idempotency_key,
+                    fingerprint,
+                    self.config.lock_ttl,
+                )
                 .await
             {
                 Ok(decision) => decision,
@@ -113,14 +120,28 @@ impl IdempotencyService {
                     metrics::IDEMPOTENCY_REDIS_FALLBACK_TOTAL.inc();
                     tracing::warn!(error = %e, "Idempotency: Redis unavailable, falling back to Postgres");
                     self.pg_backend
-                        .begin(&scope_hash, principal, route, idempotency_key, fingerprint, self.config.lock_ttl)
+                        .begin(
+                            &scope_hash,
+                            principal,
+                            route,
+                            idempotency_key,
+                            fingerprint,
+                            self.config.lock_ttl,
+                        )
                         .await?
                 }
                 Err(e) => return Err(e),
             }
         } else {
             self.pg_backend
-                .begin(&scope_hash, principal, route, idempotency_key, fingerprint, self.config.lock_ttl)
+                .begin(
+                    &scope_hash,
+                    principal,
+                    route,
+                    idempotency_key,
+                    fingerprint,
+                    self.config.lock_ttl,
+                )
                 .await?
         };
 
@@ -203,7 +224,10 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    fn test_service_with_backend(backend: Arc<dyn IdempotencyBackend>, config: IdempotencyConfig) -> IdempotencyServiceForTest {
+    fn test_service_with_backend(
+        backend: Arc<dyn IdempotencyBackend>,
+        config: IdempotencyConfig,
+    ) -> IdempotencyServiceForTest {
         IdempotencyServiceForTest { backend, config }
     }
 
@@ -217,11 +241,24 @@ mod tests {
     }
 
     impl IdempotencyServiceForTest {
-        async fn begin(&self, principal: &str, route: &str, key: &str, fingerprint: &str) -> Outcome {
+        async fn begin(
+            &self,
+            principal: &str,
+            route: &str,
+            key: &str,
+            fingerprint: &str,
+        ) -> Outcome {
             let scope_hash = compute_scope_hash(principal, route, key);
             let decision = self
                 .backend
-                .begin(&scope_hash, principal, route, key, fingerprint, self.config.lock_ttl)
+                .begin(
+                    &scope_hash,
+                    principal,
+                    route,
+                    key,
+                    fingerprint,
+                    self.config.lock_ttl,
+                )
                 .await
                 .unwrap();
             match decision {
@@ -251,7 +288,10 @@ mod tests {
         }
 
         async fn fail(&self, guard: ExecutionGuard) {
-            self.backend.fail(&guard.scope_hash, &guard.token).await.unwrap();
+            self.backend
+                .fail(&guard.scope_hash, &guard.token)
+                .await
+                .unwrap();
         }
     }
 
@@ -295,7 +335,11 @@ mod tests {
         };
         svc.complete(
             guard,
-            StoredResponse { status: 201, content_type: None, body: vec![] },
+            StoredResponse {
+                status: 201,
+                content_type: None,
+                body: vec![],
+            },
         )
         .await;
 
@@ -322,7 +366,11 @@ mod tests {
         };
         svc.complete(
             guard,
-            StoredResponse { status: 201, content_type: None, body: vec![] },
+            StoredResponse {
+                status: 201,
+                content_type: None,
+                body: vec![],
+            },
         )
         .await;
 
@@ -411,7 +459,11 @@ mod tests {
             "the side-effecting operation must run exactly once under {n} concurrent duplicates"
         );
         assert_eq!(executed, 1, "exactly one request should have won the lock");
-        assert_eq!(conflict + replay, n - 1, "every other request must be rejected or replayed, never execute");
+        assert_eq!(
+            conflict + replay,
+            n - 1,
+            "every other request must be rejected or replayed, never execute"
+        );
 
         println!(
             "race test: {n} concurrent requests -> executed={executed} conflict={conflict} replay={replay} (side-effect counter={})",

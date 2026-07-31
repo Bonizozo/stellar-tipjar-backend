@@ -95,7 +95,9 @@ impl PerformanceMonitor {
             let count_in_window = recent
                 .iter()
                 .rev()
-                .take_while(|r| now.duration_since(r.executed_at).as_millis() < N_PLUS_ONE_WINDOW_MS)
+                .take_while(|r| {
+                    now.duration_since(r.executed_at).as_millis() < N_PLUS_ONE_WINDOW_MS
+                })
                 .filter(|r| r.pattern == pattern)
                 .count();
 
@@ -192,7 +194,10 @@ impl PerformanceMonitor {
             "=== Database Query Profiling Report ===".to_string(),
             format!("Total query patterns tracked : {}", stats.len()),
             format!("Total executions             : {}", total_queries),
-            format!("Slow queries (>{}ms)         : {}", SLOW_THRESHOLD_MS, slow_count),
+            format!(
+                "Slow queries (>{}ms)         : {}",
+                SLOW_THRESHOLD_MS, slow_count
+            ),
             format!("N+1 suspects                 : {}", n1_count),
             String::new(),
             "--- Top 10 Slowest Queries ---".to_string(),
@@ -239,8 +244,14 @@ mod tests {
     #[test]
     fn test_basic_tracking() {
         let m = PerformanceMonitor::new();
-        m.track_query("SELECT * FROM users WHERE id = $1", Duration::from_millis(10));
-        m.track_query("SELECT * FROM users WHERE id = $1", Duration::from_millis(20));
+        m.track_query(
+            "SELECT * FROM users WHERE id = $1",
+            Duration::from_millis(10),
+        );
+        m.track_query(
+            "SELECT * FROM users WHERE id = $1",
+            Duration::from_millis(20),
+        );
         let stats = m.get_stats();
         let (count, avg, max, _, _) = stats["SELECT * FROM users WHERE id = $1"];
         assert_eq!(count, 2);

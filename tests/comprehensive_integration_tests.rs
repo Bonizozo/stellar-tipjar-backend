@@ -1,5 +1,5 @@
 //! Comprehensive integration test suite runner
-//! 
+//!
 //! This module runs all integration tests and provides coverage metrics
 
 use std::time::{Duration, Instant};
@@ -52,48 +52,44 @@ async fn run_comprehensive_integration_test_suite() {
     let mut suite = IntegrationTestSuite::new();
 
     // Test categories to run
-    let test_categories = vec![
-        "Tip Flow Tests",
-        "Edge Case Tests", 
-        "Performance/Gas Tests",
-    ];
+    let test_categories = vec!["Tip Flow Tests", "Edge Case Tests", "Performance/Gas Tests"];
 
     for category in test_categories {
         println!("\n📋 Running {}", category);
         println!("{}", "-".repeat(50));
-        
+
         // Note: In a real implementation, you would run the actual test functions here
         // For now, we'll simulate the test execution
         let category_start = Instant::now();
-        
+
         match category {
             "Tip Flow Tests" => {
                 // Simulate running tip flow tests
                 suite.total_tests += 12; // Number of tip flow tests
                 suite.passed_tests += 12; // Assume all pass for demo
-            },
+            }
             "Edge Case Tests" => {
                 // Simulate running edge case tests
                 suite.total_tests += 15; // Number of edge case tests
                 suite.passed_tests += 14; // Assume 1 fails for demo
                 suite.failed_tests += 1;
-            },
+            }
             "Performance/Gas Tests" => {
                 // Simulate running performance tests
                 suite.total_tests += 10; // Number of performance tests
                 suite.passed_tests += 10; // Assume all pass for demo
-            },
+            }
             _ => {}
         }
-        
+
         let category_duration = category_start.elapsed();
         suite.total_duration += category_duration;
-        
+
         println!("✅ {} completed in {:?}", category, category_duration);
     }
 
     let total_duration = start_time.elapsed();
-    
+
     println!("\n📊 Test Suite Summary");
     println!("====================");
     println!("Total Tests: {}", suite.total_tests);
@@ -134,12 +130,13 @@ async fn run_comprehensive_integration_test_suite() {
 #[tokio::test]
 async fn test_isolation_verification() {
     println!("🔒 Verifying Test Isolation");
-    
+
     let ctx1 = helpers::TestContext::new().await;
     let ctx2 = helpers::TestContext::new().await;
 
     // Create data in first context
-    ctx1.create_creator("isolation_test_1", "GISO1123", "iso1@test.com").await;
+    ctx1.create_creator("isolation_test_1", "GISO1123", "iso1@test.com")
+        .await;
 
     // Verify second context doesn't see the data
     let response = ctx2.server.get("/creators/isolation_test_1").await;
@@ -156,12 +153,12 @@ async fn test_isolation_verification() {
 #[tokio::test]
 async fn test_database_transaction_integrity() {
     println!("🔄 Testing Database Transaction Integrity");
-    
+
     let ctx = helpers::TestContext::new().await;
 
     // Test that failed operations don't leave partial data
     // This would be implemented with actual transaction rollback scenarios
-    
+
     println!("✅ Database transaction integrity verified");
     ctx.cleanup().await;
 }
@@ -170,17 +167,19 @@ async fn test_database_transaction_integrity() {
 #[tokio::test]
 async fn test_memory_leak_detection() {
     println!("🧠 Testing for Memory Leaks");
-    
+
     let ctx = helpers::TestContext::new().await;
 
     // Perform many operations to detect potential memory leaks
     for i in 0..100 {
-        let creator = ctx.create_creator(
-            &format!("memory_test_{}", i),
-            &format!("GMEM{:03}", i),
-            &format!("mem_{}@test.com", i)
-        ).await;
-        
+        let creator = ctx
+            .create_creator(
+                &format!("memory_test_{}", i),
+                &format!("GMEM{:03}", i),
+                &format!("mem_{}@test.com", i),
+            )
+            .await;
+
         // Immediately clean up to test memory management
         // In a real test, you'd measure actual memory usage
     }
@@ -193,7 +192,7 @@ async fn test_memory_leak_detection() {
 #[tokio::test]
 async fn test_high_concurrency_stress() {
     println!("💪 Running High Concurrency Stress Test");
-    
+
     let mut ctx = helpers::TestContext::new().await;
 
     // Create base creators
@@ -201,8 +200,9 @@ async fn test_high_concurrency_stress() {
         ctx.create_creator(
             &format!("stress_creator_{}", i),
             &format!("GSTRESS{:02}", i),
-            &format!("stress_{}@test.com", i)
-        ).await;
+            &format!("stress_{}@test.com", i),
+        )
+        .await;
     }
 
     let mut runner = helpers::ConcurrentTestRunner::new();
@@ -214,9 +214,9 @@ async fn test_high_concurrency_stress() {
         let tx_hash = format!("TXSTRESS{:03}", i);
         let username = format!("stress_creator_{}", creator_id);
         let amount = format!("{}.{:02}", (i % 50) + 1, i % 100);
-        
+
         ctx.stellar_mocks.mock_successful_transaction(&tx_hash);
-        
+
         let server = ctx.server.clone();
         runner.spawn(async move {
             let response = server
@@ -227,7 +227,7 @@ async fn test_high_concurrency_stress() {
                     "transaction_hash": tx_hash
                 }))
                 .await;
-            
+
             response.assert_status(axum::http::StatusCode::CREATED);
         });
     }
@@ -236,12 +236,16 @@ async fn test_high_concurrency_stress() {
     runner.wait_all().await;
     let duration = start.elapsed();
 
-    println!("✅ Completed {} concurrent operations in {:?}", operations_count, duration);
-    
+    println!(
+        "✅ Completed {} concurrent operations in {:?}",
+        operations_count, duration
+    );
+
     // Verify system remained stable under load
     assert!(
         duration < Duration::from_secs(30),
-        "Stress test took too long: {:?}", duration
+        "Stress test took too long: {:?}",
+        duration
     );
 
     ctx.cleanup().await;

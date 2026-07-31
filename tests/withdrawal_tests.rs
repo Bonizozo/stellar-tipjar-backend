@@ -43,9 +43,9 @@ async fn test_withdrawal_basic_flow() {
 
     // This might return 404 if withdrawal isn't implemented yet
     assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::NOT_IMPLEMENTED
+        response.status_code() == StatusCode::OK
+            || response.status_code() == StatusCode::NOT_FOUND
+            || response.status_code() == StatusCode::NOT_IMPLEMENTED
     );
 
     ctx.cleanup().await;
@@ -76,9 +76,9 @@ async fn test_withdrawal_insufficient_balance() {
 
     // Should fail with insufficient balance or return 404 if not implemented
     assert!(
-        response.status() == StatusCode::BAD_REQUEST
-            || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::NOT_IMPLEMENTED
+        response.status_code() == StatusCode::BAD_REQUEST
+            || response.status_code() == StatusCode::NOT_FOUND
+            || response.status_code() == StatusCode::NOT_IMPLEMENTED
     );
 
     ctx.cleanup().await;
@@ -104,9 +104,9 @@ async fn test_withdrawal_zero_balance() {
 
     // Should fail or return 404 if not implemented
     assert!(
-        response.status() == StatusCode::BAD_REQUEST
-            || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::NOT_IMPLEMENTED
+        response.status_code() == StatusCode::BAD_REQUEST
+            || response.status_code() == StatusCode::NOT_FOUND
+            || response.status_code() == StatusCode::NOT_IMPLEMENTED
     );
 
     ctx.cleanup().await;
@@ -146,8 +146,8 @@ async fn test_double_withdrawal_prevention() {
         .await;
 
     // If withdrawal is implemented, second should fail
-    if response1.status() == StatusCode::OK {
-        assert_eq!(response2.status(), StatusCode::BAD_REQUEST);
+    if response1.status_code() == StatusCode::OK {
+        assert_eq!(response2.status_code(), StatusCode::BAD_REQUEST);
     }
 
     ctx.cleanup().await;
@@ -185,9 +185,9 @@ async fn test_withdrawal_invalid_destination() {
 
         // Should fail validation or return 404 if not implemented
         assert!(
-            response.status() == StatusCode::BAD_REQUEST
-                || response.status() == StatusCode::NOT_FOUND
-                || response.status() == StatusCode::NOT_IMPLEMENTED
+            response.status_code() == StatusCode::BAD_REQUEST
+                || response.status_code() == StatusCode::NOT_FOUND
+                || response.status_code() == StatusCode::NOT_IMPLEMENTED
         );
     }
 

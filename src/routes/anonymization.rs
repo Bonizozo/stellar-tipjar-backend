@@ -1,6 +1,6 @@
 use crate::anonymization::audit::AnonymizationAudit;
-use crate::anonymization::masker::{Anonymizer, STANDARD_PII_FIELDS};
 use crate::anonymization::detector::PiiDetector;
+use crate::anonymization::masker::{Anonymizer, STANDARD_PII_FIELDS};
 use axum::{
     extract::{Query, State},
     http::StatusCode,

@@ -78,7 +78,11 @@ pub async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoRespon
         http_status,
         Json(HealthResponse {
             status: label,
-            dependencies: Dependencies { postgres, redis, stellar },
+            dependencies: Dependencies {
+                postgres,
+                redis,
+                stellar,
+            },
         }),
     )
         .into_response()
@@ -233,14 +237,12 @@ async fn check_stellar(state: &AppState) -> DepDetail {
         .send();
 
     match timeout(CHECK_TIMEOUT, req).await {
-        Ok(Ok(resp)) if resp.status().is_success() || resp.status().as_u16() == 200 => {
-            DepDetail {
-                status: DepStatus::Ok,
-                latency_ms: Some(t.elapsed().as_millis() as u64),
-                error: None,
-                detail: None,
-            }
-        }
+        Ok(Ok(resp)) if resp.status().is_success() || resp.status().as_u16() == 200 => DepDetail {
+            status: DepStatus::Ok,
+            latency_ms: Some(t.elapsed().as_millis() as u64),
+            error: None,
+            detail: None,
+        },
         Ok(Ok(resp)) => {
             tracing::warn!(status = %resp.status(), "Stellar Horizon returned non-200");
             DepDetail {

@@ -2,7 +2,9 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::errors::AppResult;
-use crate::models::category::{AssignCategoriesRequest, AssignTagsRequest, Category, CreateCategoryRequest, Tag};
+use crate::models::category::{
+    AssignCategoriesRequest, AssignTagsRequest, Category, CreateCategoryRequest, Tag,
+};
 
 pub async fn list_categories(pool: &PgPool) -> AppResult<Vec<Category>> {
     let cats = sqlx::query_as::<_, Category>(
@@ -84,7 +86,11 @@ pub async fn get_creator_categories(pool: &PgPool, username: &str) -> AppResult<
     Ok(cats)
 }
 
-pub async fn assign_tags(pool: &PgPool, username: &str, req: AssignTagsRequest) -> AppResult<Vec<Tag>> {
+pub async fn assign_tags(
+    pool: &PgPool,
+    username: &str,
+    req: AssignTagsRequest,
+) -> AppResult<Vec<Tag>> {
     sqlx::query("DELETE FROM creator_tags WHERE creator_username = $1")
         .bind(username)
         .execute(pool)

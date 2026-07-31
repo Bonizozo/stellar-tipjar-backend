@@ -373,7 +373,7 @@ async fn test_tip_recording() -> Result<(), Box<dyn std::error::Error>> {
     let response = ctx
         .record_tip_with_mock("tip_creator", "10.0", "TXTEST123", true)
         .await;
-    assert_eq!(response.status(), axum::http::StatusCode::CREATED);
+    assert_eq!(response.status_code(), axum::http::StatusCode::CREATED);
     ctx.cleanup().await;
     Ok(())
 }
@@ -401,7 +401,7 @@ async fn test_invalid_creator_data() -> Result<(), Box<dyn std::error::Error>> {
             "email": "invalid@test.com"
         }))
         .await;
-    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(response.status_code(), axum::http::StatusCode::BAD_REQUEST);
     ctx.cleanup().await;
     Ok(())
 }
@@ -414,7 +414,7 @@ async fn test_stellar_verification_failure() -> Result<(), Box<dyn std::error::E
         .record_tip_with_mock("fail_creator", "10.0", "TXFAIL123", false)
         .await;
     assert_eq!(
-        response.status(),
+        response.status_code(),
         axum::http::StatusCode::UNPROCESSABLE_ENTITY
     );
     ctx.cleanup().await;
@@ -430,13 +430,13 @@ async fn test_duplicate_transaction() -> Result<(), Box<dyn std::error::Error>> 
     let response1 = ctx
         .record_tip_with_mock("dup_creator", "10.0", "TXDUP123", true)
         .await;
-    assert_eq!(response1.status(), axum::http::StatusCode::CREATED);
+    assert_eq!(response1.status_code(), axum::http::StatusCode::CREATED);
 
     // Duplicate tip
     let response2 = ctx
         .record_tip_with_mock("dup_creator", "15.0", "TXDUP123", true)
         .await;
-    assert_eq!(response2.status(), axum::http::StatusCode::CONFLICT);
+    assert_eq!(response2.status_code(), axum::http::StatusCode::CONFLICT);
 
     ctx.cleanup().await;
     Ok(())
@@ -453,8 +453,8 @@ async fn test_boundary_values() -> Result<(), Box<dyn std::error::Error>> {
         .await;
     // Should either succeed or fail gracefully
     assert!(
-        response.status() == axum::http::StatusCode::CREATED
-            || response.status() == axum::http::StatusCode::BAD_REQUEST
+        response.status_code() == axum::http::StatusCode::CREATED
+            || response.status_code() == axum::http::StatusCode::BAD_REQUEST
     );
 
     ctx.cleanup().await;
@@ -475,8 +475,8 @@ async fn test_special_characters() -> Result<(), Box<dyn std::error::Error>> {
 
     // Should handle special characters gracefully
     assert!(
-        response.status() == axum::http::StatusCode::CREATED
-            || response.status() == axum::http::StatusCode::BAD_REQUEST
+        response.status_code() == axum::http::StatusCode::CREATED
+            || response.status_code() == axum::http::StatusCode::BAD_REQUEST
     );
 
     ctx.cleanup().await;
@@ -499,9 +499,9 @@ async fn test_large_payloads() -> Result<(), Box<dyn std::error::Error>> {
 
     // Should handle large payloads appropriately
     assert!(
-        response.status() == axum::http::StatusCode::CREATED
-            || response.status() == axum::http::StatusCode::BAD_REQUEST
-            || response.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE
+        response.status_code() == axum::http::StatusCode::CREATED
+            || response.status_code() == axum::http::StatusCode::BAD_REQUEST
+            || response.status_code() == axum::http::StatusCode::PAYLOAD_TOO_LARGE
     );
 
     ctx.cleanup().await;
@@ -569,7 +569,7 @@ async fn test_concurrent_tip_creation() -> Result<(), Box<dyn std::error::Error>
                     "transaction_hash": tx_hash
                 }))
                 .await;
-            assert_eq!(response.status(), axum::http::StatusCode::CREATED);
+            assert_eq!(response.status_code(), axum::http::StatusCode::CREATED);
         });
     }
 
@@ -597,7 +597,7 @@ async fn test_concurrent_creator_creation() -> Result<(), Box<dyn std::error::Er
                     "email": format!("concurrent_{}@test.com", i)
                 }))
                 .await;
-            assert_eq!(response.status(), axum::http::StatusCode::CREATED);
+            assert_eq!(response.status_code(), axum::http::StatusCode::CREATED);
         });
     }
 

@@ -1,8 +1,8 @@
-use crate::pagination::{
-    PaginationInfo, OffsetPaginationInfo, CursorPaginationInfo, PaginationType,
-    PaginatedResponse, create_paginated_response, Cursor
-};
 use crate::errors::AppError;
+use crate::pagination::{
+    create_paginated_response, Cursor, CursorPaginationInfo, OffsetPaginationInfo,
+    PaginatedResponse, PaginationInfo, PaginationType,
+};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -10,10 +10,10 @@ use uuid::Uuid;
 pub trait Paginatable {
     /// Get the cursor value for this item
     fn get_cursor_value(&self, sort_field: &str) -> Result<String, AppError>;
-    
+
     /// Get the ID for cursor generation
     fn get_id(&self) -> Uuid;
-    
+
     /// Get the timestamp for cursor ordering
     fn get_timestamp(&self) -> chrono::DateTime<chrono::Utc>;
 }
@@ -26,7 +26,7 @@ pub trait PaginatedQuery<T> {
         &self,
         info: &OffsetPaginationInfo,
     ) -> Result<(Vec<T>, Option<usize>), AppError>;
-    
+
     /// Execute a paginated query with cursor pagination
     async fn execute_cursor_query(
         &self,
@@ -58,8 +58,11 @@ impl<T: Paginatable> PaginationHelper<T> {
         let (has_next, next_cursor, previous_cursor) = match &self.pagination_info {
             PaginationInfo::Offset(_) => {
                 // For offset pagination, we can determine has_next from total_items
-                let has_next = if let (Some(total), OffsetPaginationInfo { page, limit, .. }) = 
-                    (total_items, &self.pagination_info) {
+                let has_next = if let (
+                    Some(total),
+                    PaginationInfo::Offset(OffsetPaginationInfo { page, limit, .. }),
+                ) = (total_items, &self.pagination_info)
+                {
                     (page * limit) < total
                 } else {
                     false
@@ -95,7 +98,7 @@ impl<T: Paginatable> PaginationHelper<T> {
 
         // Determine if there are more items
         let has_next = self.items.len() == info.limit + 1;
-        
+
         // Take only the requested number of items
         let items = if has_next {
             &self.items[..info.limit]
@@ -191,7 +194,11 @@ impl PaginationQueryBuilder {
             "{} ORDER BY {} {} LIMIT {} OFFSET {}",
             self.base_query,
             info.sort,
-            if info.order == crate::pagination::SortDirection::Asc { "ASC" } else { "DESC" },
+            if info.order == crate::pagination::SortDirection::Asc {
+                "ASC"
+            } else {
+                "DESC"
+            },
             info.limit,
             offset
         )
@@ -200,27 +207,39 @@ impl PaginationQueryBuilder {
     /// Build cursor pagination query
     pub fn build_cursor_query(&self, info: &CursorPaginationInfo) -> Result<String, AppError> {
         let mut query = self.base_query.clone();
-        
+
         if let Some(cursor_str) = &info.cursor {
             let cursor = Cursor::decode(cursor_str)?;
-            
+
             let operator = if info.previous { "<" } else { ">" };
             let order = if info.previous { "DESC" } else { "ASC" };
-            
+
             query.push_str(&format!(
                 " AND ({} {} '{}' OR ({} = '{}' AND id {} '{}'))",
-                info.sort, operator, cursor.value,
-                info.sort, cursor.value,
+                info.sort,
+                operator,
+                cursor.value,
+                info.sort,
+                cursor.value,
                 if info.previous { ">" } else { "<" },
                 cursor.id
             ));
-            
-            query.push_str(&format!(" ORDER BY {} {} LIMIT {}", info.sort, order, info.limit + 1));
+
+            query.push_str(&format!(
+                " ORDER BY {} {} LIMIT {}",
+                info.sort,
+                order,
+                info.limit + 1
+            ));
         } else {
             query.push_str(&format!(
                 " ORDER BY {} {} LIMIT {}",
                 info.sort,
-                if info.order == crate::pagination::SortDirection::Asc { "ASC" } else { "DESC" },
+                if info.order == crate::pagination::SortDirection::Asc {
+                    "ASC"
+                } else {
+                    "DESC"
+                },
                 info.limit + 1
             ));
         }
@@ -270,7 +289,7 @@ pub fn extract_sort_info(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pagination::{OffsetPaginationInfo, CursorPaginationInfo, SortDirection};
+    use crate::pagination::{CursorPaginationInfo, OffsetPaginationInfo, SortDirection};
 
     // Mock item for testing
     #[derive(Debug, Clone)]
@@ -285,7 +304,7 @@ mod tests {
             match sort_field {
                 "name" => Ok(self.name.clone()),
                 "created_at" => Ok(self.created_at.to_rfc3339()),
-                _ => Err(AppError::bad_request("Invalid sort field"))
+                _ => Err(AppError::bad_request("Invalid sort field")),
             }
         }
 

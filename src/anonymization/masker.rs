@@ -29,7 +29,9 @@ impl Anonymizer {
                 PiiField::Email => "[EMAIL]".to_string(),
                 PiiField::Phone => "[PHONE]".to_string(),
                 PiiField::IpAddress => "[IP]".to_string(),
-                PiiField::WalletAddress => format!("G...{}", &det.value[det.value.len().saturating_sub(4)..]),
+                PiiField::WalletAddress => {
+                    format!("G...{}", &det.value[det.value.len().saturating_sub(4)..])
+                }
                 PiiField::Name => "[NAME]".to_string(),
             };
             result.replace_range(det.start..det.end, &replacement);
@@ -61,9 +63,11 @@ impl Anonymizer {
                 }
                 Value::Object(new_map)
             }
-            Value::Array(arr) => {
-                Value::Array(arr.iter().map(|v| self.anonymize_json(v, pii_fields)).collect())
-            }
+            Value::Array(arr) => Value::Array(
+                arr.iter()
+                    .map(|v| self.anonymize_json(v, pii_fields))
+                    .collect(),
+            ),
             Value::String(s) => {
                 if self.detector.contains_pii(s) {
                     Value::String(self.mask_text(s))

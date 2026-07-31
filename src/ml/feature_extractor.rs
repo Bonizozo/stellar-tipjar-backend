@@ -36,7 +36,9 @@ impl FeatureExtractor {
 
         let tips_last_hour = self.count_recent_tips(&tip.transaction_hash, 3600).await?;
         let tips_last_day = self.count_recent_tips(&tip.transaction_hash, 86400).await?;
-        let previous_tips = self.count_tips_to_creator(&tip.transaction_hash, &tip.creator_username).await?;
+        let previous_tips = self
+            .count_tips_to_creator(&tip.transaction_hash, &tip.creator_username)
+            .await?;
 
         let amount: f64 = tip.amount.parse().unwrap_or(0.0);
 
@@ -60,7 +62,7 @@ impl FeatureExtractor {
     async fn get_creator_history(&self, username: &str) -> Result<(i32, f64, i32), AppError> {
         let result: (i64, Option<f64>, Option<i64>) = sqlx::query_as(
             "SELECT COUNT(*), AVG(amount), EXTRACT(DAY FROM NOW() - MIN(created_at))::int 
-             FROM tips WHERE creator_username = $1"
+             FROM tips WHERE creator_username = $1",
         )
         .bind(username)
         .fetch_one(&self.pool)
@@ -77,7 +79,7 @@ impl FeatureExtractor {
     async fn get_sender_history(&self, tx_hash: &str) -> Result<(f64, i32, i32), AppError> {
         let result: (Option<f64>, i64, Option<i64>) = sqlx::query_as(
             "SELECT SUM(amount), COUNT(*), EXTRACT(DAY FROM NOW() - MIN(created_at))::int 
-             FROM tips WHERE transaction_hash = $1"
+             FROM tips WHERE transaction_hash = $1",
         )
         .bind(tx_hash)
         .fetch_one(&self.pool)
@@ -94,7 +96,7 @@ impl FeatureExtractor {
     async fn count_recent_tips(&self, tx_hash: &str, seconds: i64) -> Result<i32, AppError> {
         let result: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM tips WHERE transaction_hash = $1 
-             AND created_at > NOW() - INTERVAL '1 second' * $2"
+             AND created_at > NOW() - INTERVAL '1 second' * $2",
         )
         .bind(tx_hash)
         .bind(seconds)
@@ -107,7 +109,7 @@ impl FeatureExtractor {
 
     async fn count_tips_to_creator(&self, tx_hash: &str, creator: &str) -> Result<i32, AppError> {
         let result: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM tips WHERE transaction_hash = $1 AND creator_username = $2"
+            "SELECT COUNT(*) FROM tips WHERE transaction_hash = $1 AND creator_username = $2",
         )
         .bind(tx_hash)
         .bind(creator)

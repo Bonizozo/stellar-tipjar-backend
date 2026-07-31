@@ -26,10 +26,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/creators/:username/notifications/preferences",
             get(get_preferences).put(update_preferences),
         )
-        .route(
-            "/creators/:username/notifications",
-            get(list_notifications),
-        )
+        .route("/creators/:username/notifications", get(list_notifications))
         .route(
             "/creators/:username/notifications/read-all",
             patch(mark_all_read),

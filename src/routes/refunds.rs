@@ -52,10 +52,7 @@ async fn create_refund(
     }
 }
 
-async fn get_refund(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+async fn get_refund(State(state): State<Arc<AppState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     match refund_controller::get_refund(&state.db, id).await {
         Ok(Some(r)) => (StatusCode::OK, Json(serde_json::json!(r))).into_response(),
         Ok(None) => (

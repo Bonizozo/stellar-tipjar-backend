@@ -40,9 +40,7 @@ impl RequestTransformer {
 
     /// Find the first rule whose `path_prefix` matches `path`.
     pub fn find_rule(&self, path: &str) -> Option<&TransformationRule> {
-        self.rules
-            .iter()
-            .find(|r| path.starts_with(&r.path_prefix))
+        self.rules.iter().find(|r| path.starts_with(&r.path_prefix))
     }
 
     /// Apply named body transforms to a JSON value.

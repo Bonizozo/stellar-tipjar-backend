@@ -1,5 +1,5 @@
 use crate::metrics::collectors::{
-    HTTP_REQUEST_DURATION_SECONDS, HTTP_REQUESTS_IN_FLIGHT, HTTP_REQUESTS_TOTAL,
+    HTTP_REQUESTS_IN_FLIGHT, HTTP_REQUESTS_TOTAL, HTTP_REQUEST_DURATION_SECONDS,
 };
 use crate::metrics::exemplars;
 use axum::{extract::Request, middleware::Next, response::Response};

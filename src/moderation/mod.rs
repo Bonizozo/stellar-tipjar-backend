@@ -120,8 +120,7 @@ impl ModerationService {
             (None, None)
         };
 
-        let is_flagged = !violations.is_empty()
-            || ai_score.map(|s| s > 0.7).unwrap_or(false);
+        let is_flagged = !violations.is_empty() || ai_score.map(|s| s > 0.7).unwrap_or(false);
 
         let result = ModerationResult {
             is_flagged,

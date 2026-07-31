@@ -4,8 +4,8 @@ pub mod engine;
 use serde::Deserialize;
 use utoipa::IntoParams;
 
-pub use engine::{SearchEngine, SearchFilters, CreatorSearchResult, TipSearchResult};
 pub use cache::SearchCache;
+pub use engine::{CreatorSearchResult, SearchEngine, SearchFilters, TipSearchResult};
 
 /// Query parameters for the creator search endpoint.
 #[derive(Debug, Deserialize, IntoParams)]

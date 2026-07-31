@@ -39,9 +39,7 @@ pub async fn propagate_request_id(req: Request, next: Next) -> Response {
 
     // Add the request ID to the response so callers can correlate logs.
     if let Ok(value) = axum::http::HeaderValue::from_str(&request_id) {
-        response
-            .headers_mut()
-            .insert("x-request-id", value);
+        response.headers_mut().insert("x-request-id", value);
     }
 
     response

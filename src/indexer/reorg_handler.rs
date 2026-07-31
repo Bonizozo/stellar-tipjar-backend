@@ -17,7 +17,7 @@ impl ReorgHandler {
         let affected: Vec<Tip> = sqlx::query_as(
             "SELECT * FROM tips 
              WHERE indexed_at > NOW() - INTERVAL '1 hour'
-             AND confirmations < $1"
+             AND confirmations < $1",
         )
         .bind(reorg_depth as i32)
         .fetch_all(&self.pool)

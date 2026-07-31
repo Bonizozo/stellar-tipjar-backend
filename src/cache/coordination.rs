@@ -128,6 +128,12 @@ mod tests {
             let _ = receiver.listen_for_invalidations(cloned_cache).await;
         });
 
+        // `InMemoryCoordinationBus::publish` only reaches subscribers already
+        // registered at call time (fire-and-forget, no backlog for latecomers),
+        // so the spawned listener must get a chance to run its `subscribe()`
+        // call before we publish, or the message is silently dropped.
+        tokio::task::yield_now().await;
+
         sender.coordinate_invalidation("creator:*").await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 

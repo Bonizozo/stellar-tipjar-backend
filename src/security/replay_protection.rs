@@ -34,9 +34,9 @@ pub struct ReplayProtectionConfig {
 impl Default for ReplayProtectionConfig {
     fn default() -> Self {
         Self {
-            nonce_ttl_seconds: 300, // 5 minutes
+            nonce_ttl_seconds: 300,          // 5 minutes
             max_timestamp_drift_seconds: 60, // 1 minute
-            cleanup_interval_seconds: 600, // 10 minutes
+            cleanup_interval_seconds: 600,   // 10 minutes
             enabled_endpoints: vec![
                 "/api/v1/tips".to_string(),
                 "/api/v1/creators".to_string(),
@@ -89,7 +89,11 @@ impl ReplayProtectionService {
         endpoint: &str,
     ) -> Result<(), ReplayProtectionError> {
         // Check if endpoint requires replay protection
-        if !self.config.enabled_endpoints.contains(&endpoint.to_string()) {
+        if !self
+            .config
+            .enabled_endpoints
+            .contains(&endpoint.to_string())
+        {
             return Ok(());
         }
 
@@ -132,7 +136,7 @@ impl ReplayProtectionService {
         let mut conn = redis.as_ref().clone();
 
         let key = format!("nonce:{}", nonce);
-        
+
         // Check if nonce exists
         let exists: bool = redis::cmd("EXISTS")
             .arg(&key)
@@ -255,7 +259,8 @@ impl ReplayProtectionService {
                     .await
                     .map_err(|e| ReplayProtectionError::RedisError(e.to_string()))?;
 
-                if ttl == -1 { // No expiry set, delete it
+                if ttl == -1 {
+                    // No expiry set, delete it
                     redis::cmd("DEL")
                         .arg(&key)
                         .query_async::<()>(&mut conn)
@@ -274,7 +279,7 @@ impl ReplayProtectionService {
     /// Get statistics about nonce usage
     pub async fn get_nonce_stats(&self) -> Result<HashMap<String, u64>, ReplayProtectionError> {
         let mut stats = HashMap::new();
-        
+
         if let Some(redis) = &self.redis {
             let mut conn = redis.as_ref().clone();
             let pattern = "nonce:*";
@@ -308,7 +313,7 @@ impl ReplayProtectionService {
     async fn get_nonce_info(&self, key: &str) -> Result<Option<NonceInfo>, ReplayProtectionError> {
         if let Some(redis) = &self.redis {
             let mut conn = redis.as_ref().clone();
-            
+
             let value: Option<String> = redis::cmd("GET")
                 .arg(key)
                 .query_async(&mut conn)
@@ -337,7 +342,7 @@ mod tests {
     fn test_generate_nonce() {
         let nonce1 = ReplayProtectionService::generate_nonce();
         let nonce2 = ReplayProtectionService::generate_nonce();
-        
+
         assert_eq!(nonce1.len(), 64);
         assert_eq!(nonce2.len(), 64);
         assert_ne!(nonce1, nonce2);
@@ -346,11 +351,26 @@ mod tests {
     #[test]
     fn test_generate_request_fingerprint() {
         let service = ReplayProtectionService::without_redis();
-        
-        let fp1 = service.generate_request_fingerprint("POST", "/api/v1/tips", "{\"amount\":100}", "client1");
-        let fp2 = service.generate_request_fingerprint("POST", "/api/v1/tips", "{\"amount\":100}", "client1");
-        let fp3 = service.generate_request_fingerprint("POST", "/api/v1/tips", "{\"amount\":200}", "client1");
-        
+
+        let fp1 = service.generate_request_fingerprint(
+            "POST",
+            "/api/v1/tips",
+            "{\"amount\":100}",
+            Some("client1"),
+        );
+        let fp2 = service.generate_request_fingerprint(
+            "POST",
+            "/api/v1/tips",
+            "{\"amount\":100}",
+            Some("client1"),
+        );
+        let fp3 = service.generate_request_fingerprint(
+            "POST",
+            "/api/v1/tips",
+            "{\"amount\":200}",
+            Some("client1"),
+        );
+
         assert_eq!(fp1, fp2);
         assert_ne!(fp1, fp3);
     }
@@ -359,16 +379,16 @@ mod tests {
     fn test_timestamp_validation() {
         let service = ReplayProtectionService::without_redis();
         let now = Utc::now();
-        
+
         // Valid timestamp (within drift)
         let valid_timestamp = now + chrono::Duration::seconds(30);
-        
+
         // Too old timestamp
         let old_timestamp = now - chrono::Duration::seconds(120);
-        
+
         // Too future timestamp
         let future_timestamp = now + chrono::Duration::seconds(120);
-        
+
         // These would need Redis to fully test, but timestamp validation logic is in validate_request
         assert!(valid_timestamp > old_timestamp);
         assert!(future_timestamp > valid_timestamp);

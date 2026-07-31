@@ -1,4 +1,3 @@
-
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -60,32 +59,17 @@ fn default_period() -> String {
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         // ── Analytics ──────────────────────────────────────────────────────
-        .route(
-            "/admin/rate-limits/analytics",
-            get(full_analytics_summary),
-        )
-        .route(
-            "/admin/rate-limits/analytics/timeseries",
-            get(timeseries),
-        )
+        .route("/admin/rate-limits/analytics", get(full_analytics_summary))
+        .route("/admin/rate-limits/analytics/timeseries", get(timeseries))
         .route(
             "/admin/rate-limits/analytics/top-offenders",
             get(top_offenders),
         )
-        .route(
-            "/admin/rate-limits/analytics/tiers",
-            get(tier_breakdown),
-        )
-        .route(
-            "/admin/rate-limits/analytics/paths",
-            get(path_breakdown),
-        )
+        .route("/admin/rate-limits/analytics/tiers", get(tier_breakdown))
+        .route("/admin/rate-limits/analytics/paths", get(path_breakdown))
         // ── Quota management ───────────────────────────────────────────────
         .route("/admin/rate-limits/quotas", get(list_quotas))
-        .route(
-            "/admin/rate-limits/quotas/:client_id",
-            put(upsert_quota),
-        )
+        .route("/admin/rate-limits/quotas/:client_id", put(upsert_quota))
         .route_layer(middleware::from_fn_with_state(state, require_admin))
 }
 
@@ -101,9 +85,7 @@ async fn full_analytics_summary(
 }
 
 /// Hourly blocked-request time series for the last 24 hours.
-async fn timeseries(
-    State(state): State<Arc<AppState>>,
-) -> Result<impl IntoResponse, AppError> {
+async fn timeseries(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
     let series = rl_analytics::time_series_last_24h(&state.db).await?;
     Ok((StatusCode::OK, Json(series)))
 }
@@ -119,9 +101,7 @@ async fn top_offenders(
 }
 
 /// Per-tier (anonymous / free / premium / admin) breakdown of blocked requests.
-async fn tier_breakdown(
-    State(state): State<Arc<AppState>>,
-) -> Result<impl IntoResponse, AppError> {
+async fn tier_breakdown(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
     let rows = rl_analytics::tier_breakdown(&state.db).await?;
     Ok((StatusCode::OK, Json(rows)))
 }
@@ -137,9 +117,7 @@ async fn path_breakdown(
 }
 
 /// List all daily quota rows for the current period (up to 500 clients).
-async fn list_quotas(
-    State(state): State<Arc<AppState>>,
-) -> Result<impl IntoResponse, AppError> {
+async fn list_quotas(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
     let quotas = get_daily_quotas(&state.db).await?;
     Ok((StatusCode::OK, Json(quotas)))
 }

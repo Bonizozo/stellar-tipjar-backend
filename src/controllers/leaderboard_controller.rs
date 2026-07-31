@@ -67,7 +67,14 @@ pub async fn refresh_leaderboards(pool: &PgPool) -> AppResult<()> {
         };
 
         // Top creators by total tips received
-        refresh_board(pool, period, "top_creators", &since_clause, "creator_username").await?;
+        refresh_board(
+            pool,
+            period,
+            "top_creators",
+            &since_clause,
+            "creator_username",
+        )
+        .await?;
 
         // Top tippers by total tips sent (using transaction_hash as proxy for unique tipper)
         // We use transaction_hash as a stand-in since we don't have a tipper_id column
@@ -146,10 +153,7 @@ async fn refresh_board_tippers(pool: &PgPool, period: &str, since_clause: &str) 
         since_clause = since_clause,
     );
 
-    sqlx::query(&sql)
-        .bind(period)
-        .execute(pool)
-        .await?;
+    sqlx::query(&sql).bind(period).execute(pool).await?;
 
     Ok(())
 }
@@ -179,10 +183,7 @@ async fn refresh_trending(pool: &PgPool, period: &str, since_clause: &str) -> Ap
         since_clause = since_clause,
     );
 
-    sqlx::query(&sql)
-        .bind(period)
-        .execute(pool)
-        .await?;
+    sqlx::query(&sql).bind(period).execute(pool).await?;
 
     Ok(())
 }

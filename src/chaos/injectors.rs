@@ -90,7 +90,10 @@ impl DatabaseFailureInjector {
 impl ChaosInjector for DatabaseFailureInjector {
     async fn inject(&self) -> Result<()> {
         self.active.store(true, Ordering::SeqCst);
-        tracing::warn!(failure_rate = self.failure_rate, "Chaos: database failure injection active");
+        tracing::warn!(
+            failure_rate = self.failure_rate,
+            "Chaos: database failure injection active"
+        );
         Ok(())
     }
 

@@ -20,7 +20,11 @@ use crate::services::auth_service;
 /// (fail-closed) rather than let through. When Redis isn't configured at
 /// all for this deployment, revocation enforcement is simply unavailable —
 /// see `docs/SESSION_SECURITY.md` for why Redis is required in production.
-pub async fn require_auth(State(state): State<Arc<AppState>>, mut req: Request, next: Next) -> Response {
+pub async fn require_auth(
+    State(state): State<Arc<AppState>>,
+    mut req: Request,
+    next: Next,
+) -> Response {
     let token = req
         .headers()
         .get(axum::http::header::AUTHORIZATION)
@@ -38,7 +42,9 @@ pub async fn require_auth(State(state): State<Arc<AppState>>, mut req: Request, 
     };
 
     if let Some(ref redis) = state.redis {
-        if let Err(e) = token_revocation::check_not_revoked(redis, &claims.jti, &claims.sub, claims.tv).await {
+        if let Err(e) =
+            token_revocation::check_not_revoked(redis, &claims.jti, &claims.sub, claims.tv).await
+        {
             return e.into_response();
         }
     } else {

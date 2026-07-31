@@ -36,7 +36,11 @@ pub async fn lb_failover(
     let instances = registry.discover_all("stellar-tipjar-backend").await;
     let lb = LoadBalancer::new(LoadBalancingStrategy::RoundRobin);
     match lb.select(&instances, None).await {
-        Some(inst) => (StatusCode::OK, Json(serde_json::json!({ "selected": inst }))).into_response(),
+        Some(inst) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "selected": inst })),
+        )
+            .into_response(),
         None => (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({ "error": "no healthy instances available" })),

@@ -1,9 +1,7 @@
 use crate::db::connection::AppState;
-use crate::webhooks::{
-    self, CreateWebhookRequest, UpdateWebhookRequest,
-};
 use crate::webhooks::retry::{list_dlq, replay_dlq_entry, WebhookRetryConfig};
 use crate::webhooks::sender::DeliveryContext;
+use crate::webhooks::{self, CreateWebhookRequest, UpdateWebhookRequest};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -33,7 +31,11 @@ async fn list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         Ok(hooks) => Json(hooks).into_response(),
         Err(e) => {
             tracing::error!("list_webhooks: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "db error"})),
+            )
+                .into_response()
         }
     }
 }
@@ -47,22 +49,27 @@ async fn create(
         Ok(hook) => (StatusCode::CREATED, Json(hook)).into_response(),
         Err(e) => {
             tracing::error!("create_webhook: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "db error"})),
+            )
+                .into_response()
         }
     }
 }
 
 /// GET /webhooks/:id
-async fn get_one(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+async fn get_one(State(state): State<Arc<AppState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     match webhooks::get_webhook(&state.db, id).await {
         Ok(Some(hook)) => Json(hook).into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, Json(json!({"error": "not found"}))).into_response(),
         Err(e) => {
             tracing::error!("get_webhook: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "db error"})),
+            )
+                .into_response()
         }
     }
 }
@@ -78,22 +85,27 @@ async fn update(
         Ok(None) => (StatusCode::NOT_FOUND, Json(json!({"error": "not found"}))).into_response(),
         Err(e) => {
             tracing::error!("update_webhook: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "db error"})),
+            )
+                .into_response()
         }
     }
 }
 
 /// DELETE /webhooks/:id
-async fn remove(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+async fn remove(State(state): State<Arc<AppState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     match webhooks::delete_webhook(&state.db, id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, Json(json!({"error": "not found"}))).into_response(),
         Err(e) => {
             tracing::error!("delete_webhook: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "db error"})),
+            )
+                .into_response()
         }
     }
 }
@@ -107,7 +119,11 @@ async fn delivery_logs(
         Ok(logs) => Json(logs).into_response(),
         Err(e) => {
             tracing::error!("list_delivery_logs: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "db error"})),
+            )
+                .into_response()
         }
     }
 }
@@ -275,16 +291,17 @@ async fn dlq_list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         Ok(entries) => Json(entries).into_response(),
         Err(e) => {
             tracing::error!("list_dlq: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "db error"})),
+            )
+                .into_response()
         }
     }
 }
 
 /// POST /webhooks/dlq/:id/replay
-async fn dlq_replay(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+async fn dlq_replay(State(state): State<Arc<AppState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let config = WebhookRetryConfig::default();
     match replay_dlq_entry(&state.db, id, &config).await {
         Ok(status) => Json(status).into_response(),
@@ -293,7 +310,11 @@ async fn dlq_replay(
         }
         Err(e) => {
             tracing::error!("dlq_replay: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "db error"})),
+            )
+                .into_response()
         }
     }
 }

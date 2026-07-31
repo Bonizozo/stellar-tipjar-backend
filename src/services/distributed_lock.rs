@@ -132,7 +132,8 @@ impl DistributedLockService {
                 ttl_ms,
             },
         );
-        self.acquired.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.acquired
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         Ok(guard)
     }
@@ -163,7 +164,8 @@ impl DistributedLockService {
         }
 
         self.registry.write().await.remove(&guard.resource);
-        self.released.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.released
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 
@@ -225,7 +227,8 @@ impl DistributedLockService {
             if !self.is_locked(&resource).await {
                 // Redis key gone — lock expired without explicit release.
                 if self.registry.write().await.remove(&resource).is_some() {
-                    self.expired.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    self.expired
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     warn!(resource = %resource, "Distributed lock expired without release (possible deadlock)");
                 }
             }

@@ -28,12 +28,8 @@ pub fn spawn(state: Arc<AppState>) {
         match &state.redis {
             Some(redis) => {
                 let cursor_manager = Arc::new(CursorManager::new(redis.clone()));
-                let listener = BlockchainListener::new(
-                    horizon_url,
-                    contract_id,
-                    cursor_manager,
-                    processor,
-                );
+                let listener =
+                    BlockchainListener::new(horizon_url, contract_id, cursor_manager, processor);
                 if let Err(e) = listener.start_listening().await {
                     tracing::error!(error = %e, "Blockchain listener exited with error");
                 }

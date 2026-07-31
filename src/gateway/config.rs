@@ -81,6 +81,8 @@ impl GatewayConfig {
             "/swagger-ui",
             "/api-docs",
         ];
-        public_prefixes.iter().any(|prefix| path.starts_with(prefix))
+        public_prefixes
+            .iter()
+            .any(|prefix| path.starts_with(prefix))
     }
 }

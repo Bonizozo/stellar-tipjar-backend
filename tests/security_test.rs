@@ -9,7 +9,7 @@ mod common;
 async fn test_sql_injection_in_username_path() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let payloads = [
         "' OR '1'='1",
@@ -40,7 +40,7 @@ async fn test_sql_injection_in_username_path() {
 async fn test_sql_injection_in_create_creator_body() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let payloads = [
         "'; DROP TABLE creators; --",
@@ -72,12 +72,9 @@ async fn test_sql_injection_in_create_creator_body() {
 async fn test_sql_injection_in_record_tip_body() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
-    let payloads = [
-        "'; DROP TABLE tips; --",
-        "admin' OR '1'='1",
-    ];
+    let payloads = ["'; DROP TABLE tips; --", "admin' OR '1'='1"];
 
     for payload in payloads {
         let response = server

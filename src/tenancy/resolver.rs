@@ -13,16 +13,18 @@ impl TenantResolver {
         Self { pool }
     }
 
-    pub async fn resolve_from_request<B>(&self, req: &Request<B>) -> Result<TenantContext, AppError> {
+    pub async fn resolve_from_request<B>(
+        &self,
+        req: &Request<B>,
+    ) -> Result<TenantContext, AppError> {
         let tenant_id = self.extract_tenant_id(req)?;
-        
-        let tenant: (Uuid, String, String, String) = sqlx::query_as(
-            "SELECT id, name, config, quotas FROM tenants WHERE id = $1"
-        )
-        .bind(tenant_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|_| AppError::not_found("Tenant not found"))?;
+
+        let tenant: (Uuid, String, String, String) =
+            sqlx::query_as("SELECT id, name, config, quotas FROM tenants WHERE id = $1")
+                .bind(tenant_id)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|_| AppError::not_found("Tenant not found"))?;
 
         let config: TenantConfig = serde_json::from_str(&tenant.2)
             .map_err(|_| AppError::database_error("Invalid config"))?;

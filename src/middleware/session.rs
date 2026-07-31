@@ -1,9 +1,9 @@
+use crate::security::session_management::{SessionData, SessionError, SessionManager};
 use axum::extract::{Request, State};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::http::{HeaderMap, StatusCode, header};
 use std::sync::Arc;
-use crate::security::session_management::{SessionManager, SessionData, SessionError};
 
 pub struct SessionMiddlewareState {
     pub session_manager: Arc<SessionManager>,
@@ -16,7 +16,7 @@ pub async fn session_middleware(
 ) -> Result<Response, Response> {
     let headers = request.headers();
     let path = request.uri().path();
-    
+
     // Skip session check for certain paths
     if should_skip_session_check(path) {
         return Ok(next.run(request).await);
@@ -24,14 +24,14 @@ pub async fn session_middleware(
 
     // Try to get session from cookie or header
     let session_id = extract_session_id(headers);
-    
+
     if let Some(session_id) = session_id {
         // Validate session
         match state.session_manager.validate_session(&session_id).await {
             Ok(Some(session)) => {
                 // Add session data to request extensions
                 request.extensions_mut().insert(session);
-                
+
                 // Update session cookie with new expiration
                 let mut response = next.run(request).await;
                 update_session_cookie(&mut response, &session_id);
@@ -39,7 +39,9 @@ pub async fn session_middleware(
             }
             Ok(None) => {
                 tracing::warn!("Session not found: {}", session_id);
-                return Err(create_session_error_response(SessionError::SessionNotFound(session_id)));
+                return Err(create_session_error_response(
+                    SessionError::SessionNotFound(session_id),
+                ));
             }
             Err(e) => {
                 tracing::warn!("Session validation failed: {}", e);
@@ -49,7 +51,9 @@ pub async fn session_middleware(
     } else {
         // No session provided - this could be a public endpoint
         if requires_authentication(path) {
-            return Err(create_session_error_response(SessionError::SessionNotFound("no_session".to_string())));
+            return Err(create_session_error_response(
+                SessionError::SessionNotFound("no_session".to_string()),
+            ));
         } else {
             return Ok(next.run(request).await);
         }
@@ -67,7 +71,7 @@ fn should_skip_session_check(path: &str) -> bool {
         "/swagger-ui",
         "/openapi.json",
     ];
-    
+
     skip_paths.iter().any(|skip| path.starts_with(skip))
 }
 
@@ -79,8 +83,10 @@ fn requires_authentication(path: &str) -> bool {
         "/api/v1/profile",
         "/api/v1/admin",
     ];
-    
-    protected_paths.iter().any(|protected| path.starts_with(protected))
+
+    protected_paths
+        .iter()
+        .any(|protected| path.starts_with(protected))
 }
 
 fn extract_session_id(headers: &HeaderMap) -> Option<String> {
@@ -97,7 +103,7 @@ fn extract_session_id(headers: &HeaderMap) -> Option<String> {
             }
         }
     }
-    
+
     // Try to get session from authorization header (Bearer token)
     if let Some(auth_header) = headers.get(header::AUTHORIZATION) {
         if let Ok(auth_str) = auth_header.to_str() {
@@ -106,14 +112,14 @@ fn extract_session_id(headers: &HeaderMap) -> Option<String> {
             }
         }
     }
-    
+
     // Try to get session from custom header
     if let Some(session_header) = headers.get("x-session-id") {
         if let Ok(session_str) = session_header.to_str() {
             return Some(session_str.to_string());
         }
     }
-    
+
     None
 }
 
@@ -122,31 +128,36 @@ fn update_session_cookie(response: &mut Response, session_id: &str) {
         "session_id={}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=3600",
         session_id
     );
-    
-    response.headers_mut().insert(
-        header::SET_COOKIE,
-        cookie_value.parse().unwrap()
-    );
+
+    response
+        .headers_mut()
+        .insert(header::SET_COOKIE, cookie_value.parse().unwrap());
 }
 
 fn create_session_error_response(error: SessionError) -> Response {
     let (status, message) = match error {
-        SessionError::SessionNotFound(_) => {
-            (StatusCode::UNAUTHORIZED, "Session not found or expired".to_string())
-        }
+        SessionError::SessionNotFound(_) => (
+            StatusCode::UNAUTHORIZED,
+            "Session not found or expired".to_string(),
+        ),
         SessionError::SessionExpired(_) => {
             (StatusCode::UNAUTHORIZED, "Session has expired".to_string())
         }
-        SessionError::InvalidSessionFormat(_) => {
-            (StatusCode::UNAUTHORIZED, "Invalid session format".to_string())
-        }
+        SessionError::InvalidSessionFormat(_) => (
+            StatusCode::UNAUTHORIZED,
+            "Invalid session format".to_string(),
+        ),
         SessionError::RedisError(msg) => {
             tracing::error!("Redis error in session middleware: {}", msg);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error".to_string(),
+            )
         }
-        SessionError::CreationFailed(_) => {
-            (StatusCode::INTERNAL_SERVER_ERROR, "Session creation failed".to_string())
-        }
+        SessionError::CreationFailed(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Session creation failed".to_string(),
+        ),
     };
 
     let body = serde_json::json!({
@@ -168,7 +179,14 @@ impl SessionMiddlewareFactory {
         Self { session_manager }
     }
 
-    pub fn middleware(&self) -> impl Fn(Request, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, Response>> + Send>> + Clone {
+    pub fn middleware(
+        &self,
+    ) -> impl Fn(
+        Request,
+        Next,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Response, Response>> + Send>,
+    > + Clone {
         let session_manager = self.session_manager.clone();
         move |request: Request, next: Next| {
             let session_manager = session_manager.clone();
@@ -213,8 +231,11 @@ impl SessionHelper {
         ip_address: Option<&str>,
         user_agent: Option<&str>,
     ) -> Result<Response, SessionError> {
-        let session = self.session_manager.create_session(user_id, client_id, ip_address, user_agent).await?;
-        
+        let session = self
+            .session_manager
+            .create_session(user_id, client_id, ip_address, user_agent)
+            .await?;
+
         let cookie_value = format!(
             "session_id={}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=3600",
             session.session_id
@@ -228,10 +249,9 @@ impl SessionHelper {
         });
 
         let mut response = (StatusCode::OK, axum::Json(body)).into_response();
-        response.headers_mut().insert(
-            header::SET_COOKIE,
-            cookie_value.parse().unwrap()
-        );
+        response
+            .headers_mut()
+            .insert(header::SET_COOKIE, cookie_value.parse().unwrap());
 
         Ok(response)
     }
@@ -240,19 +260,28 @@ impl SessionHelper {
         self.session_manager.delete_session(session_id).await?;
 
         let cookie_value = "session_id=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0";
-        
-        let mut response = (StatusCode::OK, axum::Json(serde_json::json!({"message": "Logged out successfully"}))).into_response();
-        response.headers_mut().insert(
-            header::SET_COOKIE,
-            cookie_value.parse().unwrap()
-        );
+
+        let mut response = (
+            StatusCode::OK,
+            axum::Json(serde_json::json!({"message": "Logged out successfully"})),
+        )
+            .into_response();
+        response
+            .headers_mut()
+            .insert(header::SET_COOKIE, cookie_value.parse().unwrap());
 
         Ok(response)
     }
 
-    pub async fn refresh_session_response(&self, session_id: &str) -> Result<Response, SessionError> {
-        let session = self.session_manager.refresh_session(session_id, None).await?;
-        
+    pub async fn refresh_session_response(
+        &self,
+        session_id: &str,
+    ) -> Result<Response, SessionError> {
+        let session = self
+            .session_manager
+            .refresh_session(session_id, None)
+            .await?;
+
         if let Some(session) = session {
             let cookie_value = format!(
                 "session_id={}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=3600",
@@ -266,10 +295,9 @@ impl SessionHelper {
             });
 
             let mut response = (StatusCode::OK, axum::Json(body)).into_response();
-            response.headers_mut().insert(
-                header::SET_COOKIE,
-                cookie_value.parse().unwrap()
-            );
+            response
+                .headers_mut()
+                .insert(header::SET_COOKIE, cookie_value.parse().unwrap());
 
             Ok(response)
         } else {
@@ -281,8 +309,8 @@ impl SessionHelper {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::{HeaderValue, Method};
     use axum::body::Body;
+    use axum::http::{HeaderValue, Method};
 
     fn create_test_request_with_session(session_id: &str) -> Request {
         let mut request = Request::builder()
@@ -305,7 +333,10 @@ mod tests {
     #[test]
     fn test_session_id_extraction_from_cookie() {
         let mut headers = HeaderMap::new();
-        headers.insert("cookie", HeaderValue::from_static("session_id=test123; other=value"));
+        headers.insert(
+            "cookie",
+            HeaderValue::from_static("session_id=test123; other=value"),
+        );
 
         let session_id = extract_session_id(&headers);
         assert_eq!(session_id, Some("test123".to_string()));
@@ -353,7 +384,9 @@ mod tests {
         let helper = SessionHelper::new(session_manager);
 
         // This should work even without Redis
-        let result = helper.create_session_response("user123", None, None, None).await;
+        let result = helper
+            .create_session_response("user123", None, None, None)
+            .await;
         assert!(result.is_ok());
     }
 }

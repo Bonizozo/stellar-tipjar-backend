@@ -1,4 +1,10 @@
-use axum::{extract::{Path, State}, http::StatusCode, response::IntoResponse, routing::{delete, get, post, put}, Json, Router};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{delete, get, post, put},
+    Json, Router,
+};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -13,7 +19,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/teams", post(create_team).get(list_teams))
         .route("/teams/:team_id", get(get_team))
         .route("/teams/:team_id/members", post(add_member))
-        .route("/teams/:team_id/members/:username", put(update_member_share).delete(remove_member))
+        .route(
+            "/teams/:team_id/members/:username",
+            put(update_member_share).delete(remove_member),
+        )
         .route("/teams/:team_id/splits", get(get_team_splits))
 }
 
@@ -44,9 +53,7 @@ async fn create_team(
         (status = 200, description = "List of teams")
     )
 )]
-async fn list_teams(
-    State(state): State<Arc<AppState>>,
-) -> Result<impl IntoResponse, AppError> {
+async fn list_teams(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
     let teams = team_controller::list_teams(&state).await?;
     Ok((StatusCode::OK, Json(teams)).into_response())
 }
@@ -109,7 +116,9 @@ async fn update_member_share(
     Path((team_id, username)): Path<(Uuid, String)>,
     ValidatedJson(body): ValidatedJson<UpdateMemberShareRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let member = team_controller::update_member_share(&state, team_id, username, body.share_percentage).await?;
+    let member =
+        team_controller::update_member_share(&state, team_id, username, body.share_percentage)
+            .await?;
     Ok((StatusCode::OK, Json(member)).into_response())
 }
 

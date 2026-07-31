@@ -19,7 +19,11 @@ fn unique_username(prefix: &str) -> String {
     format!("{prefix}{}", &Uuid::new_v4().simple().to_string()[..10])
 }
 
-async fn register_and_login(server: &TestServer, username: &str, password: &str) -> (String, String) {
+async fn register_and_login(
+    server: &TestServer,
+    username: &str,
+    password: &str,
+) -> (String, String) {
     let register = server
         .post("/auth/register")
         .json(&json!({
@@ -39,20 +43,31 @@ async fn register_and_login(server: &TestServer, username: &str, password: &str)
 #[tokio::test]
 async fn refresh_rotation_happy_path_issues_a_new_pair_each_time() {
     let pool = common::setup_test_db().await;
-    let (app, _redis) = common::create_test_app_with_redis(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let (app, _redis) =
+        common::create_test_app_with_redis(pool.clone(), &common::test_redis_url()).await;
+    let server = common::test_server(app);
 
     let username = unique_username("rot");
-    let (_access, refresh) = register_and_login(&server, &username, "correct horse battery staple").await;
+    let (_access, refresh) =
+        register_and_login(&server, &username, "correct horse battery staple").await;
 
-    let resp = server.post("/auth/refresh").json(&json!({ "refresh_token": refresh })).await;
+    let resp = server
+        .post("/auth/refresh")
+        .json(&json!({ "refresh_token": refresh }))
+        .await;
     resp.assert_status(StatusCode::OK);
     let body: serde_json::Value = resp.json();
     let new_refresh = body["refresh_token"].as_str().unwrap().to_string();
-    assert_ne!(new_refresh, refresh, "rotation must issue a fresh refresh token");
+    assert_ne!(
+        new_refresh, refresh,
+        "rotation must issue a fresh refresh token"
+    );
 
     // The rotated token keeps working for the next rotation.
-    let resp2 = server.post("/auth/refresh").json(&json!({ "refresh_token": new_refresh })).await;
+    let resp2 = server
+        .post("/auth/refresh")
+        .json(&json!({ "refresh_token": new_refresh }))
+        .await;
     resp2.assert_status(StatusCode::OK);
 
     common::cleanup_test_db(&pool).await;
@@ -64,11 +79,13 @@ async fn refresh_rotation_happy_path_issues_a_new_pair_each_time() {
 #[tokio::test]
 async fn reuse_of_rotated_refresh_token_is_detected_and_revokes_the_family() {
     let pool = common::setup_test_db().await;
-    let (app, _redis) = common::create_test_app_with_redis(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let (app, _redis) =
+        common::create_test_app_with_redis(pool.clone(), &common::test_redis_url()).await;
+    let server = common::test_server(app);
 
     let username = unique_username("reuse");
-    let (_access, original_refresh) = register_and_login(&server, &username, "correct horse battery staple").await;
+    let (_access, original_refresh) =
+        register_and_login(&server, &username, "correct horse battery staple").await;
 
     // Legitimate client rotates.
     let rotated = server
@@ -102,11 +119,13 @@ async fn reuse_of_rotated_refresh_token_is_detected_and_revokes_the_family() {
 #[tokio::test]
 async fn logout_revokes_the_access_token_immediately() {
     let pool = common::setup_test_db().await;
-    let (app, _redis) = common::create_test_app_with_redis(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let (app, _redis) =
+        common::create_test_app_with_redis(pool.clone(), &common::test_redis_url()).await;
+    let server = common::test_server(app);
 
     let username = unique_username("logout");
-    let (access, refresh) = register_and_login(&server, &username, "correct horse battery staple").await;
+    let (access, refresh) =
+        register_and_login(&server, &username, "correct horse battery staple").await;
 
     // Token works against a protected endpoint before logout.
     let before = server
@@ -137,11 +156,13 @@ async fn logout_revokes_the_access_token_immediately() {
 #[tokio::test]
 async fn password_change_invalidates_outstanding_access_tokens() {
     let pool = common::setup_test_db().await;
-    let (app, _redis) = common::create_test_app_with_redis(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let (app, _redis) =
+        common::create_test_app_with_redis(pool.clone(), &common::test_redis_url()).await;
+    let server = common::test_server(app);
 
     let username = unique_username("pwchange");
-    let (access, refresh) = register_and_login(&server, &username, "correct horse battery staple").await;
+    let (access, refresh) =
+        register_and_login(&server, &username, "correct horse battery staple").await;
 
     let change = server
         .post("/auth/password/change")
@@ -161,7 +182,10 @@ async fn password_change_invalidates_outstanding_access_tokens() {
     stale.assert_status(StatusCode::UNAUTHORIZED);
 
     // Its refresh-token family was revoked too.
-    let refresh_after = server.post("/auth/refresh").json(&json!({ "refresh_token": refresh })).await;
+    let refresh_after = server
+        .post("/auth/refresh")
+        .json(&json!({ "refresh_token": refresh }))
+        .await;
     refresh_after.assert_status(StatusCode::UNAUTHORIZED);
 
     common::cleanup_test_db(&pool).await;
@@ -171,11 +195,13 @@ async fn password_change_invalidates_outstanding_access_tokens() {
 #[tokio::test]
 async fn sessions_can_be_listed_and_individually_revoked() {
     let pool = common::setup_test_db().await;
-    let (app, _redis) = common::create_test_app_with_redis(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let (app, _redis) =
+        common::create_test_app_with_redis(pool.clone(), &common::test_redis_url()).await;
+    let server = common::test_server(app);
 
     let username = unique_username("sess");
-    let (access, _refresh) = register_and_login(&server, &username, "correct horse battery staple").await;
+    let (access, _refresh) =
+        register_and_login(&server, &username, "correct horse battery staple").await;
 
     let list_before = server
         .get("/auth/sessions")
@@ -183,7 +209,10 @@ async fn sessions_can_be_listed_and_individually_revoked() {
         .await;
     list_before.assert_status(StatusCode::OK);
     let list_before_body: serde_json::Value = list_before.json();
-    let first_family_id = list_before_body["sessions"][0]["family_id"].as_str().unwrap().to_string();
+    let first_family_id = list_before_body["sessions"][0]["family_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // A second login creates a second session/family for the same user.
     let login2 = server
@@ -201,7 +230,11 @@ async fn sessions_can_be_listed_and_individually_revoked() {
     list.assert_status(StatusCode::OK);
     let list_body: serde_json::Value = list.json();
     let sessions = list_body["sessions"].as_array().unwrap();
-    assert_eq!(sessions.len(), 2, "expected two active sessions after two logins");
+    assert_eq!(
+        sessions.len(),
+        2,
+        "expected two active sessions after two logins"
+    );
 
     // Whichever family isn't the one created by the very first login is the
     // one belonging to `second_refresh`.

@@ -101,7 +101,7 @@ impl IntegrationTestSuite {
                     "  ❌ {} - {:?} ({})",
                     test_name,
                     test_duration,
-                    error.as_ref().unwrap()
+                    result.error.as_deref().unwrap()
                 );
             }
 

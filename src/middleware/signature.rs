@@ -65,22 +65,17 @@ pub async fn verify_request_signature(
     Ok(next.run(req).await)
 }
 
-fn header_str<'a>(
-    headers: &'a axum::http::HeaderMap,
-    name: &str,
-) -> Option<&'a str> {
+fn header_str<'a>(headers: &'a axum::http::HeaderMap, name: &str) -> Option<&'a str> {
     headers.get(name)?.to_str().ok()
 }
 
 /// Returns `true` if the nonce is fresh (not seen before) and was stored.
 async fn check_and_store_nonce(pool: &PgPool, nonce: &str) -> bool {
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM nonces WHERE nonce = $1)",
-    )
-    .bind(nonce)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(true); // fail-safe: treat DB error as replay
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM nonces WHERE nonce = $1)")
+        .bind(nonce)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(true); // fail-safe: treat DB error as replay
 
     if exists {
         return false;

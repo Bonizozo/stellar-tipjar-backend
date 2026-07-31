@@ -1,6 +1,7 @@
 //! Stellar API mocking utilities
 
 use httpmock::prelude::*;
+use httpmock::Mock;
 use serde_json::json;
 
 /// Create a mock Stellar Horizon server for testing

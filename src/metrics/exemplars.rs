@@ -13,9 +13,8 @@ use std::sync::Mutex;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 
 /// Histogram buckets for the request duration RED metric.
-pub const HTTP_DURATION_BUCKETS: &[f64] = &[
-    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
-];
+pub const HTTP_DURATION_BUCKETS: &[f64] =
+    &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0];
 
 lazy_static! {
     /// Request rate per route template, method, and status class.
@@ -102,7 +101,14 @@ pub fn record(route: &str, method: &str, status: u16, duration: std::time::Durat
             .unwrap_or(0);
         let key = format!("{}|{}", route, method);
         if let Ok(mut guard) = EXEMPLAR_STORE.lock() {
-            guard.insert(key, Exemplar { trace_id, value: duration_secs, timestamp_ms: ts });
+            guard.insert(
+                key,
+                Exemplar {
+                    trace_id,
+                    value: duration_secs,
+                    timestamp_ms: ts,
+                },
+            );
         }
     }
 }

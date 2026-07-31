@@ -22,10 +22,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/creators/:username/portfolio",
             get(list_items).post(create_item),
         )
-        .route(
-            "/creators/:username/portfolio/reorder",
-            post(reorder_items),
-        )
+        .route("/creators/:username/portfolio/reorder", post(reorder_items))
         .route(
             "/creators/:username/portfolio/:id",
             get(get_item).put(update_item).delete(delete_item),

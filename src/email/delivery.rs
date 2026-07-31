@@ -1,7 +1,7 @@
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
-use chrono::Utc;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "email_status", rename_all = "lowercase")]
@@ -38,7 +38,7 @@ impl EmailDelivery {
         subject: &str,
     ) -> Result<Uuid, sqlx::Error> {
         let id = Uuid::new_v4();
-        
+
         sqlx::query!(
             r#"
             INSERT INTO email_deliveries (id, creator_id, email_type, recipient, subject, status)

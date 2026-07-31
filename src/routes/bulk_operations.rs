@@ -1,12 +1,12 @@
 use axum::{
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
     Router,
 };
 use std::sync::Arc;
 
 use crate::controllers::bulk_operations::{
-    bulk_create_creators, bulk_update_creators, bulk_delete_creators,
-    BulkOperationState, BulkOperationConfig,
+    bulk_create_creators, bulk_delete_creators, bulk_update_creators, BulkOperationConfig,
+    BulkOperationState,
 };
 use crate::db::DatabasePool;
 

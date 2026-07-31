@@ -33,9 +33,6 @@ pub async fn require_api_key(
     }
 }
 
-fn header_str<'a>(
-    headers: &'a axum::http::HeaderMap,
-    name: &str,
-) -> Option<&'a str> {
+fn header_str<'a>(headers: &'a axum::http::HeaderMap, name: &str) -> Option<&'a str> {
     headers.get(name).and_then(|v| v.to_str().ok())
 }

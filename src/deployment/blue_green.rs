@@ -119,8 +119,14 @@ mod tests {
 
     fn manager() -> BlueGreenManager {
         BlueGreenManager::new(
-            SlotConfig { host: "blue.local".into(), port: 8080 },
-            SlotConfig { host: "green.local".into(), port: 8081 },
+            SlotConfig {
+                host: "blue.local".into(),
+                port: 8080,
+            },
+            SlotConfig {
+                host: "green.local".into(),
+                port: 8081,
+            },
             Slot::Blue,
         )
     }
@@ -143,7 +149,11 @@ mod tests {
         let mgr = manager();
         let result = mgr.deploy(|_cfg| async { false }).await;
         assert!(result.is_err());
-        assert_eq!(mgr.live_slot().await, Slot::Blue, "Slot must not change on failure");
+        assert_eq!(
+            mgr.live_slot().await,
+            Slot::Blue,
+            "Slot must not change on failure"
+        );
     }
 
     #[tokio::test]

@@ -30,10 +30,12 @@ pub async fn get_item(pool: &PgPool, id: Uuid, creator_username: &str) -> AppRes
     .bind(creator_username)
     .fetch_optional(pool)
     .await?
-    .ok_or_else(|| AppError::Database(crate::errors::DatabaseError::NotFound {
-        entity: "portfolio_item",
-        identifier: id.to_string(),
-    }))
+    .ok_or_else(|| {
+        AppError::Database(crate::errors::DatabaseError::NotFound {
+            entity: "portfolio_item",
+            identifier: id.to_string(),
+        })
+    })
 }
 
 pub async fn create_item(
@@ -97,13 +99,11 @@ pub async fn update_item(
 }
 
 pub async fn delete_item(pool: &PgPool, id: Uuid, creator_username: &str) -> AppResult<()> {
-    let result = sqlx::query(
-        "DELETE FROM portfolio_items WHERE id = $1 AND creator_username = $2",
-    )
-    .bind(id)
-    .bind(creator_username)
-    .execute(pool)
-    .await?;
+    let result = sqlx::query("DELETE FROM portfolio_items WHERE id = $1 AND creator_username = $2")
+        .bind(id)
+        .bind(creator_username)
+        .execute(pool)
+        .await?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::Database(crate::errors::DatabaseError::NotFound {

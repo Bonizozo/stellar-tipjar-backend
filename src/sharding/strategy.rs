@@ -181,7 +181,9 @@ mod tests {
     #[test]
     fn fnv1a_distributes_across_shards() {
         let num_shards = 4;
-        let keys = ["alice", "bob", "carol", "dave", "eve", "frank", "grace", "heidi"];
+        let keys = [
+            "alice", "bob", "carol", "dave", "eve", "frank", "grace", "heidi",
+        ];
         let mut counts = vec![0u32; num_shards as usize];
         for k in &keys {
             counts[fnv1a_shard(k, num_shards) as usize] += 1;

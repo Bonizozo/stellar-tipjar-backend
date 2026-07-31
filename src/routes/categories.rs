@@ -10,18 +10,28 @@ use std::sync::Arc;
 use crate::controllers::category_controller;
 use crate::db::connection::AppState;
 use crate::errors::AppError;
-use crate::models::category::{AssignCategoriesRequest, AssignTagsRequest, CreateCategoryRequest, TagSearchQuery};
+use crate::models::category::{
+    AssignCategoriesRequest, AssignTagsRequest, CreateCategoryRequest, TagSearchQuery,
+};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/categories", get(list_categories).post(create_category))
         .route("/categories/:slug/creators", get(creators_by_category))
-        .route("/creators/:username/categories", get(get_creator_categories).put(assign_categories))
-        .route("/creators/:username/tags", get(get_creator_tags).put(assign_tags))
+        .route(
+            "/creators/:username/categories",
+            get(get_creator_categories).put(assign_categories),
+        )
+        .route(
+            "/creators/:username/tags",
+            get(get_creator_tags).put(assign_tags),
+        )
         .route("/tags/search", get(search_by_tag))
 }
 
-async fn list_categories(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
+async fn list_categories(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, AppError> {
     let cats = category_controller::list_categories(&state.db).await?;
     Ok((StatusCode::OK, Json(cats)))
 }

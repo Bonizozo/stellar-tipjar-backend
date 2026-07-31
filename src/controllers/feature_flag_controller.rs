@@ -42,7 +42,11 @@ pub async fn create_flag(db: &PgPool, req: CreateFlagRequest) -> AppResult<Featu
     Ok(flag)
 }
 
-pub async fn update_flag(db: &PgPool, name: &str, req: UpdateFlagRequest) -> AppResult<Option<FeatureFlag>> {
+pub async fn update_flag(
+    db: &PgPool,
+    name: &str,
+    req: UpdateFlagRequest,
+) -> AppResult<Option<FeatureFlag>> {
     let flag = sqlx::query_as::<_, FeatureFlag>(
         "UPDATE feature_flags
          SET description  = COALESCE($1, description),
@@ -100,6 +104,8 @@ pub async fn evaluate(db: &PgPool, flag_name: &str, username: &str) -> AppResult
 
 /// Maps a username to a stable 0-99 bucket using a simple hash.
 fn username_bucket(username: &str) -> u8 {
-    let hash: u32 = username.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+    let hash: u32 = username
+        .bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
     (hash % 100) as u8
 }

@@ -1,7 +1,7 @@
-use aws_config::BehaviorVersion;
-use aws_sdk_s3::{Client, primitives::ByteStream};
-use uuid::Uuid;
 use crate::upload::validator::UploadError;
+use aws_config::BehaviorVersion;
+use aws_sdk_s3::{primitives::ByteStream, Client};
+use uuid::Uuid;
 
 pub struct S3Storage {
     client: Client,
@@ -13,10 +13,10 @@ impl S3Storage {
     pub async fn new() -> Result<Self, UploadError> {
         let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
         let client = Client::new(&config);
-        
+
         let bucket = std::env::var("S3_BUCKET")
             .map_err(|_| UploadError::StorageError("S3_BUCKET not configured".to_string()))?;
-        
+
         let cdn_url = std::env::var("CDN_URL").ok();
 
         Ok(Self {
@@ -66,10 +66,7 @@ impl S3Storage {
         if let Some(cdn) = &self.cdn_url {
             format!("{}/{}", cdn, key)
         } else {
-            format!(
-                "https://{}.s3.amazonaws.com/{}",
-                self.bucket, key
-            )
+            format!("https://{}.s3.amazonaws.com/{}", self.bucket, key)
         }
     }
 
@@ -95,10 +92,42 @@ impl S3Storage {
         let base_id = Uuid::new_v4();
         let extension = Self::get_extension(content_type);
 
-        let original_url = self.upload_with_name(original, content_type, folder, &format!("{}", base_id), extension).await?;
-        let large_url = self.upload_with_name(large, content_type, folder, &format!("{}_large", base_id), extension).await?;
-        let medium_url = self.upload_with_name(medium, content_type, folder, &format!("{}_medium", base_id), extension).await?;
-        let thumbnail_url = self.upload_with_name(thumbnail, content_type, folder, &format!("{}_thumb", base_id), extension).await?;
+        let original_url = self
+            .upload_with_name(
+                original,
+                content_type,
+                folder,
+                &format!("{}", base_id),
+                extension,
+            )
+            .await?;
+        let large_url = self
+            .upload_with_name(
+                large,
+                content_type,
+                folder,
+                &format!("{}_large", base_id),
+                extension,
+            )
+            .await?;
+        let medium_url = self
+            .upload_with_name(
+                medium,
+                content_type,
+                folder,
+                &format!("{}_medium", base_id),
+                extension,
+            )
+            .await?;
+        let thumbnail_url = self
+            .upload_with_name(
+                thumbnail,
+                content_type,
+                folder,
+                &format!("{}_thumb", base_id),
+                extension,
+            )
+            .await?;
 
         Ok(UploadedVariants {
             original: original_url,

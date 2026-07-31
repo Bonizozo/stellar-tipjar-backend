@@ -2,8 +2,7 @@
 
 use crate::jobs::queue::JobQueueManager;
 use crate::metrics::collectors::{
-    JOB_ALERTS_TOTAL, JOB_DURATION_SECONDS, JOB_FAILURES_TOTAL, JOB_QUEUE_DEPTH,
-    JOB_SUCCESS_TOTAL,
+    JOB_ALERTS_TOTAL, JOB_DURATION_SECONDS, JOB_FAILURES_TOTAL, JOB_QUEUE_DEPTH, JOB_SUCCESS_TOTAL,
 };
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -80,15 +79,25 @@ impl JobMonitor {
 
     /// Collect full dashboard snapshot
     pub async fn dashboard(&self) -> Result<JobDashboard, sqlx::Error> {
-        let metrics = self.queue.queue_metrics().await.map_err(|e| {
-            sqlx::Error::Protocol(e.to_string())
-        })?;
+        let metrics = self
+            .queue
+            .queue_metrics()
+            .await
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
 
         // Update Prometheus gauges
-        JOB_QUEUE_DEPTH.with_label_values(&["pending"]).set(metrics.pending as f64);
-        JOB_QUEUE_DEPTH.with_label_values(&["running"]).set(metrics.running as f64);
-        JOB_QUEUE_DEPTH.with_label_values(&["retrying"]).set(metrics.retrying as f64);
-        JOB_QUEUE_DEPTH.with_label_values(&["failed"]).set(metrics.failed as f64);
+        JOB_QUEUE_DEPTH
+            .with_label_values(&["pending"])
+            .set(metrics.pending as f64);
+        JOB_QUEUE_DEPTH
+            .with_label_values(&["running"])
+            .set(metrics.running as f64);
+        JOB_QUEUE_DEPTH
+            .with_label_values(&["retrying"])
+            .set(metrics.retrying as f64);
+        JOB_QUEUE_DEPTH
+            .with_label_values(&["failed"])
+            .set(metrics.failed as f64);
 
         let depth = QueueDepth {
             pending: metrics.pending,
@@ -179,7 +188,9 @@ impl JobMonitor {
     }
 
     pub fn record_failure(job_type: &str, reason: &str) {
-        JOB_FAILURES_TOTAL.with_label_values(&[job_type, reason]).inc();
+        JOB_FAILURES_TOTAL
+            .with_label_values(&[job_type, reason])
+            .inc();
     }
 
     /// Spawn background monitoring loop

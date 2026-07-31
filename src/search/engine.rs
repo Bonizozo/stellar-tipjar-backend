@@ -1,5 +1,5 @@
-use sqlx::PgPool;
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,7 +50,7 @@ impl SearchEngine {
         offset: i64,
     ) -> Result<Vec<CreatorSearchResult>, sqlx::Error> {
         let search_query = Self::prepare_search_query(query);
-        
+
         let results = sqlx::query_as!(
             CreatorSearchResult,
             r#"
@@ -126,7 +126,7 @@ impl SearchEngine {
         offset: i64,
     ) -> Result<Vec<TipSearchResult>, sqlx::Error> {
         let search_query = Self::prepare_search_query(query);
-        
+
         let results = sqlx::query_as!(
             TipSearchResult,
             r#"

@@ -112,7 +112,10 @@ async fn process_batch(state: &Arc<AppState>, batch: i64) {
     info!(count = rows.len(), "tx_pool: processing batch");
 
     for entry in rows {
-        let result = state.stellar.verify_transaction(&entry.transaction_hash).await;
+        let result = state
+            .stellar
+            .verify_transaction(&entry.transaction_hash)
+            .await;
 
         match result {
             Ok(true) => {

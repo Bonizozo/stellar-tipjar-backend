@@ -49,9 +49,9 @@ impl ApiGateway {
                 .entry(service_name.to_string())
                 .or_insert_with(|| {
                     Arc::new(CircuitBreaker::new(
-                        5,                          // failure threshold
-                        2,                          // success threshold to close
-                        Duration::from_secs(30),    // recovery window
+                        5,                       // failure threshold
+                        2,                       // success threshold to close
+                        Duration::from_secs(30), // recovery window
                     ))
                 })
                 .clone()

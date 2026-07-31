@@ -23,7 +23,11 @@ impl RecommendationEngine {
         }
     }
 
-    pub fn train(&mut self, user_profiles: Vec<UserProfile>, creator_profiles: Vec<CreatorProfile>) {
+    pub fn train(
+        &mut self,
+        user_profiles: Vec<UserProfile>,
+        creator_profiles: Vec<CreatorProfile>,
+    ) {
         for user in user_profiles {
             self.collaborative.add_user_profile(user);
         }
@@ -71,7 +75,11 @@ impl RecommendationEngine {
         results
     }
 
-    pub fn predict_cold_start(&self, user_tags: &[String], limit: usize) -> Vec<RecommendationResult> {
+    pub fn predict_cold_start(
+        &self,
+        user_tags: &[String],
+        limit: usize,
+    ) -> Vec<RecommendationResult> {
         let content_recs = self.content_based.get_recommendations(user_tags, limit);
         content_recs
             .into_iter()

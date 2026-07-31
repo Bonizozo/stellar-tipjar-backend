@@ -81,7 +81,10 @@ async fn enqueue_notification(
     .await?;
 
     let Some(creator) = creator else {
-        tracing::warn!(creator = creator_username, "Creator not found for notification");
+        tracing::warn!(
+            creator = creator_username,
+            "Creator not found for notification"
+        );
         return Ok(());
     };
 
@@ -97,7 +100,10 @@ async fn enqueue_notification(
 
     // Fire-and-forget: log if enqueue fails but don't abort processing
     let queue = crate::jobs::queue::JobQueueManager::new(Arc::new(state.db.clone()));
-    if let Err(e) = queue.enqueue(JobType::SendNotification, payload, 0, 3).await {
+    if let Err(e) = queue
+        .enqueue(JobType::SendNotification, payload, 0, 3)
+        .await
+    {
         tracing::warn!(error = %e, "Failed to enqueue scheduled tip notification job");
     }
 

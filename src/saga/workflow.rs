@@ -47,13 +47,7 @@ impl SagaWorkflow {
         }
     }
 
-    pub fn add_step(
-        &mut self,
-        id: String,
-        action: String,
-        compensation: String,
-        max_retries: i32,
-    ) {
+    pub fn add_step(&mut self, id: String, action: String, compensation: String, max_retries: i32) {
         self.steps.push(SagaStep {
             id,
             status: SagaStepStatus::Pending,
@@ -85,10 +79,14 @@ impl SagaWorkflow {
     }
 
     pub fn is_complete(&self) -> bool {
-        self.steps.iter().all(|s| s.status == SagaStepStatus::Completed)
+        self.steps
+            .iter()
+            .all(|s| s.status == SagaStepStatus::Completed)
     }
 
     pub fn has_failures(&self) -> bool {
-        self.steps.iter().any(|s| s.status == SagaStepStatus::Failed)
+        self.steps
+            .iter()
+            .any(|s| s.status == SagaStepStatus::Failed)
     }
 }

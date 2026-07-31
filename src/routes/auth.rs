@@ -12,9 +12,9 @@ use crate::db::connection::AppState;
 use crate::errors::{AppError, AppResult};
 use crate::middleware;
 use crate::models::auth::{
-    AuthResponse, ChangePasswordRequest, Claims, LogoutRequest, RecoverTwoFactorRequest,
-    RefreshRequest, RegisterRequest, LoginRequest, SessionListResponse, SessionSummary, TwoFactorSetupResponse,
-    VerifyTwoFactorRequest, DisableTwoFactorRequest, VerifyTwoFactorResponse,
+    AuthResponse, ChangePasswordRequest, Claims, DisableTwoFactorRequest, LoginRequest,
+    LogoutRequest, RecoverTwoFactorRequest, RefreshRequest, RegisterRequest, SessionListResponse,
+    SessionSummary, TwoFactorSetupResponse, VerifyTwoFactorRequest, VerifyTwoFactorResponse,
 };
 use crate::models::creator::Creator;
 use crate::security::token_revocation;
@@ -30,9 +30,18 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/auth/backup-codes", post(regenerate_backup_codes))
         .route("/auth/logout", post(logout))
         .route("/auth/password/change", post(change_password))
-        .route("/auth/sessions", get(list_sessions).delete(revoke_all_sessions))
-        .route("/auth/sessions/:family_id", axum::routing::delete(revoke_session))
-        .layer(axum::middleware::from_fn_with_state(state, middleware::auth::require_auth));
+        .route(
+            "/auth/sessions",
+            get(list_sessions).delete(revoke_all_sessions),
+        )
+        .route(
+            "/auth/sessions/:family_id",
+            axum::routing::delete(revoke_session),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            middleware::auth::require_auth,
+        ));
 
     Router::new()
         .route("/auth/register", post(register))
@@ -198,20 +207,20 @@ pub async fn login(
 
         if !two_factor_valid {
             if let Some(ref backup_code) = body.backup_code {
-                if let Some(idx) = auth_service::verify_backup_code(backup_code, &creator.backup_code_hashes)? {
+                if let Some(idx) =
+                    auth_service::verify_backup_code(backup_code, &creator.backup_code_hashes)?
+                {
                     let mut remaining_codes = creator.backup_code_hashes.clone();
                     remaining_codes.remove(idx);
-                    sqlx::query(
-                        "UPDATE creators SET backup_code_hashes = $1 WHERE username = $2",
-                    )
-                    .bind(&remaining_codes)
-                    .bind(&creator.username)
-                    .execute(&state.db)
-                    .await
-                    .map_err(|e| {
-                        tracing::error!(error = %e, "Backup code consume failed");
-                        AppError::from(e)
-                    })?;
+                    sqlx::query("UPDATE creators SET backup_code_hashes = $1 WHERE username = $2")
+                        .bind(&remaining_codes)
+                        .bind(&creator.username)
+                        .execute(&state.db)
+                        .await
+                        .map_err(|e| {
+                            tracing::error!(error = %e, "Backup code consume failed");
+                            AppError::from(e)
+                        })?;
                     two_factor_valid = true;
                 }
             }
@@ -248,7 +257,8 @@ pub async fn refresh(
 ) -> Result<impl IntoResponse, AppError> {
     let invalid = || AppError::unauthorized("Invalid or expired refresh token");
 
-    let claims = auth_service::validate_token(&body.refresh_token, "refresh").map_err(|_| invalid())?;
+    let claims =
+        auth_service::validate_token(&body.refresh_token, "refresh").map_err(|_| invalid())?;
 
     let family_id = claims
         .family
@@ -267,9 +277,13 @@ pub async fn refresh(
     // back `Rotated`, these freshly minted tokens are simply discarded.
     let issued = auth_service::issue_tokens(&claims.sub, &claims.role, family_id, tv)?;
 
-    let outcome =
-        token_family_service::rotate_or_detect_reuse(&state.db, family_id, presented_jti, issued.refresh_jti)
-            .await?;
+    let outcome = token_family_service::rotate_or_detect_reuse(
+        &state.db,
+        family_id,
+        presented_jti,
+        issued.refresh_jti,
+    )
+    .await?;
 
     match outcome {
         RotationOutcome::Rotated => {
@@ -321,8 +335,13 @@ pub async fn logout(
     if let Some(refresh_token) = body.and_then(|b| b.0.refresh_token) {
         if let Ok(refresh_claims) = auth_service::validate_token(&refresh_token, "refresh") {
             if refresh_claims.sub == claims.sub {
-                if let Some(family_id) = refresh_claims.family.as_deref().and_then(|f| Uuid::parse_str(f).ok()) {
-                    let _ = token_family_service::revoke_family(&state.db, family_id, "logout").await;
+                if let Some(family_id) = refresh_claims
+                    .family
+                    .as_deref()
+                    .and_then(|f| Uuid::parse_str(f).ok())
+                {
+                    let _ =
+                        token_family_service::revoke_family(&state.db, family_id, "logout").await;
                 }
             }
         }
@@ -391,7 +410,11 @@ pub async fn list_sessions(
 ) -> Result<impl IntoResponse, AppError> {
     let families = token_family_service::list_active_for_user(&state.db, &claims.sub).await?;
     let sessions: Vec<SessionSummary> = families.into_iter().map(Into::into).collect();
-    Ok((StatusCode::OK, Json(serde_json::json!(SessionListResponse { sessions }))).into_response())
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!(SessionListResponse { sessions })),
+    )
+        .into_response())
 }
 
 /// Revokes a single session (refresh-token family) belonging to the caller.
@@ -557,7 +580,10 @@ pub async fn totp_verify(
 
     use crate::crypto::encryption::EncryptedString;
 
-    let encrypted_hashes: Vec<EncryptedString> = backup_hashes.into_iter().map(EncryptedString::new).collect();
+    let encrypted_hashes: Vec<EncryptedString> = backup_hashes
+        .into_iter()
+        .map(EncryptedString::new)
+        .collect();
 
     sqlx::query(
         "UPDATE creators SET totp_enabled = TRUE, backup_code_hashes = $1 WHERE username = $2",
@@ -612,10 +638,11 @@ pub async fn totp_disable(
         });
     }
 
-    let valid = auth_service::verify_password(&body.password, &creator.password_hash).map_err(|e| {
-        tracing::error!(error = %e, "Password verification error");
-        AppError::internal()
-    })?;
+    let valid =
+        auth_service::verify_password(&body.password, &creator.password_hash).map_err(|e| {
+            tracing::error!(error = %e, "Password verification error");
+            AppError::internal()
+        })?;
 
     if !valid {
         return Err(AppError::unauthorized("Invalid password"));
@@ -680,19 +707,20 @@ pub async fn regenerate_backup_codes(
         .collect::<AppResult<Vec<String>>>()?;
 
     use crate::crypto::encryption::EncryptedString;
-    let encrypted_hashes: Vec<EncryptedString> = backup_hashes.into_iter().map(EncryptedString::new).collect();
+    let encrypted_hashes: Vec<EncryptedString> = backup_hashes
+        .into_iter()
+        .map(EncryptedString::new)
+        .collect();
 
-    sqlx::query(
-        "UPDATE creators SET backup_code_hashes = $1 WHERE username = $2",
-    )
-    .bind(&encrypted_hashes)
-    .bind(&claims.sub)
-    .execute(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!(error = %e, "Backup codes persist failed");
-        AppError::from(e)
-    })?;
+    sqlx::query("UPDATE creators SET backup_code_hashes = $1 WHERE username = $2")
+        .bind(&encrypted_hashes)
+        .bind(&claims.sub)
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Backup codes persist failed");
+            AppError::from(e)
+        })?;
 
     Ok((
         StatusCode::OK,
@@ -732,10 +760,11 @@ pub async fn recover(
         }
     };
 
-    let valid = auth_service::verify_password(&body.password, &creator.password_hash).map_err(|e| {
-        tracing::error!(error = %e, "Password verification error");
-        AppError::internal()
-    })?;
+    let valid =
+        auth_service::verify_password(&body.password, &creator.password_hash).map_err(|e| {
+            tracing::error!(error = %e, "Password verification error");
+            AppError::internal()
+        })?;
     if !valid {
         return Err(AppError::unauthorized("Invalid credentials"));
     }
@@ -746,22 +775,21 @@ pub async fn recover(
         ));
     }
 
-    let backup_index = auth_service::verify_backup_code(&body.backup_code, &creator.backup_code_hashes)?;
+    let backup_index =
+        auth_service::verify_backup_code(&body.backup_code, &creator.backup_code_hashes)?;
     let idx = backup_index.ok_or_else(|| AppError::unauthorized("Invalid backup code"))?;
 
     let mut remaining_codes = creator.backup_code_hashes.clone();
     remaining_codes.remove(idx);
-    sqlx::query(
-        "UPDATE creators SET backup_code_hashes = $1 WHERE username = $2",
-    )
-    .bind(&remaining_codes)
-    .bind(&creator.username)
-    .execute(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!(error = %e, "Backup code consume failed");
-        AppError::from(e)
-    })?;
+    sqlx::query("UPDATE creators SET backup_code_hashes = $1 WHERE username = $2")
+        .bind(&remaining_codes)
+        .bind(&creator.username)
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Backup code consume failed");
+            AppError::from(e)
+        })?;
 
     let tokens = issue_new_session(&state, &headers, &creator.username, "creator").await?;
 

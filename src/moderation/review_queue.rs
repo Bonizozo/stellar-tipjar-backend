@@ -69,8 +69,8 @@ impl ReviewQueue {
         content_id: Option<Uuid>,
         result: &ModerationResult,
     ) -> anyhow::Result<Uuid> {
-        let flags = serde_json::to_value(&result.violations)
-            .unwrap_or(serde_json::Value::Array(vec![]));
+        let flags =
+            serde_json::to_value(&result.violations).unwrap_or(serde_json::Value::Array(vec![]));
 
         let id = sqlx::query_scalar::<_, Uuid>(
             "INSERT INTO moderation_queue
@@ -141,49 +141,73 @@ impl ReviewQueue {
         limit: i64,
     ) -> anyhow::Result<Vec<ModerationQueueItem>> {
         let items = match status {
-            Some(s) => sqlx::query_as::<_, ModerationQueueItem>(
-                "SELECT id, content_type, content_id, content_text, flags, status, action,
+            Some(s) => {
+                sqlx::query_as::<_, ModerationQueueItem>(
+                    "SELECT id, content_type, content_id, content_text, flags, status, action,
                         flagged_by, flag_reason, ai_score, ai_reasoning,
                         reviewed_by, reviewed_at, created_at
                  FROM moderation_queue WHERE status = $1
                  ORDER BY created_at DESC LIMIT $2",
-            )
-            .bind(s)
-            .bind(limit)
-            .fetch_all(&self.db)
-            .await?,
-            None => sqlx::query_as::<_, ModerationQueueItem>(
-                "SELECT id, content_type, content_id, content_text, flags, status, action,
+                )
+                .bind(s)
+                .bind(limit)
+                .fetch_all(&self.db)
+                .await?
+            }
+            None => {
+                sqlx::query_as::<_, ModerationQueueItem>(
+                    "SELECT id, content_type, content_id, content_text, flags, status, action,
                         flagged_by, flag_reason, ai_score, ai_reasoning,
                         reviewed_by, reviewed_at, created_at
                  FROM moderation_queue
                  ORDER BY created_at DESC LIMIT $1",
-            )
-            .bind(limit)
-            .fetch_all(&self.db)
-            .await?,
+                )
+                .bind(limit)
+                .fetch_all(&self.db)
+                .await?
+            }
         };
         Ok(items)
     }
 
     pub async fn approve(&self, id: Uuid, reviewed_by: &str) -> anyhow::Result<bool> {
-        self.apply_action(id, "approved", "approve", reviewed_by, None).await
+        self.apply_action(id, "approved", "approve", reviewed_by, None)
+            .await
     }
 
     pub async fn reject(&self, id: Uuid, reviewed_by: &str) -> anyhow::Result<bool> {
-        self.apply_action(id, "rejected", "reject", reviewed_by, None).await
+        self.apply_action(id, "rejected", "reject", reviewed_by, None)
+            .await
     }
 
-    pub async fn dismiss(&self, id: Uuid, reviewed_by: &str, note: Option<&str>) -> anyhow::Result<bool> {
-        self.apply_action(id, "approved", "dismiss", reviewed_by, note).await
+    pub async fn dismiss(
+        &self,
+        id: Uuid,
+        reviewed_by: &str,
+        note: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        self.apply_action(id, "approved", "dismiss", reviewed_by, note)
+            .await
     }
 
-    pub async fn warn(&self, id: Uuid, reviewed_by: &str, note: Option<&str>) -> anyhow::Result<bool> {
-        self.apply_action(id, "rejected", "warn", reviewed_by, note).await
+    pub async fn warn(
+        &self,
+        id: Uuid,
+        reviewed_by: &str,
+        note: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        self.apply_action(id, "rejected", "warn", reviewed_by, note)
+            .await
     }
 
-    pub async fn ban(&self, id: Uuid, reviewed_by: &str, note: Option<&str>) -> anyhow::Result<bool> {
-        self.apply_action(id, "rejected", "ban", reviewed_by, note).await
+    pub async fn ban(
+        &self,
+        id: Uuid,
+        reviewed_by: &str,
+        note: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        self.apply_action(id, "rejected", "ban", reviewed_by, note)
+            .await
     }
 
     /// Core action applier: updates queue row + writes history entry atomically.
@@ -228,7 +252,10 @@ impl ReviewQueue {
     }
 
     /// Full history for a single queue item.
-    pub async fn history(&self, queue_item_id: Uuid) -> anyhow::Result<Vec<ModerationHistoryEntry>> {
+    pub async fn history(
+        &self,
+        queue_item_id: Uuid,
+    ) -> anyhow::Result<Vec<ModerationHistoryEntry>> {
         let entries = sqlx::query_as::<_, ModerationHistoryEntry>(
             "SELECT id, queue_item_id, action, performed_by, note, created_at
              FROM moderation_history WHERE queue_item_id = $1

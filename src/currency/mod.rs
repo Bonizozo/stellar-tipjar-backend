@@ -102,11 +102,7 @@ impl CurrencyService {
         }
     }
 
-    async fn set_in_redis(
-        &self,
-        redis: &mut redis::aio::ConnectionManager,
-        rates: &ExchangeRates,
-    ) {
+    async fn set_in_redis(&self, redis: &mut redis::aio::ConnectionManager, rates: &ExchangeRates) {
         if let Ok(raw) = serde_json::to_string(rates) {
             let _ = redis
                 .set_ex::<_, _, ()>(REDIS_KEY, raw, CACHE_TTL_SECS)
@@ -145,7 +141,10 @@ impl CurrencyService {
 
         // 3. Fetch fresh.
         let rates = self.fetch_from_api().await?;
-        tracing::info!("Fetched fresh exchange rates ({} currencies)", rates.rates.len());
+        tracing::info!(
+            "Fetched fresh exchange rates ({} currencies)",
+            rates.rates.len()
+        );
 
         // Update memory cache.
         *self.memory_cache.write().await = Some(rates.clone());
@@ -159,10 +158,7 @@ impl CurrencyService {
         redis: Option<&mut redis::aio::ConnectionManager>,
     ) -> anyhow::Result<ExchangeRates> {
         let rates = self.fetch_from_api().await?;
-        tracing::info!(
-            currencies = rates.rates.len(),
-            "Exchange rates refreshed"
-        );
+        tracing::info!(currencies = rates.rates.len(), "Exchange rates refreshed");
 
         *self.memory_cache.write().await = Some(rates.clone());
 

@@ -13,12 +13,11 @@ pub async fn submit_verification(
     req: SubmitVerificationRequest,
 ) -> AppResult<CreatorVerification> {
     // Ensure creator exists
-    let exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM creators WHERE username = $1)",
-    )
-    .bind(username)
-    .fetch_one(pool)
-    .await?;
+    let exists =
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM creators WHERE username = $1)")
+            .bind(username)
+            .fetch_one(pool)
+            .await?;
 
     if !exists {
         return Err(AppError::CreatorNotFound {
@@ -110,9 +109,11 @@ pub async fn review_verification(
     .bind(verification_id)
     .fetch_optional(pool)
     .await?
-    .ok_or_else(|| AppError::Validation(crate::errors::ValidationError::InvalidRequest {
-        message: format!("Verification request {} not found", verification_id),
-    }))?;
+    .ok_or_else(|| {
+        AppError::Validation(crate::errors::ValidationError::InvalidRequest {
+            message: format!("Verification request {} not found", verification_id),
+        })
+    })?;
 
     // If approved, set the badge on the creator
     if req.approved {

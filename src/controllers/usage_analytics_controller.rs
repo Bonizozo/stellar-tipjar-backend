@@ -53,7 +53,11 @@ pub async fn get_report(db: &PgPool, hours: i64) -> AppResult<UsageReport> {
     .fetch_one(db)
     .await?;
 
-    let error_rate = if total > 0 { error_count as f64 / total as f64 * 100.0 } else { 0.0 };
+    let error_rate = if total > 0 {
+        error_count as f64 / total as f64 * 100.0
+    } else {
+        0.0
+    };
 
     let top_endpoints = sqlx::query_as::<_, EndpointStat>(
         "SELECT path, method,

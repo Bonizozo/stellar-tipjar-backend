@@ -98,7 +98,12 @@ async fn update_presence(
 ) -> impl IntoResponse {
     state
         .presence
-        .heartbeat(document_id, body.user_id, body.username, body.cursor_position)
+        .heartbeat(
+            document_id,
+            body.user_id,
+            body.username,
+            body.cursor_position,
+        )
         .await;
     StatusCode::NO_CONTENT
 }

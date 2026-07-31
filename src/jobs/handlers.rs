@@ -311,12 +311,9 @@ impl JobHandler for CleanupDataHandler {
             CleanupType::FailedJobs => "failed",
             CleanupType::OldTipData => {
                 // Tip cleanup is a separate table — handle separately
-                let result = sqlx::query!(
-                    "DELETE FROM tips WHERE created_at < $1",
-                    older_than
-                )
-                .execute(&self.state.db)
-                .await?;
+                let result = sqlx::query!("DELETE FROM tips WHERE created_at < $1", older_than)
+                    .execute(&self.state.db)
+                    .await?;
                 tracing::info!(
                     job_id = %ctx.job_id,
                     deleted = result.rows_affected(),

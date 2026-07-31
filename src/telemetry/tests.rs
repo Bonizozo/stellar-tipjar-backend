@@ -86,10 +86,8 @@ fn job_boundary_span_link() {
         let producer_trace_id = producer_span.context().span().span_context().trace_id();
 
         // Message::new() captures the active OTel context via the carrier.
-        let msg = crate::queue::publisher::Message::new(
-            "test_job",
-            serde_json::json!({"key": "value"}),
-        );
+        let msg =
+            crate::queue::publisher::Message::new("test_job", serde_json::json!({"key": "value"}));
 
         // Consumer side: extract the propagated context.
         let consumer_cx = msg.extract_trace_context();
@@ -138,7 +136,8 @@ fn log_trace_correlation() {
 
         // Verify the span → OTel context path works without panicking.
         let cx = span.context();
-        let sc = cx.span().span_context();
+        let otel_span = cx.span();
+        let sc = otel_span.span_context();
         let _ = sc.trace_id();
         let _ = sc.span_id();
 

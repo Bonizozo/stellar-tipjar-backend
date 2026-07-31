@@ -1,17 +1,19 @@
+use aes_gcm::aead::{rand_core::RngCore, Aead, OsRng, Payload};
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
-use aes_gcm::aead::{Aead, OsRng, rand_core::RngCore, Payload};
 use base64::{engine::general_purpose, Engine as _};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use sqlx::{Decode, Encode, Type, Postgres};
-use sqlx::postgres::{PgArgumentBuffer, PgHasArrayType, PgTypeInfo, PgValueRef};
 use sqlx::error::BoxDynError;
+use sqlx::postgres::{PgArgumentBuffer, PgHasArrayType, PgTypeInfo, PgValueRef};
+use sqlx::{Decode, Encode, Postgres, Type};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
-use crate::metrics::collectors::{ENCRYPTION_OPERATIONS_TOTAL, ENCRYPTION_FAILURES_TOTAL, ENCRYPTION_KEY_ROTATIONS_TOTAL};
+use crate::metrics::collectors::{
+    ENCRYPTION_FAILURES_TOTAL, ENCRYPTION_KEY_ROTATIONS_TOTAL, ENCRYPTION_OPERATIONS_TOTAL,
+};
 
 const FORMAT_PREFIX: &str = "enc:v1";
 const NONCE_LEN: usize = 12;
@@ -104,7 +106,10 @@ impl<'r> Decode<'r, Postgres> for EncryptedString {
 }
 
 impl<'q> Encode<'q, Postgres> for EncryptedString {
-    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> Result<sqlx::encode::IsNull, BoxDynError> {
+    fn encode_by_ref(
+        &self,
+        buf: &mut PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, BoxDynError> {
         let manager = global_encryption_manager().map_err(|e| e.to_string())?;
         let encrypted = manager
             .encrypt_to_string(self.as_str())
@@ -121,7 +126,8 @@ impl EncryptionKeyManager {
             vault_addr: std::env::var("VAULT_ADDR").ok(),
             vault_token: std::env::var("VAULT_TOKEN").ok(),
             vault_mount: std::env::var("VAULT_MOUNT").unwrap_or_else(|_| "secret".to_string()),
-            vault_path: std::env::var("VAULT_PATH").unwrap_or_else(|_| "stellar-tipjar".to_string()),
+            vault_path: std::env::var("VAULT_PATH")
+                .unwrap_or_else(|_| "stellar-tipjar".to_string()),
             http: Client::new(),
             cache: Arc::new(RwLock::new(HashMap::new())),
             ttl: Duration::from_secs(DEFAULT_KEY_TTL_SECS),
@@ -160,7 +166,10 @@ impl EncryptionKeyManager {
         let mut cache = self.cache.write().await;
         cache.insert(
             key.to_string(),
-            CacheEntry { value: secret.clone(), fetched_at: Instant::now() },
+            CacheEntry {
+                value: secret.clone(),
+                fetched_at: Instant::now(),
+            },
         );
 
         Some(secret)
@@ -187,7 +196,11 @@ impl EncryptionKeyManager {
                 .filter(|id| !id.is_empty())
                 .collect()
         } else {
-            vec!["current".to_string(), "old_1".to_string(), "old_2".to_string()]
+            vec![
+                "current".to_string(),
+                "old_1".to_string(),
+                "old_2".to_string(),
+            ]
         };
 
         for key_id in key_ids.iter() {
@@ -204,11 +217,12 @@ impl EncryptionKeyManager {
             ));
         }
 
-        *self.current_key_id.get_mut().unwrap() = if self.keys.get_mut().unwrap().contains_key("current") {
-            "current".to_string()
-        } else {
-            self.keys.get_mut().unwrap().keys().next().cloned().unwrap()
-        };
+        *self.current_key_id.get_mut().unwrap() =
+            if self.keys.get_mut().unwrap().contains_key("current") {
+                "current".to_string()
+            } else {
+                self.keys.get_mut().unwrap().keys().next().cloned().unwrap()
+            };
 
         Ok(self)
     }
@@ -229,12 +243,12 @@ impl EncryptionKeyManager {
         OsRng.fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
-        let ciphertext = cipher
-            .encrypt(nonce, plaintext.as_bytes())
-            .map_err(|e| {
-                ENCRYPTION_FAILURES_TOTAL.with_label_values(&["encrypt"]).inc();
-                anyhow::anyhow!("encryption failed: {}", e)
-            })?;
+        let ciphertext = cipher.encrypt(nonce, plaintext.as_bytes()).map_err(|e| {
+            ENCRYPTION_FAILURES_TOTAL
+                .with_label_values(&["encrypt"])
+                .inc();
+            anyhow::anyhow!("encryption failed: {}", e)
+        })?;
 
         let payload = format!(
             "{}:{}:{}:{}",
@@ -244,45 +258,73 @@ impl EncryptionKeyManager {
             general_purpose::URL_SAFE_NO_PAD.encode(ciphertext)
         );
 
-        ENCRYPTION_OPERATIONS_TOTAL.with_label_values(&["encrypt"]).inc();
+        ENCRYPTION_OPERATIONS_TOTAL
+            .with_label_values(&["encrypt"])
+            .inc();
         Ok(payload)
     }
 
     pub fn decrypt_to_string(&self, encrypted_value: &str) -> anyhow::Result<String> {
-        let parts: Vec<&str> = encrypted_value.splitn(4, ':').collect();
-        if parts.len() != 4 || parts[0] != FORMAT_PREFIX {
-            ENCRYPTION_FAILURES_TOTAL.with_label_values(&["invalid_format"]).inc();
+        // `FORMAT_PREFIX` itself contains a `:` (e.g. "enc:v1"), so splitting
+        // the whole string on `:` up front would shift every field by one.
+        // Strip the fixed prefix first, then split only the remaining
+        // `key_id:nonce:ciphertext` portion.
+        let rest = encrypted_value
+            .strip_prefix(FORMAT_PREFIX)
+            .and_then(|s| s.strip_prefix(':'))
+            .ok_or_else(|| {
+                ENCRYPTION_FAILURES_TOTAL
+                    .with_label_values(&["invalid_format"])
+                    .inc();
+                anyhow::anyhow!("Invalid encrypted payload format")
+            })?;
+
+        let parts: Vec<&str> = rest.splitn(3, ':').collect();
+        if parts.len() != 3 {
+            ENCRYPTION_FAILURES_TOTAL
+                .with_label_values(&["invalid_format"])
+                .inc();
             return Err(anyhow::anyhow!("Invalid encrypted payload format"));
         }
 
-        let key_id = parts[1];
-        let nonce = general_purpose::URL_SAFE_NO_PAD.decode(parts[2])
+        let key_id = parts[0];
+        let nonce = general_purpose::URL_SAFE_NO_PAD
+            .decode(parts[1])
             .map_err(|e| {
-                ENCRYPTION_FAILURES_TOTAL.with_label_values(&["decode_nonce"]).inc();
+                ENCRYPTION_FAILURES_TOTAL
+                    .with_label_values(&["decode_nonce"])
+                    .inc();
                 e
             })?;
-        let ciphertext = general_purpose::URL_SAFE_NO_PAD.decode(parts[3])
+        let ciphertext = general_purpose::URL_SAFE_NO_PAD
+            .decode(parts[2])
             .map_err(|e| {
-                ENCRYPTION_FAILURES_TOTAL.with_label_values(&["decode_ciphertext"]).inc();
+                ENCRYPTION_FAILURES_TOTAL
+                    .with_label_values(&["decode_ciphertext"])
+                    .inc();
                 e
             })?;
         let keys = self.keys.read().unwrap();
-        let key = keys
-            .get(key_id)
-            .ok_or_else(|| {
-                ENCRYPTION_FAILURES_TOTAL.with_label_values(&["key_not_found"]).inc();
-                anyhow::anyhow!("Encryption key '{}' is not available", key_id)
-            })?;
+        let key = keys.get(key_id).ok_or_else(|| {
+            ENCRYPTION_FAILURES_TOTAL
+                .with_label_values(&["key_not_found"])
+                .inc();
+            anyhow::anyhow!("Encryption key '{}' is not available", key_id)
+        })?;
 
         let cipher = Aes256Gcm::new_from_slice(key).expect("valid AES-256-GCM key");
         let plaintext = cipher
             .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
             .map_err(|e| {
-                ENCRYPTION_FAILURES_TOTAL.with_label_values(&["decrypt"]).inc();
+                ENCRYPTION_FAILURES_TOTAL
+                    .with_label_values(&["decrypt"])
+                    .inc();
                 anyhow::anyhow!("decryption failed: {}", e)
             })?;
 
-        ENCRYPTION_OPERATIONS_TOTAL.with_label_values(&["decrypt"]).inc();
+        ENCRYPTION_OPERATIONS_TOTAL
+            .with_label_values(&["decrypt"])
+            .inc();
         Ok(String::from_utf8(plaintext)?)
     }
 
@@ -360,9 +402,17 @@ mod tests {
     #[tokio::test]
     async fn encryption_round_trip() {
         std::env::remove_var("ENCRYPTION_KEY_CURRENT");
-        std::env::set_var("ENCRYPTION_KEY_CURRENT", "0000000000000000000000000000000000000000000000000000000000000000");
+        std::env::set_var(
+            "ENCRYPTION_KEY_CURRENT",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        );
 
-        let manager = Arc::new(EncryptionKeyManager::new().load().await.expect("load key manager"));
+        let manager = Arc::new(
+            EncryptionKeyManager::new()
+                .load()
+                .await
+                .expect("load key manager"),
+        );
         set_global_encryption_manager(manager.clone()).unwrap();
 
         let plaintext = "test-secret";

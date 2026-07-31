@@ -6,15 +6,16 @@ use crate::models::refund::{CreateRefundRequest, ReviewRefundRequest, TipRefund}
 
 pub async fn create_refund(db: &PgPool, req: CreateRefundRequest) -> AppResult<TipRefund> {
     // Verify the tip exists
-    let tip_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tips WHERE id = $1)")
-            .bind(req.tip_id)
-            .fetch_one(db)
-            .await?;
+    let tip_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tips WHERE id = $1)")
+        .bind(req.tip_id)
+        .fetch_one(db)
+        .await?;
     if !tip_exists {
-        return Err(AppError::Validation(crate::errors::ValidationError::InvalidRequest {
-            message: format!("Tip {} not found", req.tip_id),
-        }));
+        return Err(AppError::Validation(
+            crate::errors::ValidationError::InvalidRequest {
+                message: format!("Tip {} not found", req.tip_id),
+            },
+        ));
     }
 
     // Prevent duplicate pending refund for the same tip
@@ -84,17 +85,25 @@ pub async fn review_refund(
 ) -> AppResult<Option<TipRefund>> {
     let action = req.action.as_str();
     if action != "approved" && action != "rejected" {
-        return Err(AppError::Validation(crate::errors::ValidationError::InvalidRequest {
-            message: "action must be 'approved' or 'rejected'".to_string(),
-        }));
+        return Err(AppError::Validation(
+            crate::errors::ValidationError::InvalidRequest {
+                message: "action must be 'approved' or 'rejected'".to_string(),
+            },
+        ));
     }
     if action == "approved" && req.refund_tx_hash.is_none() {
-        return Err(AppError::Validation(crate::errors::ValidationError::InvalidRequest {
-            message: "refund_tx_hash is required when approving a refund".to_string(),
-        }));
+        return Err(AppError::Validation(
+            crate::errors::ValidationError::InvalidRequest {
+                message: "refund_tx_hash is required when approving a refund".to_string(),
+            },
+        ));
     }
 
-    let new_status = if action == "approved" { "completed" } else { "rejected" };
+    let new_status = if action == "approved" {
+        "completed"
+    } else {
+        "rejected"
+    };
 
     let refund = sqlx::query_as::<_, TipRefund>(
         "UPDATE tip_refunds

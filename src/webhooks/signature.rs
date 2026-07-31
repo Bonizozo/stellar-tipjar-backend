@@ -40,8 +40,8 @@ pub const SIGNATURE_TOLERANCE_SECS: u64 = 300;
 /// The signed message is `"{timestamp}.{raw_body}"`.
 fn compute_v1(secret: &str, timestamp: u64, raw_body: &str) -> String {
     let signed_payload = format!("{}.{}", timestamp, raw_body);
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .expect("HMAC accepts keys of any length");
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts keys of any length");
     mac.update(signed_payload.as_bytes());
     hex::encode(mac.finalize().into_bytes())
 }
@@ -139,8 +139,7 @@ pub fn verify_signature_at(
     tolerance_secs: u64,
     now: u64,
 ) -> Result<(), SignatureError> {
-    let parsed = parse_signature_header(signature_header)
-        .ok_or(SignatureError::MalformedHeader)?;
+    let parsed = parse_signature_header(signature_header).ok_or(SignatureError::MalformedHeader)?;
 
     // Tolerance check — guard against replay AND clock skew.
     let age = now.saturating_sub(parsed.timestamp);
@@ -263,7 +262,10 @@ mod tests {
         let parts: Vec<&str> = header.split(',').collect();
         let sig1 = parts[1];
         let sig2 = parts[2];
-        assert_ne!(sig1, sig2, "different secrets must produce different v1 values");
+        assert_ne!(
+            sig1, sig2,
+            "different secrets must produce different v1 values"
+        );
     }
 
     #[test]
@@ -306,8 +308,14 @@ mod tests {
         // Delivery is exactly tolerance_secs old — still within window.
         let header = build_signature_header_at(&[SECRET], BODY, NOW);
         let exactly_at_boundary = NOW + SIGNATURE_TOLERANCE_SECS;
-        verify_signature_at(&header, BODY, SECRET, SIGNATURE_TOLERANCE_SECS, exactly_at_boundary)
-            .unwrap();
+        verify_signature_at(
+            &header,
+            BODY,
+            SECRET,
+            SIGNATURE_TOLERANCE_SECS,
+            exactly_at_boundary,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -315,9 +323,8 @@ mod tests {
         // Delivery is tolerance_secs + 1 old — outside window.
         let header = build_signature_header_at(&[SECRET], BODY, NOW);
         let one_past = NOW + SIGNATURE_TOLERANCE_SECS + 1;
-        let err =
-            verify_signature_at(&header, BODY, SECRET, SIGNATURE_TOLERANCE_SECS, one_past)
-                .unwrap_err();
+        let err = verify_signature_at(&header, BODY, SECRET, SIGNATURE_TOLERANCE_SECS, one_past)
+            .unwrap_err();
         assert!(
             matches!(err, SignatureError::TimestampOutOfWindow { .. }),
             "expected TimestampOutOfWindow, got {err:?}"
@@ -329,8 +336,7 @@ mod tests {
         // Delivery is tolerance_secs - 1 old — comfortably inside window.
         let header = build_signature_header_at(&[SECRET], BODY, NOW);
         let one_before = NOW + SIGNATURE_TOLERANCE_SECS - 1;
-        verify_signature_at(&header, BODY, SECRET, SIGNATURE_TOLERANCE_SECS, one_before)
-            .unwrap();
+        verify_signature_at(&header, BODY, SECRET, SIGNATURE_TOLERANCE_SECS, one_before).unwrap();
     }
 
     #[test]
@@ -338,8 +344,7 @@ mod tests {
         // Delivery claims a timestamp far in the future — reject clock skew attacks.
         let header = build_signature_header_at(&[SECRET], BODY, NOW + SIGNATURE_TOLERANCE_SECS + 1);
         let err =
-            verify_signature_at(&header, BODY, SECRET, SIGNATURE_TOLERANCE_SECS, NOW)
-                .unwrap_err();
+            verify_signature_at(&header, BODY, SECRET, SIGNATURE_TOLERANCE_SECS, NOW).unwrap_err();
         assert!(matches!(err, SignatureError::TimestampOutOfWindow { .. }));
     }
 
@@ -376,9 +381,8 @@ mod tests {
 
     #[test]
     fn verify_header_without_v1_fails() {
-        let err =
-            verify_signature_at("t=1715000000", BODY, SECRET, SIGNATURE_TOLERANCE_SECS, NOW)
-                .unwrap_err();
+        let err = verify_signature_at("t=1715000000", BODY, SECRET, SIGNATURE_TOLERANCE_SECS, NOW)
+            .unwrap_err();
         assert_eq!(err, SignatureError::NoSignatureValues);
     }
 
@@ -392,26 +396,56 @@ mod tests {
         // Phase 1: before rotation — server signs with old secret only.
         let header_before = build_signature_header_at(&[old_secret], BODY, NOW);
         // Receiver using old secret: passes.
-        verify_signature_at(&header_before, BODY, old_secret, SIGNATURE_TOLERANCE_SECS, NOW)
-            .unwrap();
+        verify_signature_at(
+            &header_before,
+            BODY,
+            old_secret,
+            SIGNATURE_TOLERANCE_SECS,
+            NOW,
+        )
+        .unwrap();
 
         // Phase 2: during overlap — server signs with BOTH secrets.
         let header_overlap = build_signature_header_at(&[old_secret, new_secret], BODY, NOW);
         // Receiver still using old secret: passes (v1 for old secret is present).
-        verify_signature_at(&header_overlap, BODY, old_secret, SIGNATURE_TOLERANCE_SECS, NOW)
-            .unwrap();
+        verify_signature_at(
+            &header_overlap,
+            BODY,
+            old_secret,
+            SIGNATURE_TOLERANCE_SECS,
+            NOW,
+        )
+        .unwrap();
         // Receiver already updated to new secret: also passes.
-        verify_signature_at(&header_overlap, BODY, new_secret, SIGNATURE_TOLERANCE_SECS, NOW)
-            .unwrap();
+        verify_signature_at(
+            &header_overlap,
+            BODY,
+            new_secret,
+            SIGNATURE_TOLERANCE_SECS,
+            NOW,
+        )
+        .unwrap();
 
         // Phase 3: after rotation — server signs with new secret only.
         let header_after = build_signature_header_at(&[new_secret], BODY, NOW);
         // Receiver using new secret: passes.
-        verify_signature_at(&header_after, BODY, new_secret, SIGNATURE_TOLERANCE_SECS, NOW)
-            .unwrap();
+        verify_signature_at(
+            &header_after,
+            BODY,
+            new_secret,
+            SIGNATURE_TOLERANCE_SECS,
+            NOW,
+        )
+        .unwrap();
         // Receiver still on old secret: fails — rotation is complete.
-        let err = verify_signature_at(&header_after, BODY, old_secret, SIGNATURE_TOLERANCE_SECS, NOW)
-            .unwrap_err();
+        let err = verify_signature_at(
+            &header_after,
+            BODY,
+            old_secret,
+            SIGNATURE_TOLERANCE_SECS,
+            NOW,
+        )
+        .unwrap_err();
         assert_eq!(err, SignatureError::SignatureMismatch);
     }
 

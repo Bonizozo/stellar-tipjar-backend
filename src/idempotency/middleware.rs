@@ -35,7 +35,10 @@ pub async fn idempotency_middleware(
     next: Next,
 ) -> Response {
     let method = request.method().clone();
-    if !matches!(method, Method::POST | Method::PUT | Method::PATCH | Method::DELETE) {
+    if !matches!(
+        method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    ) {
         return next.run(request).await;
     }
 
@@ -135,7 +138,9 @@ pub async fn idempotency_middleware(
 
 fn build_replay_response(stored: StoredResponse) -> Response {
     let status = StatusCode::from_u16(stored.status).unwrap_or(StatusCode::OK);
-    let mut builder = Response::builder().status(status).header(REPLAY_HEADER, "true");
+    let mut builder = Response::builder()
+        .status(status)
+        .header(REPLAY_HEADER, "true");
     if let Some(ct) = &stored.content_type {
         builder = builder.header(axum::http::header::CONTENT_TYPE, ct);
     }

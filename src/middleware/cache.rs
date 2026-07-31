@@ -172,14 +172,13 @@ pub async fn intelligent_cache(
             headers.entry(key).or_default().push(val);
         }
 
-        let cached_response = CachedHttpResponse::new(
-            StatusCode::OK,
-            headers,
-            body_bytes.to_vec(),
-        );
+        let cached_response = CachedHttpResponse::new(StatusCode::OK, headers, body_bytes.to_vec());
 
         let ttl = route_ttl(&path);
-        if let Err(e) = cache.set_http_response(&cache_key, &cached_response, ttl).await {
+        if let Err(e) = cache
+            .set_http_response(&cache_key, &cached_response, ttl)
+            .await
+        {
             tracing::warn!(error = %e, key = %cache_key, "Failed to cache HTTP response");
         }
     }
@@ -191,7 +190,9 @@ pub async fn intelligent_cache(
     );
     parts.headers.insert(
         header::LAST_MODIFIED,
-        format_http_date(now).parse().expect("Invalid Last-Modified value"),
+        format_http_date(now)
+            .parse()
+            .expect("Invalid Last-Modified value"),
     );
     parts.headers.insert(
         header::CACHE_CONTROL,

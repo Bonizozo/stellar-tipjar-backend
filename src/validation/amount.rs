@@ -45,9 +45,12 @@ pub fn xlm_to_stroops_str(amount: &str) -> Result<i64, String> {
         return Err(format!("Invalid XLM amount: '{}'", amount));
     }
 
-    let whole: i64 = whole_str
-        .parse()
-        .map_err(|_| format!("Cannot parse whole part '{}' of amount '{}'", whole_str, amount))?;
+    let whole: i64 = whole_str.parse().map_err(|_| {
+        format!(
+            "Cannot parse whole part '{}' of amount '{}'",
+            whole_str, amount
+        )
+    })?;
 
     if whole < 0 {
         return Err(format!("Amount must not be negative: '{}'", amount));

@@ -4,8 +4,8 @@ use axum::http::{HeaderName, HeaderValue, Method, Response};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub fn cors_layer() -> CorsLayer {
-    let allowed_origins = std::env::var("ALLOWED_ORIGINS")
-        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let allowed_origins =
+        std::env::var("ALLOWED_ORIGINS").unwrap_or_else(|_| "http://localhost:3000".to_string());
 
     let origins: Vec<HeaderValue> = allowed_origins
         .split(',')

@@ -11,18 +11,22 @@ use uuid::Uuid;
 use crate::controllers::verification_controller;
 use crate::db::connection::AppState;
 use crate::errors::AppError;
-use crate::models::verification::{ReviewVerificationRequest, SubmitVerificationRequest, VerificationResponse};
+use crate::models::verification::{
+    ReviewVerificationRequest, SubmitVerificationRequest, VerificationResponse,
+};
 
 /// Public + creator routes
 pub fn router() -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/creators/:username/verification", post(submit_verification).get(get_verification))
+    Router::new().route(
+        "/creators/:username/verification",
+        post(submit_verification).get(get_verification),
+    )
 }
 
 /// Admin routes (merged into admin router separately)
 pub fn admin_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
-    use axum::middleware;
     use crate::middleware::admin_auth::require_admin;
+    use axum::middleware;
 
     Router::new()
         .route("/admin/verifications/pending", get(list_pending))
@@ -57,9 +61,7 @@ async fn get_verification(
     }
 }
 
-async fn list_pending(
-    State(state): State<Arc<AppState>>,
-) -> Result<impl IntoResponse, AppError> {
+async fn list_pending(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
     let rows = verification_controller::list_pending(&state.db).await?;
     let resp: Vec<VerificationResponse> = rows.into_iter().map(Into::into).collect();
     Ok((StatusCode::OK, Json(serde_json::json!(resp))).into_response())
@@ -77,15 +79,15 @@ async fn review_verification(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
     let key_hash = crate::middleware::admin_auth::hash_api_key(raw_key);
-    let admin_username = sqlx::query_scalar::<_, String>(
-        "SELECT username FROM admin_users WHERE api_key_hash = $1",
-    )
-    .bind(&key_hash)
-    .fetch_optional(&state.db)
-    .await?
-    .unwrap_or_else(|| "admin".to_string());
+    let admin_username =
+        sqlx::query_scalar::<_, String>("SELECT username FROM admin_users WHERE api_key_hash = $1")
+            .bind(&key_hash)
+            .fetch_optional(&state.db)
+            .await?
+            .unwrap_or_else(|| "admin".to_string());
 
-    let v = verification_controller::review_verification(&state.db, id, &admin_username, body).await?;
+    let v =
+        verification_controller::review_verification(&state.db, id, &admin_username, body).await?;
     let resp: VerificationResponse = v.into();
     Ok((StatusCode::OK, Json(serde_json::json!(resp))).into_response())
 }

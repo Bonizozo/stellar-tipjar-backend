@@ -156,12 +156,10 @@ pub async fn rotate_secret(
     let new_secret = generate_secret();
 
     // Fetch the current primary secret to make it the retiring one.
-    let current: Option<(String,)> = sqlx::query_as(
-        "SELECT secret FROM webhooks WHERE id = $1",
-    )
-    .bind(webhook_id)
-    .fetch_optional(pool)
-    .await?;
+    let current: Option<(String,)> = sqlx::query_as("SELECT secret FROM webhooks WHERE id = $1")
+        .bind(webhook_id)
+        .fetch_optional(pool)
+        .await?;
 
     let retiring = current.map(|(s,)| s);
 
@@ -213,10 +211,7 @@ pub async fn rotate_secret(
 
 /// Retrieve all currently active secrets for a webhook (primary + retiring).
 /// Used to build dual-secret `DeliveryContext` during the rotation window.
-pub async fn active_secrets(
-    pool: &PgPool,
-    webhook_id: Uuid,
-) -> Result<Vec<String>, sqlx::Error> {
+pub async fn active_secrets(pool: &PgPool, webhook_id: Uuid) -> Result<Vec<String>, sqlx::Error> {
     let rows: Vec<(String,)> = sqlx::query_as(
         "SELECT secret FROM webhook_secrets
          WHERE webhook_id = $1
@@ -229,11 +224,10 @@ pub async fn active_secrets(
 
     if rows.is_empty() {
         // Fallback: read from the webhooks table directly.
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT secret FROM webhooks WHERE id = $1")
-                .bind(webhook_id)
-                .fetch_optional(pool)
-                .await?;
+        let row: Option<(String,)> = sqlx::query_as("SELECT secret FROM webhooks WHERE id = $1")
+            .bind(webhook_id)
+            .fetch_optional(pool)
+            .await?;
         Ok(row.map(|(s,)| vec![s]).unwrap_or_default())
     } else {
         Ok(rows.into_iter().map(|(s,)| s).collect())
@@ -334,7 +328,8 @@ pub async fn trigger_webhooks(pool: PgPool, event_type: &str, payload: Value) {
                     _ => vec![webhook.secret.clone()],
                 };
 
-                let mut ctx = sender::DeliveryContext::new(event.event_type.clone(), secrets[0].clone());
+                let mut ctx =
+                    sender::DeliveryContext::new(event.event_type.clone(), secrets[0].clone());
                 if secrets.len() > 1 {
                     ctx.secrets = secrets;
                 }

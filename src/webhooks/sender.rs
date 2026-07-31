@@ -57,11 +57,7 @@ const WEBHOOK_TIMEOUT_SECS: u64 = 10;
 /// - `traceparent`          — W3C distributed trace context
 ///
 /// Returns the HTTP status code on success so callers can record it.
-pub async fn send_webhook(
-    url: &str,
-    ctx: &DeliveryContext,
-    payload: Value,
-) -> anyhow::Result<u16> {
+pub async fn send_webhook(url: &str, ctx: &DeliveryContext, payload: Value) -> anyhow::Result<u16> {
     let client = Client::builder()
         .timeout(Duration::from_secs(WEBHOOK_TIMEOUT_SECS))
         .build()?;

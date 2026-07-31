@@ -1,15 +1,17 @@
 use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::{PublicKey, Signature, Verifier};
+use sqlx::PgPool;
 use std::time::Instant;
 use uuid::Uuid;
-use sqlx::PgPool;
 
 use crate::cache::{keys, redis_client};
 use crate::db::connection::AppState;
 use crate::db::query_logger::QueryLogger;
 use crate::errors::{AppError, AppResult, ValidationError};
 use crate::metrics::collectors::CREATORS_REGISTERED_TOTAL;
-use crate::models::creator::{CreateCreatorRequest, Creator, UpdateCreatorProfileRequest, UpdateCreatorWalletRequest};
+use crate::models::creator::{
+    CreateCreatorRequest, Creator, UpdateCreatorProfileRequest, UpdateCreatorWalletRequest,
+};
 use crate::moderation::ContentType;
 use crate::search::SearchQuery;
 use validator::Validate;
@@ -29,12 +31,11 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppR
 
     // Check for duplicate email before inserting
     if let Some(ref email) = req.email {
-        let exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM creators WHERE email = $1)",
-        )
-        .bind(email)
-        .fetch_one(&state.db)
-        .await?;
+        let exists =
+            sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM creators WHERE email = $1)")
+                .bind(email)
+                .fetch_one(&state.db)
+                .await?;
         if exists {
             return Err(AppError::Conflict {
                 code: "DUPLICATE_EMAIL",
@@ -51,9 +52,10 @@ pub async fn create_creator(state: &AppState, req: CreateCreatorRequest) -> AppR
         "#;
 
     let start = Instant::now();
-    let social_json = req.social_links.as_ref().map(|links| {
-        serde_json::to_value(links).unwrap_or(serde_json::Value::Array(vec![]))
-    });
+    let social_json = req
+        .social_links
+        .as_ref()
+        .map(|links| serde_json::to_value(links).unwrap_or(serde_json::Value::Array(vec![])));
     let creator = sqlx::query_as::<_, Creator>(query)
         .bind(Uuid::new_v4())
         .bind(&req.username)
@@ -193,12 +195,18 @@ pub async fn update_creator_wallet_address(
     username: &str,
     req: UpdateCreatorWalletRequest,
 ) -> AppResult<Creator> {
-    req.validate().map_err(|e| AppError::Validation(ValidationError::InvalidRequest {
-        message: e.to_string(),
-    }))?;
+    req.validate().map_err(|e| {
+        AppError::Validation(ValidationError::InvalidRequest {
+            message: e.to_string(),
+        })
+    })?;
 
     let existing_creator = get_creator_or_not_found(state, username).await?;
-    verify_wallet_signature(&req.new_wallet_address, &req.signature, req.new_wallet_address.as_bytes())?;
+    verify_wallet_signature(
+        &req.new_wallet_address,
+        &req.signature,
+        req.new_wallet_address.as_bytes(),
+    )?;
 
     let query = r#"
         UPDATE creators
@@ -273,9 +281,11 @@ pub async fn update_creator_profile(
     username: &str,
     req: UpdateCreatorProfileRequest,
 ) -> AppResult<Creator> {
-    req.validate().map_err(|e| AppError::Validation(ValidationError::InvalidRequest {
-        message: e.to_string(),
-    }))?;
+    req.validate().map_err(|e| {
+        AppError::Validation(ValidationError::InvalidRequest {
+            message: e.to_string(),
+        })
+    })?;
 
     let existing = get_creator_or_not_found(state, username).await?;
 
@@ -294,9 +304,10 @@ pub async fn update_creator_profile(
         "#;
 
     let start = Instant::now();
-    let social_json = req.social_links.as_ref().map(|links| {
-        serde_json::to_value(links).unwrap_or(serde_json::Value::Array(vec![]))
-    });
+    let social_json = req
+        .social_links
+        .as_ref()
+        .map(|links| serde_json::to_value(links).unwrap_or(serde_json::Value::Array(vec![])));
     let creator = sqlx::query_as::<_, Creator>(query)
         .bind(&req.bio)
         .bind(&req.display_name)
@@ -374,11 +385,7 @@ pub async fn update_creator_profile(
     Ok(creator)
 }
 
-fn verify_wallet_signature(
-    public_key: &str,
-    signature: &str,
-    message: &[u8],
-) -> AppResult<()> {
+fn verify_wallet_signature(public_key: &str, signature: &str, message: &[u8]) -> AppResult<()> {
     let public_key_bytes = crate::validation::stellar::decode_stellar_public_key(public_key)
         .map_err(|_| AppError::bad_request("Invalid Stellar public key"))?;
     let public_key = PublicKey::from_bytes(&public_key_bytes)

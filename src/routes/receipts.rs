@@ -54,7 +54,6 @@ async fn receipt_info(
     Query(query): Query<ReceiptQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let tax_rate = query.tax_rate.map(|r| r / 100.0);
-    let (receipt, _) =
-        receipt_controller::generate_tip_receipt(&state, tip_id, tax_rate).await?;
+    let (receipt, _) = receipt_controller::generate_tip_receipt(&state, tip_id, tax_rate).await?;
     Ok((StatusCode::OK, Json(receipt)))
 }

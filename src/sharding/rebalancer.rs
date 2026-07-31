@@ -6,9 +6,9 @@ use sqlx::PgPool;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::errors::AppError;
 use super::router::{ShardRouter, ShardStats, ShardStatus};
 use super::strategy::fnv1a_shard;
+use crate::errors::AppError;
 
 // ── Rebalance analysis ────────────────────────────────────────────────────────
 
@@ -118,9 +118,7 @@ impl ShardRebalancer {
         let mut suggested_moves = Vec::new();
         for (from, to) in overloaded.iter().zip(underloaded.iter()) {
             let from_stat = stats.iter().find(|s| s.shard_id == *from);
-            let estimated = from_stat
-                .map(|s| (s.tip_count - avg_tips) / 2)
-                .unwrap_or(0);
+            let estimated = from_stat.map(|s| (s.tip_count - avg_tips) / 2).unwrap_or(0);
             suggested_moves.push(ShardMove {
                 from_shard: *from,
                 to_shard: *to,
@@ -295,8 +293,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn detects_imbalance() {
+    #[tokio::test]
+    async fn detects_imbalance() {
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap();
         let router = Arc::new(
             ShardRouterBuilder::new(ShardingStrategy::Hash)
@@ -331,8 +329,8 @@ mod tests {
         assert_eq!(report.suggested_moves.len(), 1);
     }
 
-    #[test]
-    fn balanced_shards_no_rebalance() {
+    #[tokio::test]
+    async fn balanced_shards_no_rebalance() {
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap();
         let router = Arc::new(
             ShardRouterBuilder::new(ShardingStrategy::Hash)

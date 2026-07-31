@@ -21,11 +21,20 @@ use crate::models::subscription::{
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         // Tier management (creator-facing)
-        .route("/creators/:username/tiers", post(create_tier).get(list_tiers))
-        .route("/tiers/:id", get(get_tier).patch(update_tier).delete(delete_tier))
+        .route(
+            "/creators/:username/tiers",
+            post(create_tier).get(list_tiers),
+        )
+        .route(
+            "/tiers/:id",
+            get(get_tier).patch(update_tier).delete(delete_tier),
+        )
         // Benefits
         .route("/tiers/:id/benefits", post(add_benefit).get(list_benefits))
-        .route("/tiers/:tier_id/benefits/:benefit_id", delete(remove_benefit))
+        .route(
+            "/tiers/:tier_id/benefits/:benefit_id",
+            delete(remove_benefit),
+        )
         // Subscriptions (supporter-facing)
         .route("/subscriptions", post(subscribe).get(list_subscriptions))
         .route("/subscriptions/:id", get(get_subscription))
@@ -33,7 +42,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/subscriptions/:id/renew", post(renew_subscription))
         .route("/subscriptions/:id/payments", get(list_payments))
         // Creator view of their subscribers
-        .route("/creators/:username/subscriptions", get(list_creator_subscriptions))
+        .route(
+            "/creators/:username/subscriptions",
+            get(list_creator_subscriptions),
+        )
 }
 
 // ── Tier handlers ─────────────────────────────────────────────────────────────
@@ -56,7 +68,9 @@ async fn get_tier(
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
     let tier = ctrl::get_tier(&state.db, id).await.map_err(not_found_or)?;
-    let benefits = ctrl::list_benefits(&state.db, id).await.map_err(AppError::from)?;
+    let benefits = ctrl::list_benefits(&state.db, id)
+        .await
+        .map_err(AppError::from)?;
     Ok((StatusCode::OK, Json(build_tier_response(tier, benefits))))
 }
 
@@ -71,7 +85,9 @@ async fn list_tiers(
     let mut responses = Vec::with_capacity(tiers.len());
     for tier in tiers {
         let id = tier.id;
-        let benefits = ctrl::list_benefits(&state.db, id).await.map_err(AppError::from)?;
+        let benefits = ctrl::list_benefits(&state.db, id)
+            .await
+            .map_err(AppError::from)?;
         responses.push(build_tier_response(tier, benefits));
     }
     Ok((StatusCode::OK, Json(responses)))
@@ -85,7 +101,9 @@ async fn update_tier(
     let tier = ctrl::update_tier(&state.db, id, body)
         .await
         .map_err(not_found_or)?;
-    let benefits = ctrl::list_benefits(&state.db, id).await.map_err(AppError::from)?;
+    let benefits = ctrl::list_benefits(&state.db, id)
+        .await
+        .map_err(AppError::from)?;
     Ok((StatusCode::OK, Json(build_tier_response(tier, benefits))))
 }
 
@@ -93,7 +111,9 @@ async fn delete_tier(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
-    let deleted = ctrl::delete_tier(&state.db, id).await.map_err(AppError::from)?;
+    let deleted = ctrl::delete_tier(&state.db, id)
+        .await
+        .map_err(AppError::from)?;
     if deleted {
         Ok(StatusCode::NO_CONTENT.into_response())
     } else {
@@ -118,7 +138,9 @@ async fn list_benefits(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
-    let benefits = ctrl::list_benefits(&state.db, id).await.map_err(AppError::from)?;
+    let benefits = ctrl::list_benefits(&state.db, id)
+        .await
+        .map_err(AppError::from)?;
     let response: Vec<BenefitResponse> = benefits.into_iter().map(Into::into).collect();
     Ok((StatusCode::OK, Json(response)))
 }
@@ -148,7 +170,9 @@ async fn subscribe(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateSubscriptionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let sub = ctrl::subscribe(&state.db, body).await.map_err(AppError::from)?;
+    let sub = ctrl::subscribe(&state.db, body)
+        .await
+        .map_err(AppError::from)?;
     Ok((StatusCode::CREATED, Json(SubscriptionResponse::from(sub))))
 }
 
@@ -194,7 +218,9 @@ async fn cancel_subscription(
     if cancelled {
         Ok(StatusCode::NO_CONTENT.into_response())
     } else {
-        Err(AppError::unauthorized("Subscription not found or not active"))
+        Err(AppError::unauthorized(
+            "Subscription not found or not active",
+        ))
     }
 }
 
@@ -214,7 +240,9 @@ async fn list_payments(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
-    let payments = ctrl::list_payments(&state.db, id).await.map_err(AppError::from)?;
+    let payments = ctrl::list_payments(&state.db, id)
+        .await
+        .map_err(AppError::from)?;
     let response: Vec<PaymentResponse> = payments.into_iter().map(Into::into).collect();
     Ok((StatusCode::OK, Json(response)))
 }

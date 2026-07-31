@@ -5,7 +5,10 @@ use uuid::Uuid;
 use crate::db::connection::AppState;
 use crate::db::transaction;
 use crate::errors::{AppError, AppResult};
-use crate::models::team::{CreateTeamRequest, Team, TeamMember, TeamMemberRequest, TeamResponse, TipSplit, TipSplitResponse};
+use crate::models::team::{
+    CreateTeamRequest, Team, TeamMember, TeamMemberRequest, TeamResponse, TipSplit,
+    TipSplitResponse,
+};
 
 #[tracing::instrument(skip(state), fields(team_name = %req.name, owner = %req.owner_username))]
 pub async fn create_team(state: &AppState, req: CreateTeamRequest) -> AppResult<TeamResponse> {
@@ -23,19 +26,25 @@ pub async fn create_team(state: &AppState, req: CreateTeamRequest) -> AppResult<
     let mut total_share: i32 = 0;
     for member in &member_requests {
         if !seen.insert(member.creator_username.clone()) {
-            return Err(AppError::Validation(crate::errors::ValidationError::InvalidRequest {
-                message: "Duplicate team member username".to_string(),
-            }));
+            return Err(AppError::Validation(
+                crate::errors::ValidationError::InvalidRequest {
+                    message: "Duplicate team member username".to_string(),
+                },
+            ));
         }
         total_share += member.share_percentage;
     }
     if total_share <= 0 {
-        return Err(AppError::Validation(crate::errors::ValidationError::InvalidRequest {
-            message: "Team member share percentages must total more than zero".to_string(),
-        }));
+        return Err(AppError::Validation(
+            crate::errors::ValidationError::InvalidRequest {
+                message: "Team member share percentages must total more than zero".to_string(),
+            },
+        ));
     }
 
-    let mut tx = transaction::begin_transaction(&state.db).await.map_err(AppError::from)?;
+    let mut tx = transaction::begin_transaction(&state.db)
+        .await
+        .map_err(AppError::from)?;
 
     let team = sqlx::query_as::<_, Team>(
         r#"INSERT INTO teams (id, name, owner_username, created_at)
@@ -179,18 +188,19 @@ pub async fn remove_member(
     team_id: Uuid,
     member_username: String,
 ) -> AppResult<()> {
-    sqlx::query(
-        "DELETE FROM team_members WHERE team_id = $1 AND creator_username = $2",
-    )
-    .bind(team_id)
-    .bind(&member_username)
-    .execute(&state.db)
-    .await?;
+    sqlx::query("DELETE FROM team_members WHERE team_id = $1 AND creator_username = $2")
+        .bind(team_id)
+        .bind(&member_username)
+        .execute(&state.db)
+        .await?;
     Ok(())
 }
 
 #[tracing::instrument(skip(state), fields(team_id = %team_id))]
-pub async fn get_split_history(state: &AppState, team_id: Uuid) -> AppResult<Vec<TipSplitResponse>> {
+pub async fn get_split_history(
+    state: &AppState,
+    team_id: Uuid,
+) -> AppResult<Vec<TipSplitResponse>> {
     let splits = sqlx::query_as::<_, TipSplit>(
         "SELECT id, tip_id, team_id, member_username, amount, created_at FROM tip_splits WHERE team_id = $1 ORDER BY created_at DESC",
     )
@@ -233,9 +243,11 @@ pub async fn record_tip_splits(
         return Ok(());
     }
 
-    let amount_decimal: Decimal = amount.parse().map_err(|_| AppError::Validation(crate::errors::ValidationError::InvalidRequest {
-        message: "Invalid tip amount for split calculation".to_string(),
-    }))?;
+    let amount_decimal: Decimal = amount.parse().map_err(|_| {
+        AppError::Validation(crate::errors::ValidationError::InvalidRequest {
+            message: "Invalid tip amount for split calculation".to_string(),
+        })
+    })?;
 
     let total_shares: i32 = members.iter().map(|m| m.share_percentage).sum();
     if total_shares <= 0 {

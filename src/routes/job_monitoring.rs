@@ -1,12 +1,6 @@
 use crate::db::connection::AppState;
 use crate::jobs::monitoring::JobMonitor;
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use serde_json::json;
 use std::sync::Arc;
 

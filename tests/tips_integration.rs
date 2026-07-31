@@ -5,10 +5,12 @@ use axum_test::TestServer;
 use serde_json::json;
 use stellar_tipjar_backend::tests::integration_test_setup::build_app;
 
+mod common;
+
 #[tokio::test]
 async fn test_create_tip_success() {
     let app = build_app().await;
-    let server = TestServer::new(app);
+    let server = common::test_server(app);
 
     // Ensure creator exists
     let creator_payload = json!({
@@ -16,7 +18,7 @@ async fn test_create_tip_success() {
         "wallet": "GABCDEF1234567890TESTWALLET",
         "bio": "Creator for tip"
     });
-    server.post("/api/v1/creators").json(&creator_payload).await;
+    server.post("/creators").json(&creator_payload).await;
 
     let tip_payload = json!({
         "creator_username": "tipcreator",
@@ -24,16 +26,16 @@ async fn test_create_tip_success() {
         "tx_hash": "abcdef123456",
         "message": "Great work!"
     });
-    let resp = server.post("/api/v1/tips").json(&tip_payload).await;
+    let resp = server.post("/tips").json(&tip_payload).await;
     resp.assert_status_success();
-    let body = resp.json::<serde_json::Value>().await;
+    let body = resp.json::<serde_json::Value>();
     assert_eq!(body["tx_hash"], "abcdef123456");
 }
 
 #[tokio::test]
 async fn test_create_tip_duplicate_tx_hash() {
     let app = build_app().await;
-    let server = TestServer::new(app);
+    let server = common::test_server(app);
 
     // Create creator
     let creator_payload = json!({
@@ -41,7 +43,7 @@ async fn test_create_tip_duplicate_tx_hash() {
         "wallet": "GABCDEF1234567890TESTWALLET",
         "bio": "Dup creator"
     });
-    server.post("/api/v1/creators").json(&creator_payload).await;
+    server.post("/creators").json(&creator_payload).await;
 
     let tip_payload = json!({
         "creator_username": "dupcreator",
@@ -50,17 +52,17 @@ async fn test_create_tip_duplicate_tx_hash() {
         "message": "First tip"
     });
     // First tip should succeed
-    let resp1 = server.post("/api/v1/tips").json(&tip_payload).await;
+    let resp1 = server.post("/tips").json(&tip_payload).await;
     resp1.assert_status_success();
     // Second tip with same tx_hash should be rejected
-    let resp2 = server.post("/api/v1/tips").json(&tip_payload).await;
+    let resp2 = server.post("/tips").json(&tip_payload).await;
     assert_eq!(resp2.status_code(), 400);
 }
 
 #[tokio::test]
 async fn test_create_tip_creator_not_found() {
     let app = build_app().await;
-    let server = TestServer::new(app);
+    let server = common::test_server(app);
 
     let tip_payload = json!({
         "creator_username": "nonexistent",
@@ -68,14 +70,14 @@ async fn test_create_tip_creator_not_found() {
         "tx_hash": "somehash",
         "message": "Tip"
     });
-    let resp = server.post("/api/v1/tips").json(&tip_payload).await;
+    let resp = server.post("/tips").json(&tip_payload).await;
     assert_eq!(resp.status_code(), 404);
 }
 
 #[tokio::test]
 async fn test_create_tip_moderation_rejection() {
     let app = build_app().await;
-    let server = TestServer::new(app);
+    let server = common::test_server(app);
 
     // Create creator
     let creator_payload = json!({
@@ -83,7 +85,7 @@ async fn test_create_tip_moderation_rejection() {
         "wallet": "GABCDEF1234567890TESTWALLET",
         "bio": "Mod test"
     });
-    server.post("/api/v1/creators").json(&creator_payload).await;
+    server.post("/creators").json(&creator_payload).await;
 
     // Assume that a tip containing the word "spam" is rejected by moderation
     let tip_payload = json!({
@@ -92,7 +94,7 @@ async fn test_create_tip_moderation_rejection() {
         "tx_hash": "modhash",
         "message": "spam content"
     });
-    let resp = server.post("/api/v1/tips").json(&tip_payload).await;
+    let resp = server.post("/tips").json(&tip_payload).await;
     // Expect bad request due to moderation failure
     assert_eq!(resp.status_code(), 400);
 }

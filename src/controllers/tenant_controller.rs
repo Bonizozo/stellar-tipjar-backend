@@ -38,11 +38,9 @@ pub async fn create_tenant(
 }
 
 pub async fn list_tenants(state: &AppState) -> Result<Vec<TenantResponse>, AppError> {
-    let tenants = sqlx::query_as::<_, Tenant>(
-        "SELECT * FROM tenants ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.db)
-    .await?;
+    let tenants = sqlx::query_as::<_, Tenant>("SELECT * FROM tenants ORDER BY created_at DESC")
+        .fetch_all(&state.db)
+        .await?;
 
     Ok(tenants.into_iter().map(Into::into).collect())
 }
@@ -106,10 +104,7 @@ pub async fn get_tenant_analytics(
     svc.get_tenant_analytics(tenant_id, days).await
 }
 
-pub async fn get_tenant_usage(
-    state: &AppState,
-    tenant_id: Uuid,
-) -> Result<TenantUsage, AppError> {
+pub async fn get_tenant_usage(state: &AppState, tenant_id: Uuid) -> Result<TenantUsage, AppError> {
     let svc = TenantAnalyticsService::new(state.db.clone());
     svc.get_tenant_usage(tenant_id).await
 }

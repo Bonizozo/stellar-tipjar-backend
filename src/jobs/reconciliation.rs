@@ -32,7 +32,10 @@ const POLL_INTERVAL: Duration = Duration::from_secs(60);
 /// or process restarts.
 pub fn spawn(state: Arc<AppState>) {
     tokio::spawn(async move {
-        tracing::info!("Tip reconciliation job started (poll interval {:?})", POLL_INTERVAL);
+        tracing::info!(
+            "Tip reconciliation job started (poll interval {:?})",
+            POLL_INTERVAL
+        );
 
         loop {
             tokio::time::sleep(POLL_INTERVAL).await;
@@ -102,10 +105,7 @@ pub async fn run_once(state: Arc<AppState>) -> usize {
             amount_stroops,
             destination,
             expected_memo: None,
-            source_account: tip
-                .tipper_source_account
-                .clone()
-                .unwrap_or_default(),
+            source_account: tip.tipper_source_account.clone().unwrap_or_default(),
             attempt: 0,
         };
 
@@ -127,7 +127,11 @@ pub async fn run_once(state: Arc<AppState>) -> usize {
         }
     }
 
-    tracing::info!("Reconciliation: re-enqueued {}/{} tips", enqueued, stuck_tips.len());
+    tracing::info!(
+        "Reconciliation: re-enqueued {}/{} tips",
+        enqueued,
+        stuck_tips.len()
+    );
     enqueued
 }
 
@@ -153,10 +157,8 @@ async fn fetch_creator_wallet(
     state: &AppState,
     username: &str,
 ) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar::<_, String>(
-        "SELECT wallet_address FROM creators WHERE username = $1",
-    )
-    .bind(username)
-    .fetch_optional(&state.db)
-    .await
+    sqlx::query_scalar::<_, String>("SELECT wallet_address FROM creators WHERE username = $1")
+        .bind(username)
+        .fetch_optional(&state.db)
+        .await
 }

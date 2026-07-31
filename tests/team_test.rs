@@ -10,21 +10,26 @@ use uuid::Uuid;
 use stellar_tipjar_backend::controllers::{team_controller, tip_controller};
 use stellar_tipjar_backend::db::connection::AppState;
 use stellar_tipjar_backend::db::performance::PerformanceMonitor;
-use stellar_tipjar_backend::moderation::ModerationService;
 use stellar_tipjar_backend::models::team::{CreateTeamRequest, TeamMemberRequest};
 use stellar_tipjar_backend::models::tip::RecordTipRequest;
+use stellar_tipjar_backend::moderation::ModerationService;
 use stellar_tipjar_backend::services::stellar_service::StellarService;
 
 fn make_state(pool: PgPool) -> Arc<AppState> {
-    let stellar = Arc::new(StellarService::new("https://horizon-testnet.stellar.org".to_string(), "testnet".to_string()));
+    let stellar = Arc::new(StellarService::new(
+        "https://horizon-testnet.stellar.org".to_string(),
+        "testnet".to_string(),
+    ));
     let (queue, _rx) = stellar_tipjar_backend::queue::VerificationQueue::new();
     let performance = Arc::new(PerformanceMonitor::new());
     let moderation = Arc::new(ModerationService::new(pool.clone()));
-    let idempotency = Arc::new(stellar_tipjar_backend::idempotency::IdempotencyService::new(
-        pool.clone(),
-        None,
-        stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
-    ));
+    let idempotency = Arc::new(
+        stellar_tipjar_backend::idempotency::IdempotencyService::new(
+            pool.clone(),
+            None,
+            stellar_tipjar_backend::idempotency::IdempotencyConfig::default(),
+        ),
+    );
     Arc::new(AppState {
         db: pool,
         verifier: stellar.clone(),
@@ -36,9 +41,16 @@ fn make_state(pool: PgPool) -> Arc<AppState> {
         broadcast_tx: tokio::sync::broadcast::channel(16).0,
         cache: None,
         invalidator: None,
-        encryption: Arc::new(stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new()),
+        encryption: Arc::new(
+            stellar_tipjar_backend::crypto::encryption::EncryptionKeyManager::new(),
+        ),
         replicas: None,
-        db_circuit_breaker: Arc::new(stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(5, std::time::Duration::from_secs(60))),
+        db_circuit_breaker: Arc::new(
+            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(60),
+            ),
+        ),
         lock_service: None,
         ws_shutdown_tx: tokio::sync::watch::channel(false).0,
         ws_config: stellar_tipjar_backend::ws::WsConfig::from_env(),
@@ -52,15 +64,15 @@ async fn test_team_tip_split_history_and_recording() {
     let pool = common::setup_test_db().await;
     let state = make_state(pool.clone());
 
-    let owner_username = format!("owner{}", &Uuid::new_v4().to_simple().to_string()[..16]);
-    let member_username = format!("member{}", &Uuid::new_v4().to_simple().to_string()[..16]);
-    let team_name = format!("DreamTeam-{}", &Uuid::new_v4().to_simple().to_string()[..16]);
+    let owner_username = format!("owner{}", &Uuid::new_v4().simple().to_string()[..16]);
+    let member_username = format!("member{}", &Uuid::new_v4().simple().to_string()[..16]);
+    let team_name = format!("DreamTeam-{}", &Uuid::new_v4().simple().to_string()[..16]);
 
     let owner_hash = hash("password123", bcrypt::DEFAULT_COST).unwrap();
     let member_hash = hash("password123", bcrypt::DEFAULT_COST).unwrap();
 
-    let owner_wallet = format!("GOWNER{}", &Uuid::new_v4().to_simple().to_string()[..16]);
-    let member_wallet = format!("GMEMBER{}", &Uuid::new_v4().to_simple().to_string()[..16]);
+    let owner_wallet = format!("GOWNER{}", &Uuid::new_v4().simple().to_string()[..16]);
+    let member_wallet = format!("GMEMBER{}", &Uuid::new_v4().simple().to_string()[..16]);
 
     sqlx::query(
         "INSERT INTO creators (id, username, wallet_address, password_hash, created_at) VALUES ($1, $2, $3, $4, NOW())",
@@ -87,13 +99,16 @@ async fn test_team_tip_split_history_and_recording() {
     let create_request = CreateTeamRequest {
         name: team_name.clone(),
         owner_username: owner_username.clone(),
-        members: Some(vec![TeamMemberRequest {
-            creator_username: owner_username.clone(),
-            share_percentage: 70,
-        }, TeamMemberRequest {
-            creator_username: member_username.clone(),
-            share_percentage: 30,
-        }]),
+        members: Some(vec![
+            TeamMemberRequest {
+                creator_username: owner_username.clone(),
+                share_percentage: 70,
+            },
+            TeamMemberRequest {
+                creator_username: member_username.clone(),
+                share_percentage: 30,
+            },
+        ]),
     };
 
     let team = team_controller::create_team(&state, create_request)
@@ -105,12 +120,15 @@ async fn test_team_tip_split_history_and_recording() {
         username: member_username.clone(),
         amount: "10".to_string(),
         tipper_wallet: None,
-        transaction_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
+        transaction_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            .to_string(),
         message: None,
+        memo: None,
         message_visibility: stellar_tipjar_backend::models::tip::MessageVisibility::Public,
+        tipper_source_account: owner_wallet.clone(),
     };
 
-    let (tip, _) = tip_controller::record_tip_in_tx(&state, &mut tx, &record_req)
+    let tip = tip_controller::record_tip_in_tx(&mut tx, &record_req)
         .await
         .expect("record tip in tx");
     tx.commit().await.unwrap();
@@ -129,13 +147,23 @@ async fn test_team_tip_split_history_and_recording() {
         .map(|(username, amount)| (username, amount.parse::<Decimal>().unwrap()))
         .collect();
 
-    assert_eq!(splits_map.get(&member_username).unwrap().clone(), Decimal::from(3));
-    assert_eq!(splits_map.get(&owner_username).unwrap().clone(), Decimal::from(7));
+    assert_eq!(
+        splits_map.get(&member_username).unwrap().clone(),
+        Decimal::from(3)
+    );
+    assert_eq!(
+        splits_map.get(&owner_username).unwrap().clone(),
+        Decimal::from(7)
+    );
 
     let history = team_controller::get_split_history(&state, team.id)
         .await
         .expect("get split history");
     assert_eq!(history.len(), 2);
-    assert!(history.iter().any(|entry| entry.member_username == owner_username));
-    assert!(history.iter().any(|entry| entry.member_username == member_username));
+    assert!(history
+        .iter()
+        .any(|entry| entry.member_username == owner_username));
+    assert!(history
+        .iter()
+        .any(|entry| entry.member_username == member_username));
 }

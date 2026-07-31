@@ -112,7 +112,10 @@ pub async fn get_platform_summary(state: &AppState) -> AppResult<PlatformSummary
     Ok(summary)
 }
 
-pub async fn get_time_series(state: &AppState, query: &AnalyticsQuery) -> AppResult<Vec<TimeSeriesPoint>> {
+pub async fn get_time_series(
+    state: &AppState,
+    query: &AnalyticsQuery,
+) -> AppResult<Vec<TimeSeriesPoint>> {
     let periods = query.clamped_periods();
     let trunc = query.pg_trunc();
     let cache_key = format!(
@@ -124,7 +127,8 @@ pub async fn get_time_series(state: &AppState, query: &AnalyticsQuery) -> AppRes
 
     if let Some(conn) = state.redis.as_ref() {
         let mut conn = conn.clone();
-        if let Some(cached) = redis_client::get::<Vec<TimeSeriesPoint>>(&mut conn, &cache_key).await {
+        if let Some(cached) = redis_client::get::<Vec<TimeSeriesPoint>>(&mut conn, &cache_key).await
+        {
             return Ok(cached);
         }
     }
@@ -183,7 +187,9 @@ pub async fn get_top_creators(state: &AppState, limit: i64) -> AppResult<Vec<Cre
 
     if let Some(conn) = state.redis.as_ref() {
         let mut conn = conn.clone();
-        if let Some(cached) = redis_client::get::<Vec<CreatorAnalytics>>(&mut conn, &cache_key).await {
+        if let Some(cached) =
+            redis_client::get::<Vec<CreatorAnalytics>>(&mut conn, &cache_key).await
+        {
             return Ok(cached);
         }
     }
@@ -216,7 +222,10 @@ pub async fn get_top_creators(state: &AppState, limit: i64) -> AppResult<Vec<Cre
     Ok(creators)
 }
 
-pub async fn get_creator_analytics(state: &AppState, username: &str) -> AppResult<CreatorAnalytics> {
+pub async fn get_creator_analytics(
+    state: &AppState,
+    username: &str,
+) -> AppResult<CreatorAnalytics> {
     let cache_key = format!("analytics:creator:{}", username);
 
     if let Some(conn) = state.redis.as_ref() {

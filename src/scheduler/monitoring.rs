@@ -1,9 +1,9 @@
-use sqlx::PgPool;
 use chrono::Utc;
+use sqlx::PgPool;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::collections::HashMap;
-use tracing::{info, error};
+use tracing::{error, info};
 
 #[derive(Clone)]
 pub struct JobStatus {
@@ -37,23 +37,35 @@ impl JobMonitor {
 
     pub async fn record_success(&self, job_name: &str) {
         let duration = self.calculate_duration(job_name).await;
-        
+
         if let Err(e) = self.save_job_run(job_name, "success", None, duration).await {
             error!("Failed to record job success: {}", e);
         }
-        
-        info!("Job '{}' completed successfully in {}ms", job_name, duration.unwrap_or(0));
+
+        info!(
+            "Job '{}' completed successfully in {}ms",
+            job_name,
+            duration.unwrap_or(0)
+        );
     }
 
     pub async fn record_failure(&self, job_name: &str, error_msg: &str) {
         let duration = self.calculate_duration(job_name).await;
-        
-        if let Err(e) = self.save_job_run(job_name, "failure", Some(error_msg), duration).await {
+
+        if let Err(e) = self
+            .save_job_run(job_name, "failure", Some(error_msg), duration)
+            .await
+        {
             error!("Failed to record job failure: {}", e);
         }
-        
-        error!("Job '{}' failed after {}ms: {}", job_name, duration.unwrap_or(0), error_msg);
-        
+
+        error!(
+            "Job '{}' failed after {}ms: {}",
+            job_name,
+            duration.unwrap_or(0),
+            error_msg
+        );
+
         // TODO: Send alert notification for failures
     }
 

@@ -37,7 +37,8 @@ async fn process_renewals(state: &Arc<AppState>) -> anyhow::Result<()> {
                     new_period_end = %renewed.current_period_end,
                     "Subscription renewed"
                 );
-                dispatch_notification(state, &sub.creator_username, sub.id, "subscription_renewed").await;
+                dispatch_notification(state, &sub.creator_username, sub.id, "subscription_renewed")
+                    .await;
             }
             Err(e) => {
                 tracing::warn!(
@@ -46,7 +47,13 @@ async fn process_renewals(state: &Arc<AppState>) -> anyhow::Result<()> {
                     "Subscription renewal failed, marking past_due"
                 );
                 let _ = ctrl::mark_past_due(&state.db, sub.id).await;
-                dispatch_notification(state, &sub.creator_username, sub.id, "subscription_past_due").await;
+                dispatch_notification(
+                    state,
+                    &sub.creator_username,
+                    sub.id,
+                    "subscription_past_due",
+                )
+                .await;
             }
         }
     }
@@ -70,7 +77,10 @@ async fn dispatch_notification(
     let creator_id = match creator {
         Ok(Some(row)) => row.id,
         _ => {
-            tracing::warn!(creator = creator_username, "Creator not found for subscription notification");
+            tracing::warn!(
+                creator = creator_username,
+                "Creator not found for subscription notification"
+            );
             return;
         }
     };
@@ -91,7 +101,10 @@ async fn dispatch_notification(
     };
 
     let queue = crate::jobs::queue::JobQueueManager::new(Arc::new(state.db.clone()));
-    if let Err(e) = queue.enqueue(JobType::SendNotification, payload, 0, 3).await {
+    if let Err(e) = queue
+        .enqueue(JobType::SendNotification, payload, 0, 3)
+        .await
+    {
         tracing::warn!(error = %e, "Failed to enqueue subscription notification");
     }
 }

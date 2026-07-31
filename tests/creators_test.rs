@@ -7,7 +7,7 @@ mod common;
 async fn test_create_creator() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let response = server
         .post("/creators")
@@ -31,7 +31,7 @@ async fn test_create_creator() {
 async fn test_get_creator() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     // First create
     server
@@ -57,7 +57,7 @@ async fn test_get_creator() {
 async fn test_create_creator_duplicate_email() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     // First creator with email
     let response = server
@@ -89,7 +89,7 @@ async fn test_create_creator_duplicate_email() {
 async fn test_create_creator_duplicate_email_without_email_ok() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     // First creator without email
     let response = server
@@ -118,7 +118,7 @@ async fn test_create_creator_duplicate_email_without_email_ok() {
 async fn test_creator_not_found() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let response = server.get("/creators/nobody").await;
     response.assert_status(StatusCode::NOT_FOUND);

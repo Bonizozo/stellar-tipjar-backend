@@ -30,10 +30,11 @@ pub async fn create_goal(
     }
 
     // Ensure the creator exists.
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM creators WHERE username = $1)")
-        .bind(username)
-        .fetch_one(pool)
-        .await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM creators WHERE username = $1)")
+            .bind(username)
+            .fetch_one(pool)
+            .await?;
 
     if !exists {
         return Err(AppError::CreatorNotFound {
@@ -71,10 +72,11 @@ pub async fn create_goal(
 /// List active goals for a creator (includes progress).
 pub async fn list_goals(pool: &PgPool, username: &str) -> AppResult<Vec<TipGoal>> {
     // Ensure the creator exists before querying goals.
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM creators WHERE username = $1)")
-        .bind(username)
-        .fetch_one(pool)
-        .await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM creators WHERE username = $1)")
+            .bind(username)
+            .fetch_one(pool)
+            .await?;
 
     if !exists {
         return Err(AppError::CreatorNotFound {

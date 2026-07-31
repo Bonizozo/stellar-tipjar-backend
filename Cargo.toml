@@ -57,7 +57,9 @@ rand = "0.8"
 data-encoding = "2"
 utoipa-swagger-ui = { version = "7", features = ["axum"] }
 async-graphql = { version = "7", features = ["uuid", "chrono", "dataloader"] }
-async-graphql-axum = "7"
+# Pinned to the last release still on axum 0.7 — 7.0.14+ require axum 0.8,
+# which conflicts with our axum = "0.7" (same class of issue as the axum-test pin below).
+async-graphql-axum = "=7.0.13"
 tokio-stream = { version = "0.1", features = ["sync"] }
 async-trait = "0.1"
 tokio-cron-scheduler = "0.10"
@@ -86,7 +88,7 @@ tokio = { version = "1", features = ["full", "test-util"] }
 tower = "0.4"
 httpmock = "0.7"
 proptest = "1.4"
-criterion = { version = "0.5" }
+criterion = { version = "0.5", features = ["async_tokio"] }
 # tarpaulin = "0.27"  # not a library crate; use `cargo tarpaulin` CLI instead
 
 [[bench]]

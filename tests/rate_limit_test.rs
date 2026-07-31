@@ -7,7 +7,7 @@ mod common;
 async fn test_rate_limit_headers_present() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let resp = server.get("/api/v1/health").await;
     resp.assert_status(StatusCode::OK);
@@ -34,10 +34,13 @@ async fn test_rate_limit_exceeded_returns_429() {
 
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     // First request should succeed (burst of 1 consumed)
-    server.get("/api/v1/health").await.assert_status(StatusCode::OK);
+    server
+        .get("/api/v1/health")
+        .await
+        .assert_status(StatusCode::OK);
 
     // Subsequent requests should be rate-limited
     let resp = server.get("/api/v1/health").await;
@@ -63,9 +66,9 @@ async fn test_rate_limit_exceeded_returns_429() {
 /// Verify that a whitelisted IP bypasses rate limiting.
 #[tokio::test]
 async fn test_whitelist_env_parsing() {
-    use stellar_tipjar_backend::middleware::rate_limiter::whitelist_middleware;
     use axum::{body::Body, http::Request, middleware::Next, response::Response};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use stellar_tipjar_backend::middleware::rate_limiter::whitelist_middleware;
 
     std::env::set_var("RATE_LIMIT_WHITELIST", "127.0.0.1,10.0.0.1");
 
@@ -114,7 +117,7 @@ async fn test_gcra_emits_ietf_and_legacy_headers() {
 
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app_with_redis(pool.clone(), &redis_url).await;
-    let server = axum_test::TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let resp = server.get("/api/v1/health").await;
     resp.assert_status(StatusCode::OK);
@@ -151,7 +154,7 @@ async fn test_gcra_exceeded_returns_429_with_retry_after() {
 
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app_with_redis(pool.clone(), &redis_url).await;
-    let server = axum_test::TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     // axum-test requests share no real TCP peer, so both requests resolve to
     // the same fallback rate-limit key — the single configured burst slot is
@@ -183,14 +186,16 @@ async fn test_degraded_fail_closed_on_auth_route() {
     // Redis check fails, exercising the degraded path without needing to
     // actually take down a real Redis instance mid-test.
     let pool = common::setup_test_db().await;
-    let (app, _) = common::create_test_app_with_redis(pool.clone(), "redis://127.0.0.1:1")
-        .await;
-    let server = axum_test::TestServer::new(app).unwrap();
+    let (app, _) = common::create_test_app_with_redis(pool.clone(), "redis://127.0.0.1:1").await;
+    let server = common::test_server(app);
 
-    let resp = server.post("/api/v1/auth/login").json(&serde_json::json!({
-        "email": "test@example.com",
-        "password": "irrelevant",
-    })).await;
+    let resp = server
+        .post("/api/v1/auth/login")
+        .json(&serde_json::json!({
+            "email": "test@example.com",
+            "password": "irrelevant",
+        }))
+        .await;
 
     // Fail-closed: the request never even reaches the handler far enough to
     // return a normal auth failure — the limiter itself returns 503.

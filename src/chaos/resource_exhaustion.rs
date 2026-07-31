@@ -28,14 +28,20 @@ impl ResourceExhaustionInjector {
     /// Returns `Err` when the pool is exhausted and injection is active.
     pub fn try_acquire(&self) -> Result<ResourceGuard> {
         if !self.active.load(Ordering::SeqCst) {
-            return Ok(ResourceGuard { counter: Arc::clone(&self.in_use) });
+            return Ok(ResourceGuard {
+                counter: Arc::clone(&self.in_use),
+            });
         }
         let current = self.in_use.fetch_add(1, Ordering::SeqCst);
         if current >= self.max_connections {
             self.in_use.fetch_sub(1, Ordering::SeqCst);
-            return Err(ChaosError::InjectedFailure("resource pool exhausted".into()));
+            return Err(ChaosError::InjectedFailure(
+                "resource pool exhausted".into(),
+            ));
         }
-        Ok(ResourceGuard { counter: Arc::clone(&self.in_use) })
+        Ok(ResourceGuard {
+            counter: Arc::clone(&self.in_use),
+        })
     }
 }
 
@@ -100,7 +106,7 @@ mod tests {
     #[tokio::test]
     async fn no_exhaustion_when_inactive() {
         let inj = ResourceExhaustionInjector::new(0); // pool size 0
-        // injection not active → always succeeds
+                                                      // injection not active → always succeeds
         assert!(inj.try_acquire().is_ok());
     }
 }

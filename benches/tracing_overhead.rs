@@ -83,7 +83,11 @@ fn bench_throughput(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("no_tracing", n), &n, |b, &n| {
             b.iter(|| {
                 for i in 0..n {
-                    simulate_no_tracing("POST", "/api/v1/tips", if i % 20 == 0 { 400 } else { 201 });
+                    simulate_no_tracing(
+                        "POST",
+                        "/api/v1/tips",
+                        if i % 20 == 0 { 400 } else { 201 },
+                    );
                 }
             })
         });
@@ -104,5 +108,10 @@ fn bench_throughput(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_span_overhead, bench_header_injection, bench_throughput);
+criterion_group!(
+    benches,
+    bench_span_overhead,
+    bench_header_injection,
+    bench_throughput
+);
 criterion_main!(benches);

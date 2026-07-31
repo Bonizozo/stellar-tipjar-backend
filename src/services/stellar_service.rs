@@ -9,11 +9,22 @@ use tracing::Instrument;
 
 use super::circuit_breaker::CircuitBreaker;
 use super::retry::{with_retry, RetryConfig};
-use crate::errors::{AppError, AppResult, StellarError};
 use crate::errors::stellar::{map_op_result_code, map_tx_result_code};
+use crate::errors::{AppError, AppResult, StellarError};
 use crate::telemetry::http_client::inject_trace_headers;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
+
+/// Minimum base fee in stroops (Stellar floor; never go below this).
+const FEE_FLOOR_STROOPS: u64 = 100;
+/// Maximum base fee in stroops we are willing to pay (surge-pricing ceiling).
+const FEE_CEILING_STROOPS: u64 = 10_000;
+/// Base reserve per account and per subentry, in XLM.
+const BASE_RESERVE_XLM: &str = "0.5";
+/// Minimum number of base reserves every account must maintain (account + implicit).
+const MIN_ACCOUNT_RESERVES: u64 = 2;
+/// Maximum UTF-8 byte length for a Stellar text memo.
+pub const MEMO_MAX_BYTES: usize = 28;
 
 // ─────────────────────────── Horizon Response Types ─────────────────────────
 
@@ -61,6 +72,34 @@ pub struct HorizonOperationsPage {
 #[derive(Debug, Deserialize)]
 pub struct HorizonOperationsEmbedded {
     pub records: Vec<HorizonOperation>,
+}
+
+/// Horizon `/fee_stats` response — only the fields we care about.
+#[derive(Debug, Deserialize)]
+pub struct HorizonFeeStats {
+    pub last_ledger_base_fee: Option<String>,
+    pub fee_charged: Option<HorizonFeeCharged>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HorizonFeeCharged {
+    pub p99: Option<String>,
+}
+
+/// Horizon `/accounts/{id}` response — only the fields we need.
+#[derive(Debug, Deserialize)]
+pub struct HorizonAccountResponse {
+    pub account_id: String,
+    pub subentry_count: u32,
+    pub balances: Vec<HorizonBalance>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HorizonBalance {
+    pub asset_type: String,
+    pub balance: String,
+    /// Non-native assets may have selling liabilities; native too.
+    pub selling_liabilities: Option<String>,
 }
 
 // ─────────────────────────── TipVerifier Trait ──────────────────────────────
@@ -153,11 +192,180 @@ impl StellarService {
         }
     }
 
-    /// Low-level: fetch a transaction record from Horizon with retry + circuit-breaker.
-    async fn fetch_transaction(
+    /// Construct with an explicit Horizon base URL (used in tests to point at `httpmock`).
+    pub fn with_horizon_url(mut self, url: String) -> Self {
+        self.horizon_url = url;
+        self
+    }
+
+    /// Validate a memo by its UTF-8 byte length.
+    ///
+    /// Stellar text memos are limited to **28 bytes** (not characters).
+    /// A single emoji like 🎉 is 4 bytes, so a 7-emoji memo already exceeds
+    /// the limit.  Returns `Err(MemoTooLong)` if the byte length exceeds 28.
+    pub fn validate_memo(memo: &str) -> AppResult<()> {
+        let byte_len = memo.len(); // Rust `str::len()` returns UTF-8 byte count
+        if byte_len > MEMO_MAX_BYTES {
+            return Err(AppError::Stellar(StellarError::MemoTooLong {
+                actual_bytes: byte_len,
+            }));
+        }
+        Ok(())
+    }
+
+    /// Fetch the current recommended base fee from Horizon `/fee_stats`.
+    ///
+    /// Returns a value clamped to [`FEE_FLOOR_STROOPS`]..=[`FEE_CEILING_STROOPS`].
+    /// On any error (network, parse) it falls back to `FEE_FLOOR_STROOPS` so
+    /// the calling code always has a usable fee.
+    pub async fn fetch_base_fee(&self) -> u64 {
+        let url = format!("{}/fee_stats", self.horizon_url);
+        let client = self.client.clone();
+
+        let span = tracing::info_span!("horizon.fee_stats", "http.url" = %url);
+
+        let raw: Option<u64> = async move {
+            let mut headers = reqwest::header::HeaderMap::new();
+            inject_trace_headers(&mut headers);
+
+            let resp = client.get(&url).headers(headers).send().await.ok()?;
+            let stats = resp.json::<HorizonFeeStats>().await.ok()?;
+
+            // Prefer p99 during surge; fall back to last ledger base fee.
+            stats
+                .fee_charged
+                .as_ref()
+                .and_then(|fc| fc.p99.as_deref())
+                .or(stats.last_ledger_base_fee.as_deref())
+                .and_then(|s| s.parse::<u64>().ok())
+        }
+        .instrument(span)
+        .await;
+
+        raw.unwrap_or(FEE_FLOOR_STROOPS)
+            .clamp(FEE_FLOOR_STROOPS, FEE_CEILING_STROOPS)
+    }
+
+    /// Check whether a Stellar account exists on the network.
+    ///
+    /// Returns `Ok(account)` if found, `Err(DestinationUnfunded)` if 404,
+    /// or a network error if Horizon is unreachable.
+    pub async fn check_account_exists(&self, address: &str) -> AppResult<HorizonAccountResponse> {
+        let url = format!("{}/accounts/{}", self.horizon_url, address);
+        let client = self.client.clone();
+        let address_owned = address.to_string();
+
+        let span = tracing::info_span!(
+            "horizon.check_account",
+            "http.url"     = %url,
+            "http.method"  = "GET",
+            "peer.service" = "horizon",
+        );
+
+        async move {
+            let mut headers = reqwest::header::HeaderMap::new();
+            inject_trace_headers(&mut headers);
+
+            let resp = client
+                .get(&url)
+                .headers(headers)
+                .send()
+                .await
+                .map_err(|_| AppError::Stellar(StellarError::NetworkUnavailable))?;
+
+            match resp.status().as_u16() {
+                200 => resp.json::<HorizonAccountResponse>().await.map_err(|_| {
+                    AppError::Stellar(StellarError::InvalidTransaction {
+                        reason: "Malformed account response from Horizon".to_string(),
+                    })
+                }),
+                404 => Err(AppError::Stellar(StellarError::DestinationUnfunded {
+                    address: address_owned,
+                })),
+                429 => {
+                    let retry = resp
+                        .headers()
+                        .get("Retry-After")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(60);
+                    Err(AppError::Stellar(StellarError::RateLimited {
+                        retry_after_secs: retry,
+                    }))
+                }
+                _ => Err(AppError::Stellar(StellarError::NetworkUnavailable)),
+            }
+        }
+        .instrument(span)
+        .await
+    }
+
+    /// Compute the **spendable** XLM balance for a sender account.
+    ///
+    /// Formula (per Stellar documentation):
+    /// ```text
+    /// spendable = native_balance
+    ///           − (2 + subentry_count) × 0.5 XLM   ← minimum reserve
+    ///           − selling_liabilities_native
+    /// ```
+    ///
+    /// Returns `Err(InsufficientBalance)` when `amount_xlm` exceeds the
+    /// spendable balance.
+    pub async fn validate_spendable_balance(
         &self,
-        hash: &str,
-    ) -> AppResult<Option<HorizonTransactionResponse>> {
+        sender_address: &str,
+        amount_xlm: &str,
+    ) -> AppResult<()> {
+        let account = self.check_account_exists(sender_address).await?;
+
+        let native = account
+            .balances
+            .iter()
+            .find(|b| b.asset_type == "native")
+            .ok_or_else(|| {
+                AppError::Stellar(StellarError::InvalidTransaction {
+                    reason: "Account has no native XLM balance".to_string(),
+                })
+            })?;
+
+        let balance = Decimal::from_str(&native.balance).map_err(|_| {
+            AppError::Stellar(StellarError::InvalidTransaction {
+                reason: "Cannot parse native balance".to_string(),
+            })
+        })?;
+
+        let base_reserve = Decimal::from_str(BASE_RESERVE_XLM).unwrap();
+        let reserves =
+            base_reserve * Decimal::from(MIN_ACCOUNT_RESERVES + account.subentry_count as u64);
+
+        let selling_liabilities = native
+            .selling_liabilities
+            .as_deref()
+            .and_then(|s| Decimal::from_str(s).ok())
+            .unwrap_or(Decimal::ZERO);
+
+        let spendable = balance - reserves - selling_liabilities;
+        let amount = Decimal::from_str(amount_xlm).map_err(|_| {
+            AppError::Validation(crate::errors::ValidationError::InvalidRequest {
+                message: "Invalid tip amount".to_string(),
+            })
+        })?;
+
+        // Also deduct the maximum fee we might pay (ceiling / 1e7 XLM).
+        let max_fee_xlm = Decimal::from(FEE_CEILING_STROOPS) / Decimal::from(10_000_000u64);
+        let required = amount + max_fee_xlm;
+
+        if spendable < required {
+            return Err(AppError::Stellar(StellarError::InsufficientBalance {
+                available_xlm: format!("{:.7}", spendable),
+                required_xlm: format!("{:.7}", required),
+            }));
+        }
+        Ok(())
+    }
+
+    /// Low-level: fetch a transaction record from Horizon with retry + circuit-breaker.
+    async fn fetch_transaction(&self, hash: &str) -> AppResult<Option<HorizonTransactionResponse>> {
         if !self.circuit_breaker.allow_request() {
             tracing::warn!("Circuit breaker open; skipping Horizon call for {}", hash);
             return Err(AppError::Stellar(StellarError::CircuitBreakerOpen));
@@ -202,9 +410,7 @@ impl StellarService {
                         Ok(Some(tx))
                     }
                     404 => Ok(None),
-                    429 | 500..=599 => {
-                        Err(AppError::Stellar(StellarError::NetworkUnavailable))
-                    }
+                    429 | 500..=599 => Err(AppError::Stellar(StellarError::NetworkUnavailable)),
                     other => Err(AppError::Stellar(StellarError::InvalidTransaction {
                         reason: format!("Unexpected Horizon status: {}", other),
                     })),
@@ -222,10 +428,7 @@ impl StellarService {
     }
 
     /// Fetch the list of operations for a transaction from Horizon.
-    async fn fetch_operations(
-        &self,
-        hash: &str,
-    ) -> AppResult<Vec<HorizonOperation>> {
+    async fn fetch_operations(&self, hash: &str) -> AppResult<Vec<HorizonOperation>> {
         let url = format!("{}/transactions/{}/operations", self.horizon_base(), hash);
         let client = self.client.clone();
 
@@ -357,10 +560,7 @@ impl TipVerifier for StellarService {
             let actual = tx.memo.as_deref().unwrap_or("");
             if actual != expected.as_str() {
                 return Ok(VerifyOutcome::Rejected {
-                    reason: format!(
-                        "Memo mismatch: expected '{}', got '{}'",
-                        expected, actual
-                    ),
+                    reason: format!("Memo mismatch: expected '{}', got '{}'", expected, actual),
                 });
             }
         }

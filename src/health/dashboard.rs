@@ -1,13 +1,13 @@
-use axum::extract::{State, Query};
-use axum::response::{Html, IntoResponse, Response};
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
+use axum::response::{Html, IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tera::{Tera, Context};
+use tera::{Context, Tera};
 
 use super::monitoring::{HealthMonitor, HealthSummary};
-use super::recovery::{RecoveryManager, RecoveryAction, RecoveryActionType};
+use super::recovery::{RecoveryAction, RecoveryActionType, RecoveryManager};
 
 #[derive(Debug, Deserialize)]
 pub struct DashboardQuery {
@@ -36,13 +36,10 @@ impl HealthDashboard {
         recovery_manager: Arc<RecoveryManager>,
     ) -> Result<Self, tera::Error> {
         let mut templates = Tera::default();
-        
+
         // Add inline templates
-        templates.add_raw_template(
-            "dashboard.html",
-            include_str!("templates/dashboard.html"),
-        )?;
-        
+        templates.add_raw_template("dashboard.html", include_str!("templates/dashboard.html"))?;
+
         templates.add_raw_template(
             "health_table.html",
             include_str!("templates/health_table.html"),
@@ -60,7 +57,10 @@ impl HealthDashboard {
         query: DashboardQuery,
     ) -> Result<Html<String>, anyhow::Error> {
         let health_summary = self.monitor.get_health_summary().await?;
-        let recovery_actions = self.recovery_manager.get_recovery_actions(query.service.as_deref()).await;
+        let recovery_actions = self
+            .recovery_manager
+            .get_recovery_actions(query.service.as_deref())
+            .await;
 
         let refresh_interval = query.refresh.unwrap_or(30);
 
@@ -104,7 +104,11 @@ impl HealthDashboard {
             _ => return Ok((StatusCode::BAD_REQUEST, "Invalid action type").into_response()),
         };
 
-        match self.recovery_manager.execute_manual_recovery(service_name, action_type.clone()).await {
+        match self
+            .recovery_manager
+            .execute_manual_recovery(service_name, action_type.clone())
+            .await
+        {
             Ok(action) => {
                 let body = serde_json::json!({
                     "success": true,
@@ -409,7 +413,10 @@ pub async fn recovery_action_handler(
     State(dashboard): State<Arc<HealthDashboard>>,
     axum::Json(payload): axum::Json<RecoveryRequest>,
 ) -> Response {
-    match dashboard.execute_manual_recovery(&payload.service_name, &payload.action_type).await {
+    match dashboard
+        .execute_manual_recovery(&payload.service_name, &payload.action_type)
+        .await
+    {
         Ok(resp) => resp,
         Err(e) => {
             tracing::error!("Manual recovery action failed: {}", e);
@@ -429,7 +436,7 @@ mod tests {
             refresh: Some(60),
             service: Some("test".to_string()),
         };
-        
+
         assert_eq!(query.refresh, Some(60));
         assert_eq!(query.service, Some("test".to_string()));
     }
@@ -440,7 +447,7 @@ mod tests {
             service_name: "test".to_string(),
             action_type: "restart_service".to_string(),
         };
-        
+
         assert_eq!(request.service_name, "test");
         assert_eq!(request.action_type, "restart_service");
     }

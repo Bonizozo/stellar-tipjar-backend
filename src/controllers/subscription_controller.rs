@@ -168,7 +168,11 @@ pub async fn subscribe(
     .bind(sub.id)
     .bind(&tier.price_xlm)
     .bind(&req.transaction_hash)
-    .bind(if req.transaction_hash.is_some() { "completed" } else { "pending" })
+    .bind(if req.transaction_hash.is_some() {
+        "completed"
+    } else {
+        "pending"
+    })
     .bind(sub.current_period_start)
     .bind(period_end)
     .execute(&mut *tx)
@@ -252,7 +256,11 @@ pub async fn renew_subscription(
     .bind(sub.id)
     .bind(&tier.price_xlm)
     .bind(&transaction_hash)
-    .bind(if transaction_hash.is_some() { "completed" } else { "pending" })
+    .bind(if transaction_hash.is_some() {
+        "completed"
+    } else {
+        "pending"
+    })
     .bind(sub.current_period_start)
     .bind(sub.current_period_end)
     .execute(&mut *tx)
@@ -290,11 +298,9 @@ pub async fn due_renewals(pool: &PgPool) -> Result<Vec<Subscription>, sqlx::Erro
 
 /// Mark a subscription as past_due when automatic renewal fails.
 pub async fn mark_past_due(pool: &PgPool, id: Uuid) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "UPDATE subscriptions SET status = 'past_due', updated_at = NOW() WHERE id = $1",
-    )
-    .bind(id)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE subscriptions SET status = 'past_due', updated_at = NOW() WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
     Ok(())
 }

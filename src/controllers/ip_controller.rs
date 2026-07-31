@@ -91,7 +91,13 @@ pub async fn list_blocked_countries(pool: &PgPool) -> AppResult<Vec<CountryBlock
     Ok(blocks)
 }
 
-pub async fn log_request(pool: &PgPool, ip: &str, country: Option<&str>, city: Option<&str>, path: &str) -> AppResult<()> {
+pub async fn log_request(
+    pool: &PgPool,
+    ip: &str,
+    country: Option<&str>,
+    city: Option<&str>,
+    path: &str,
+) -> AppResult<()> {
     sqlx::query(
         "INSERT INTO ip_request_log (id, ip_address, country_code, city, path) VALUES ($1, $2::INET, $3, $4, $5)",
     )

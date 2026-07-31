@@ -47,8 +47,13 @@ pub async fn gateway_auth(
                 // the gateway-authenticated surface too, not just routes
                 // behind `middleware::auth::require_auth`.
                 if let Some(ref redis) = state.redis {
-                    if let Err(e) =
-                        token_revocation::check_not_revoked(redis, &claims.jti, &claims.sub, claims.tv).await
+                    if let Err(e) = token_revocation::check_not_revoked(
+                        redis,
+                        &claims.jti,
+                        &claims.sub,
+                        claims.tv,
+                    )
+                    .await
                     {
                         return e.into_response();
                     }

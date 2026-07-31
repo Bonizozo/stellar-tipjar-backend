@@ -47,7 +47,7 @@ pub enum PaginationType {
 }
 
 /// Pagination query parameters for offset-based pagination
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct OffsetPaginationQuery {
     /// Page number (1-based)
     pub page: Option<usize>,
@@ -60,7 +60,7 @@ pub struct OffsetPaginationQuery {
 }
 
 /// Pagination query parameters for cursor-based pagination
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct CursorPaginationQuery {
     /// Cursor for the next page
     pub cursor: Option<String>,
@@ -103,7 +103,7 @@ impl Default for SortDirection {
 }
 
 /// Pagination metadata for offset-based pagination
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OffsetPaginationMeta {
     /// Current page number (1-based)
     pub page: usize,
@@ -124,7 +124,7 @@ pub struct OffsetPaginationMeta {
 }
 
 /// Pagination metadata for cursor-based pagination
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CursorPaginationMeta {
     /// Current cursor
     pub cursor: Option<String>,
@@ -187,7 +187,11 @@ pub struct Cursor {
 
 impl Cursor {
     pub fn new(value: String, timestamp: chrono::DateTime<chrono::Utc>, id: Uuid) -> Self {
-        Self { value, timestamp, id }
+        Self {
+            value,
+            timestamp,
+            id,
+        }
     }
 
     /// Encode cursor to base64 string
@@ -198,12 +202,12 @@ impl Cursor {
 
     /// Decode cursor from base64 string
     pub fn decode(encoded: &str) -> Result<Self, AppError> {
-        let decoded = base64::decode(encoded)
-            .map_err(|_| AppError::bad_request("Invalid cursor format"))?;
-        
+        let decoded =
+            base64::decode(encoded).map_err(|_| AppError::bad_request("Invalid cursor format"))?;
+
         let cursor_str = String::from_utf8(decoded)
             .map_err(|_| AppError::bad_request("Invalid cursor encoding"))?;
-        
+
         let parts: Vec<&str> = cursor_str.split('|').collect();
         if parts.len() != 3 {
             return Err(AppError::bad_request("Invalid cursor structure"));
@@ -211,15 +215,21 @@ impl Cursor {
 
         let value = parts[0].to_string();
         let timestamp = chrono::DateTime::from_timestamp(
-            parts[1].parse::<i64>()
+            parts[1]
+                .parse::<i64>()
                 .map_err(|_| AppError::bad_request("Invalid cursor timestamp"))?,
             0,
-        ).ok_or_else(|| AppError::bad_request("Invalid cursor timestamp"))?;
-        
-        let id = Uuid::parse_str(parts[2])
-            .map_err(|_| AppError::bad_request("Invalid cursor ID"))?;
+        )
+        .ok_or_else(|| AppError::bad_request("Invalid cursor timestamp"))?;
 
-        Ok(Cursor { value, timestamp, id })
+        let id =
+            Uuid::parse_str(parts[2]).map_err(|_| AppError::bad_request("Invalid cursor ID"))?;
+
+        Ok(Cursor {
+            value,
+            timestamp,
+            id,
+        })
     }
 }
 
@@ -240,13 +250,18 @@ pub fn process_pagination_query(
     query: PaginationQuery,
     config: &PaginationConfig,
 ) -> Result<PaginationInfo, AppError> {
-    let pagination_type = query.pagination_type.unwrap_or(config.default_pagination_type);
+    let pagination_type = query
+        .pagination_type
+        .unwrap_or(config.default_pagination_type);
 
     match pagination_type {
         PaginationType::Offset => {
             let page = query.offset_params.page.unwrap_or(1);
             let limit = std::cmp::min(
-                query.offset_params.limit.unwrap_or(config.default_page_size),
+                query
+                    .offset_params
+                    .limit
+                    .unwrap_or(config.default_page_size),
                 config.max_page_size,
             );
 
@@ -257,13 +272,19 @@ pub fn process_pagination_query(
             Ok(PaginationInfo::Offset(OffsetPaginationInfo {
                 page,
                 limit,
-                sort: query.offset_params.sort.unwrap_or_else(|| "created_at".to_string()),
+                sort: query
+                    .offset_params
+                    .sort
+                    .unwrap_or_else(|| "created_at".to_string()),
                 order: query.offset_params.order.unwrap_or(SortDirection::Desc),
             }))
         }
         PaginationType::Cursor => {
             let limit = std::cmp::min(
-                query.cursor_params.limit.unwrap_or(config.default_page_size),
+                query
+                    .cursor_params
+                    .limit
+                    .unwrap_or(config.default_page_size),
                 config.max_page_size,
             );
             let cursor = query.cursor_params.cursor;
@@ -272,7 +293,10 @@ pub fn process_pagination_query(
             Ok(PaginationInfo::Cursor(CursorPaginationInfo {
                 cursor,
                 limit,
-                sort: query.cursor_params.sort.unwrap_or_else(|| "created_at".to_string()),
+                sort: query
+                    .cursor_params
+                    .sort
+                    .unwrap_or_else(|| "created_at".to_string()),
                 order: query.cursor_params.order.unwrap_or(SortDirection::Desc),
                 previous,
             }))
@@ -329,7 +353,11 @@ pub fn create_offset_pagination_meta(
         has_next,
         has_previous,
         next_page: if has_next { Some(info.page + 1) } else { None },
-        previous_page: if has_previous { Some(info.page - 1) } else { None },
+        previous_page: if has_previous {
+            Some(info.page - 1)
+        } else {
+            None
+        },
     }
 }
 
@@ -358,42 +386,48 @@ pub fn generate_pagination_links(
     meta: &PaginationMeta,
 ) -> PaginationLinks {
     match (pagination_info, meta) {
-        (PaginationInfo::Offset(info), PaginationMeta::Offset(meta)) => {
-            PaginationLinks {
-                self_link: Some(format!(
+        (PaginationInfo::Offset(info), PaginationMeta::Offset(meta)) => PaginationLinks {
+            self_link: Some(format!(
+                "{}?page={}&limit={}&sort={}&order={:?}",
+                base_url, meta.page, meta.limit, info.sort, info.order
+            )),
+            first: Some(format!(
+                "{}?page=1&limit={}&sort={}&order={:?}",
+                base_url, meta.limit, info.sort, info.order
+            )),
+            prev: if meta.has_previous {
+                Some(format!(
                     "{}?page={}&limit={}&sort={}&order={:?}",
-                    base_url, meta.page, meta.limit, info.sort, info.order
-                )),
-                first: Some(format!(
-                    "{}?page=1&limit={}&sort={}&order={:?}",
-                    base_url, meta.limit, info.sort, info.order
-                )),
-                prev: if meta.has_previous {
-                    Some(format!(
-                        "{}?page={}&limit={}&sort={}&order={:?}",
-                        base_url, meta.previous_page.unwrap_or(1), meta.limit, info.sort, info.order
-                    ))
-                } else {
-                    None
-                },
-                next: if meta.has_next {
-                    Some(format!(
-                        "{}?page={}&limit={}&sort={}&order={:?}",
-                        base_url, meta.next_page.unwrap_or(1), meta.limit, info.sort, info.order
-                    ))
-                } else {
-                    None
-                },
-                last: if let Some(total_pages) = meta.total_pages {
-                    Some(format!(
-                        "{}?page={}&limit={}&sort={}&order={:?}",
-                        base_url, total_pages, meta.limit, info.sort, info.order
-                    ))
-                } else {
-                    None
-                },
-            }
-        }
+                    base_url,
+                    meta.previous_page.unwrap_or(1),
+                    meta.limit,
+                    info.sort,
+                    info.order
+                ))
+            } else {
+                None
+            },
+            next: if meta.has_next {
+                Some(format!(
+                    "{}?page={}&limit={}&sort={}&order={:?}",
+                    base_url,
+                    meta.next_page.unwrap_or(1),
+                    meta.limit,
+                    info.sort,
+                    info.order
+                ))
+            } else {
+                None
+            },
+            last: if let Some(total_pages) = meta.total_pages {
+                Some(format!(
+                    "{}?page={}&limit={}&sort={}&order={:?}",
+                    base_url, total_pages, meta.limit, info.sort, info.order
+                ))
+            } else {
+                None
+            },
+        },
         (PaginationInfo::Cursor(info), PaginationMeta::Cursor(meta)) => {
             PaginationLinks {
                 self_link: Some(format!(
@@ -450,10 +484,14 @@ pub fn create_paginated_response<T>(
     let (meta, links) = match &pagination_info {
         PaginationInfo::Offset(info) => {
             let meta = create_offset_pagination_meta(info, total_items);
-            let links = generate_pagination_links(base_url, &pagination_info, &PaginationMeta::Offset(meta.clone()));
+            let links = generate_pagination_links(
+                base_url,
+                &pagination_info,
+                &PaginationMeta::Offset(meta.clone()),
+            );
             (PaginationMeta::Offset(meta), links)
         }
-        PaginationType::Cursor => {
+        PaginationInfo::Cursor(info) => {
             let meta = create_cursor_pagination_meta(
                 info,
                 has_next_page.unwrap_or(false),
@@ -461,7 +499,11 @@ pub fn create_paginated_response<T>(
                 next_cursor,
                 previous_cursor,
             );
-            let links = generate_pagination_links(base_url, &pagination_info, &PaginationMeta::Cursor(meta.clone()));
+            let links = generate_pagination_links(
+                base_url,
+                &pagination_info,
+                &PaginationMeta::Cursor(meta.clone()),
+            );
             (PaginationMeta::Cursor(meta), links)
         }
     };
@@ -479,11 +521,7 @@ mod tests {
 
     #[test]
     fn test_cursor_encoding_decoding() {
-        let cursor = Cursor::new(
-            "test_value".to_string(),
-            chrono::Utc::now(),
-            Uuid::new_v4(),
-        );
+        let cursor = Cursor::new("test_value".to_string(), chrono::Utc::now(), Uuid::new_v4());
 
         let encoded = cursor.encode();
         let decoded = Cursor::decode(&encoded).unwrap();

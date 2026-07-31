@@ -13,7 +13,9 @@ use crate::metrics::collectors::{
 use crate::models::pagination::{
     CursorDirection, KeysetCursor, PaginatedResponse, PaginationParams,
 };
-use crate::models::tip::{RecordTipRequest, ReportMessageRequest, Tip, TipFilters, TipSortParams, TipStatus};
+use crate::models::tip::{
+    RecordTipRequest, ReportMessageRequest, Tip, TipFilters, TipSortParams, TipStatus,
+};
 use crate::moderation::ContentType;
 use crate::queue::VerificationJob;
 use crate::validation::amount::xlm_to_stroops_str;
@@ -95,7 +97,9 @@ pub async fn record_tip_with_context(
         .with_label_values(&["tip_record_pending"])
         .observe(duration.as_secs_f64());
     QueryLogger::log_query("INSERT tips (pending_verification)", duration);
-    state.performance.track_query("tip_record_pending", duration);
+    state
+        .performance
+        .track_query("tip_record_pending", duration);
 
     // Log the initial insert in the audit table
     let _ = sqlx::query(
@@ -114,15 +118,14 @@ pub async fn record_tip_with_context(
     })?;
 
     // Fetch creator wallet address for destination verification
-    let destination: String = sqlx::query_scalar(
-        "SELECT wallet_address FROM creators WHERE username = $1",
-    )
-    .bind(&req.username)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::CreatorNotFound {
-        username: req.username.clone(),
-    })?;
+    let destination: String =
+        sqlx::query_scalar("SELECT wallet_address FROM creators WHERE username = $1")
+            .bind(&req.username)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or_else(|| AppError::CreatorNotFound {
+                username: req.username.clone(),
+            })?;
 
     // Enqueue verification job; failure here is best-effort – reconciliation will retry
     let job = VerificationJob {
@@ -202,7 +205,11 @@ pub async fn confirm_tip(state: &AppState, tip_id: Uuid) -> AppResult<()> {
     // Cache invalidation
     if let Some(conn) = state.redis.as_ref() {
         let mut conn = conn.clone();
-        let _ = redis_client::del(&mut conn, &[keys::creator_tips_pattern(&tip.creator_username).as_str()]).await;
+        let _ = redis_client::del(
+            &mut conn,
+            &[keys::creator_tips_pattern(&tip.creator_username).as_str()],
+        )
+        .await;
     }
 
     // Webhooks fire ONLY for confirmed tips
@@ -241,19 +248,22 @@ pub async fn reject_tip(state: &AppState, tip_id: Uuid, reason: &str) -> AppResu
 
     // Audit log with rejection reason
     let action = format!("rejected: {}", reason);
-    let _ = sqlx::query(
-        "INSERT INTO tip_logs (tip_id, creator_username, action) VALUES ($1, $2, $3)",
-    )
-    .bind(tip.id)
-    .bind(&tip.creator_username)
-    .bind(&action)
-    .execute(&state.db)
-    .await;
+    let _ =
+        sqlx::query("INSERT INTO tip_logs (tip_id, creator_username, action) VALUES ($1, $2, $3)")
+            .bind(tip.id)
+            .bind(&tip.creator_username)
+            .bind(&action)
+            .execute(&state.db)
+            .await;
 
     // Cache invalidation
     if let Some(conn) = state.redis.as_ref() {
         let mut conn = conn.clone();
-        let _ = redis_client::del(&mut conn, &[keys::creator_tips_pattern(&tip.creator_username).as_str()]).await;
+        let _ = redis_client::del(
+            &mut conn,
+            &[keys::creator_tips_pattern(&tip.creator_username).as_str()],
+        )
+        .await;
     }
 
     tracing::info!(tip_id = %tip_id, reason = %reason, "Tip rejected");

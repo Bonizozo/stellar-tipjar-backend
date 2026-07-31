@@ -9,8 +9,8 @@ use super::router::{ShardRouter, ShardStats, ShardStatus};
 
 use lazy_static::lazy_static;
 use prometheus::{
-    register_gauge_vec, register_histogram_vec, register_int_counter_vec, GaugeVec,
-    HistogramVec, IntCounterVec,
+    register_gauge_vec, register_histogram_vec, register_int_counter_vec, GaugeVec, HistogramVec,
+    IntCounterVec,
 };
 
 lazy_static! {

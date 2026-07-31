@@ -35,10 +35,10 @@ pub struct SessionConfig {
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
-            session_ttl_seconds: 3600, // 1 hour
-            idle_timeout_seconds: 1800, // 30 minutes
+            session_ttl_seconds: 3600,       // 1 hour
+            idle_timeout_seconds: 1800,      // 30 minutes
             absolute_timeout_seconds: 86400, // 24 hours
-            cleanup_interval_seconds: 300, // 5 minutes
+            cleanup_interval_seconds: 300,   // 5 minutes
             max_sessions_per_user: 5,
             cookie_name: "session_id".to_string(),
             secure_cookies: true,
@@ -71,7 +71,12 @@ pub struct SessionAnalytics {
 }
 
 impl SessionData {
-    pub fn new(user_id: String, client_id: Option<String>, ip_address: Option<String>, user_agent: Option<String>) -> Self {
+    pub fn new(
+        user_id: String,
+        client_id: Option<String>,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> Self {
         let now = Utc::now();
         Self {
             session_id: Uuid::new_v4().to_string(),
@@ -145,7 +150,7 @@ impl SessionManager {
             ip_address.map(|s| s.to_string()),
             user_agent.map(|s| s.to_string()),
         );
-        
+
         session.expires_at = Utc::now() + Duration::seconds(self.config.session_ttl_seconds as i64);
 
         // Check if user has too many sessions
@@ -172,7 +177,7 @@ impl SessionManager {
 
         let session_key = format!("session:{}", session.session_id);
         let user_sessions_key = format!("user_sessions:{}", session.user_id);
-        
+
         let serialized = serde_json::to_string(session)
             .map_err(|e| SessionError::CreationFailed(e.to_string()))?;
 
@@ -235,10 +240,13 @@ impl SessionManager {
     }
 
     /// Update session access time
-    pub async fn touch_session(&self, session_id: &str) -> Result<Option<SessionData>, SessionError> {
+    pub async fn touch_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionData>, SessionError> {
         if let Some(mut session) = self.get_session(session_id).await? {
             session.touch();
-            
+
             if let Some(redis) = &self.redis {
                 self.update_session_redis(&session).await?;
             }
@@ -254,8 +262,8 @@ impl SessionManager {
         let mut conn = redis.as_ref().clone();
 
         let session_key = format!("session:{}", session.session_id);
-        let serialized = serde_json::to_string(session)
-            .map_err(|e| SessionError::RedisError(e.to_string()))?;
+        let serialized =
+            serde_json::to_string(session).map_err(|e| SessionError::RedisError(e.to_string()))?;
 
         redis::cmd("SETEX")
             .arg(&session_key)
@@ -277,7 +285,7 @@ impl SessionManager {
             // Get session data to update user sessions
             if let Ok(Some(session)) = self.get_session(session_id).await {
                 let user_sessions_key = format!("user_sessions:{}", session.user_id);
-                
+
                 // Remove from user sessions set
                 redis::cmd("SREM")
                     .arg(&user_sessions_key)
@@ -336,9 +344,14 @@ impl SessionManager {
     }
 
     /// Refresh session (extend TTL)
-    pub async fn refresh_session(&self, session_id: &str, additional_time: Option<Duration>) -> Result<Option<SessionData>, SessionError> {
+    pub async fn refresh_session(
+        &self,
+        session_id: &str,
+        additional_time: Option<Duration>,
+    ) -> Result<Option<SessionData>, SessionError> {
         if let Some(mut session) = self.get_session(session_id).await? {
-            let additional = additional_time.unwrap_or(Duration::seconds(self.config.session_ttl_seconds as i64));
+            let additional = additional_time
+                .unwrap_or(Duration::seconds(self.config.session_ttl_seconds as i64));
             session.extend_ttl(additional);
             session.touch();
 
@@ -367,8 +380,15 @@ impl SessionManager {
                 .map_err(|e| SessionError::RedisError(e.to_string()))?;
 
             for key in keys {
-                if let Ok(Some(session)) = self.get_session(&key.strip_prefix("session:").unwrap_or(&key)).await {
-                    if session.is_expired() || session.is_idle_expired(Duration::seconds(self.config.idle_timeout_seconds as i64)) {
+                if let Ok(Some(session)) = self
+                    .get_session(&key.strip_prefix("session:").unwrap_or(&key))
+                    .await
+                {
+                    if session.is_expired()
+                        || session.is_idle_expired(Duration::seconds(
+                            self.config.idle_timeout_seconds as i64,
+                        ))
+                    {
                         self.delete_session(&session.session_id).await?;
                         cleaned_count += 1;
                     }
@@ -404,7 +424,10 @@ impl SessionManager {
             let mut valid_sessions = 0;
 
             for key in keys {
-                if let Ok(Some(session)) = self.get_session(&key.strip_prefix("session:").unwrap_or(&key)).await {
+                if let Ok(Some(session)) = self
+                    .get_session(&key.strip_prefix("session:").unwrap_or(&key))
+                    .await
+                {
                     analytics.total_sessions += 1;
 
                     if session.is_active && !session.is_expired() {
@@ -412,11 +435,17 @@ impl SessionManager {
                         valid_sessions += 1;
 
                         // Count by user
-                        *analytics.sessions_by_user.entry(session.user_id.clone()).or_insert(0) += 1;
+                        *analytics
+                            .sessions_by_user
+                            .entry(session.user_id.clone())
+                            .or_insert(0) += 1;
 
                         // Count by client
                         if let Some(ref client_id) = session.client_id {
-                            *analytics.sessions_by_client.entry(client_id.clone()).or_insert(0) += 1;
+                            *analytics
+                                .sessions_by_client
+                                .entry(client_id.clone())
+                                .or_insert(0) += 1;
                         }
 
                         // Calculate duration
@@ -437,7 +466,10 @@ impl SessionManager {
     }
 
     /// Validate session and update access time
-    pub async fn validate_session(&self, session_id: &str) -> Result<Option<SessionData>, SessionError> {
+    pub async fn validate_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionData>, SessionError> {
         if let Some(session) = self.get_session(session_id).await? {
             if session.is_expired() {
                 self.delete_session(session_id).await?;
@@ -480,12 +512,7 @@ mod tests {
 
     #[test]
     fn test_session_expiration() {
-        let mut session = SessionData::new(
-            "user123".to_string(),
-            None,
-            None,
-            None,
-        );
+        let mut session = SessionData::new("user123".to_string(), None, None, None);
 
         // Set expiration to past
         session.expires_at = Utc::now() - Duration::hours(1);
@@ -498,18 +525,13 @@ mod tests {
 
     #[test]
     fn test_session_touch() {
-        let mut session = SessionData::new(
-            "user123".to_string(),
-            None,
-            None,
-            None,
-        );
+        let mut session = SessionData::new("user123".to_string(), None, None, None);
 
         let original_last_accessed = session.last_accessed;
-        
+
         // Small delay to ensure different timestamp
         std::thread::sleep(std::time::Duration::from_millis(10));
-        
+
         session.touch();
         assert!(session.last_accessed > original_last_accessed);
     }
@@ -517,10 +539,13 @@ mod tests {
     #[tokio::test]
     async fn test_session_manager_without_redis() {
         let manager = SessionManager::without_redis();
-        
-        let session = manager.create_session("user123", Some("client1"), None, None).await.unwrap();
+
+        let session = manager
+            .create_session("user123", Some("client1"), None, None)
+            .await
+            .unwrap();
         assert_eq!(session.user_id, "user123");
-        
+
         // Should return None without Redis
         let retrieved = manager.get_session(&session.session_id).await.unwrap();
         assert!(retrieved.is_none());

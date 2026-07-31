@@ -58,9 +58,11 @@ async fn follow(
     Path((follower, followed)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     if follower == followed {
-        return Err(AppError::Validation(crate::errors::ValidationError::InvalidRequest {
-            message: "Cannot follow yourself".to_string(),
-        }));
+        return Err(AppError::Validation(
+            crate::errors::ValidationError::InvalidRequest {
+                message: "Cannot follow yourself".to_string(),
+            },
+        ));
     }
     let f = follow_controller::follow(&state.db, &follower, &followed).await?;
     Ok((StatusCode::CREATED, Json(f)))

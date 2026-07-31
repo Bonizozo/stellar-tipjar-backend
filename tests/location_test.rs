@@ -43,7 +43,7 @@ async fn insert_location(pool: &sqlx::PgPool, creator_id: Uuid, lat: f64, lng: f
 async fn test_upsert_location_creates_new() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let creator_id = insert_creator(&pool, "loc_creator1").await;
 
@@ -65,7 +65,7 @@ async fn test_upsert_location_creates_new() {
 async fn test_upsert_location_updates_existing() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let creator_id = insert_creator(&pool, "loc_creator2").await;
 
@@ -93,7 +93,7 @@ async fn test_upsert_location_updates_existing() {
 async fn test_upsert_location_invalid_coords() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let creator_id = Uuid::new_v4();
 
@@ -113,7 +113,7 @@ async fn test_upsert_location_invalid_coords() {
 async fn test_get_location_found() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let creator_id = insert_creator(&pool, "loc_creator3").await;
     insert_location(&pool, creator_id, 35.6762, 139.6503).await;
@@ -134,7 +134,7 @@ async fn test_get_location_found() {
 async fn test_get_location_not_found() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let resp = server
         .get(&format!("/creators/{}/location", Uuid::new_v4()))
@@ -151,7 +151,7 @@ async fn test_get_location_not_found() {
 async fn test_nearby_returns_creators_within_radius() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     // Paris ~0 km away, Tokyo ~9700 km away
     let paris_id = insert_creator(&pool, "loc_paris").await;
@@ -180,7 +180,7 @@ async fn test_nearby_returns_creators_within_radius() {
 async fn test_nearby_returns_empty_when_none_in_radius() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let id = insert_creator(&pool, "loc_far").await;
     insert_location(&pool, id, 35.6762, 139.6503).await; // Tokyo
@@ -204,7 +204,7 @@ async fn test_nearby_returns_empty_when_none_in_radius() {
 async fn test_nearby_ordered_by_distance() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let close_id = insert_creator(&pool, "loc_close").await;
     let far_id = insert_creator(&pool, "loc_far2").await;
@@ -237,7 +237,7 @@ async fn test_nearby_ordered_by_distance() {
 async fn test_geofence_returns_creators_inside() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let inside_id = insert_creator(&pool, "loc_inside").await;
     let outside_id = insert_creator(&pool, "loc_outside").await;
@@ -264,7 +264,7 @@ async fn test_geofence_returns_creators_inside() {
 async fn test_geofence_invalid_radius() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let resp = server
         .get("/locations/geofence")
@@ -284,7 +284,7 @@ async fn test_geofence_invalid_radius() {
 async fn test_analytics_empty() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let resp = server.get("/locations/analytics").await;
     resp.assert_status(StatusCode::OK);
@@ -299,7 +299,7 @@ async fn test_analytics_empty() {
 async fn test_analytics_with_data() {
     let pool = common::setup_test_db().await;
     let (app, _) = common::create_test_app(pool.clone()).await;
-    let server = TestServer::new(app).unwrap();
+    let server = common::test_server(app);
 
     let id1 = insert_creator(&pool, "loc_ana1").await;
     let id2 = insert_creator(&pool, "loc_ana2").await;

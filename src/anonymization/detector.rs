@@ -82,9 +82,7 @@ impl PiiDetector {
 
     /// Returns true if the text contains any PII.
     pub fn contains_pii(&self, text: &str) -> bool {
-        self.email_re.is_match(text)
-            || self.ip_re.is_match(text)
-            || self.wallet_re.is_match(text)
+        self.email_re.is_match(text) || self.ip_re.is_match(text) || self.wallet_re.is_match(text)
     }
 }
 

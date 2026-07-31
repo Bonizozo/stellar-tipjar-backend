@@ -6,7 +6,10 @@ use crate::models::scheduled_tip::{
     CreateScheduledTipRequest, ScheduledTip, UpdateScheduledTipRequest,
 };
 
-pub async fn create(pool: &PgPool, req: CreateScheduledTipRequest) -> Result<ScheduledTip, sqlx::Error> {
+pub async fn create(
+    pool: &PgPool,
+    req: CreateScheduledTipRequest,
+) -> Result<ScheduledTip, sqlx::Error> {
     let next_run_at = if req.is_recurring {
         Some(req.scheduled_at)
     } else {
@@ -123,7 +126,11 @@ pub async fn mark_completed(
     id: Uuid,
     next_run_at: Option<chrono::DateTime<Utc>>,
 ) -> Result<(), sqlx::Error> {
-    let new_status = if next_run_at.is_some() { "pending" } else { "completed" };
+    let new_status = if next_run_at.is_some() {
+        "pending"
+    } else {
+        "completed"
+    };
     sqlx::query(
         "UPDATE scheduled_tips SET
             status       = $2,

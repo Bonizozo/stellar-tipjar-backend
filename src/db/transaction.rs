@@ -13,7 +13,9 @@ pub async fn with_transaction<F, T, E>(pool: &PgPool, f: F) -> std::result::Resu
 where
     F: for<'a> FnOnce(
         &'a mut Transaction<'_, Postgres>,
-    ) -> std::pin::Pin<Box<dyn Future<Output = std::result::Result<T, E>> + Send + 'a>>,
+    ) -> std::pin::Pin<
+        Box<dyn Future<Output = std::result::Result<T, E>> + Send + 'a>,
+    >,
     E: From<sqlx::Error>,
 {
     let mut tx = pool.begin().await.map_err(E::from)?;
@@ -37,7 +39,9 @@ pub async fn with_serializable_transaction<F, T, E>(
 where
     F: for<'a> FnOnce(
         &'a mut Transaction<'_, Postgres>,
-    ) -> std::pin::Pin<Box<dyn Future<Output = std::result::Result<T, E>> + Send + 'a>>,
+    ) -> std::pin::Pin<
+        Box<dyn Future<Output = std::result::Result<T, E>> + Send + 'a>,
+    >,
     E: From<sqlx::Error>,
 {
     let mut tx = pool.begin().await.map_err(E::from)?;
@@ -99,14 +103,30 @@ mod tests {
             .expect("Failed to connect to test database")
     }
 
+    /// `creators.tenant_id` is a mandatory FK with no valid default (its
+    /// `DEFAULT gen_random_uuid()` never matches an existing row), so every
+    /// raw insert in these tests needs a real tenant row to point at.
+    /// `name_prefix` gets a UUID suffix so repeated runs against the same
+    /// database don't collide on `tenants.name`'s unique constraint.
+    async fn insert_test_tenant(pool: &sqlx::PgPool, name_prefix: &str) -> uuid::Uuid {
+        let name = format!("{name_prefix}_{}", uuid::Uuid::new_v4());
+        sqlx::query_scalar::<_, uuid::Uuid>("INSERT INTO tenants (name) VALUES ($1) RETURNING id")
+            .bind(name)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn transaction_rollback_works() {
         let pool = get_test_pool().await;
+        let tenant_id = insert_test_tenant(&pool, "rollback_test_tenant").await;
 
         let mut tx = begin_transaction(&pool).await.unwrap();
         sqlx::query(
-            "INSERT INTO creators (username, wallet_address) VALUES ('rollback_test', 'abc')",
+            "INSERT INTO creators (username, wallet_address, tenant_id) VALUES ('rollback_test', 'abc', $1)",
         )
+        .bind(tenant_id)
         .execute(&mut *tx)
         .await
         .unwrap();
@@ -128,22 +148,28 @@ mod tests {
     #[tokio::test]
     async fn savepoint_recovery_works() {
         let pool = get_test_pool().await;
+        let tenant_id = insert_test_tenant(&pool, "savepoint_test_tenant").await;
         let mut tx = begin_transaction(&pool).await.unwrap();
 
         // 1. Successful insert
-        sqlx::query("INSERT INTO creators (username, wallet_address) VALUES ('p1', 'addr1')")
-            .execute(&mut *tx)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO creators (username, wallet_address, tenant_id) VALUES ('p1', 'addr1', $1)",
+        )
+        .bind(tenant_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
 
         // 2. Start savepoint
         create_savepoint(&mut tx, "sp1").await.unwrap();
 
         // 3. Failing insert (duplicate username if we used 'p1' again, but let's just use bad SQL)
-        let res =
-            sqlx::query("INSERT INTO creators (username, wallet_address) VALUES ('p1', 'addr1')")
-                .execute(&mut *tx)
-                .await;
+        let res = sqlx::query(
+            "INSERT INTO creators (username, wallet_address, tenant_id) VALUES ('p1', 'addr1', $1)",
+        )
+        .bind(tenant_id)
+        .execute(&mut *tx)
+        .await;
 
         assert!(res.is_err(), "Should fail due to unique constraint");
 

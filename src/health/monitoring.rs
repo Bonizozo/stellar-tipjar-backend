@@ -1,10 +1,10 @@
 use anyhow::Result;
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use super::checks::{HealthCheckRegistry, HealthCheckResult, HealthStatus};
 
@@ -35,7 +35,7 @@ impl HealthHistory {
 
     pub fn add_result(&mut self, timestamp: DateTime<Utc>, status: HealthStatus) {
         self.status_history.push_back((timestamp, status));
-        
+
         if self.status_history.len() > self.max_history_size {
             self.status_history.pop_front();
         }
@@ -47,7 +47,8 @@ impl HealthHistory {
         }
 
         let cutoff = Utc::now() - Duration::hours(period_hours);
-        let recent_checks: Vec<_> = self.status_history
+        let recent_checks: Vec<_> = self
+            .status_history
             .iter()
             .filter(|(timestamp, _)| *timestamp >= cutoff)
             .collect();
@@ -76,11 +77,7 @@ impl HealthHistory {
             return "stable".to_string();
         }
 
-        let recent: Vec<_> = self.status_history
-            .iter()
-            .rev()
-            .take(5)
-            .collect();
+        let recent: Vec<_> = self.status_history.iter().rev().take(5).collect();
 
         let healthy_count = recent
             .iter()
@@ -225,8 +222,10 @@ impl HealthMonitor {
         for result in results {
             let history = histories
                 .entry(result.service_name.clone())
-                .or_insert_with(|| HealthHistory::new(result.service_name.clone(), self.config.history_size));
-            
+                .or_insert_with(|| {
+                    HealthHistory::new(result.service_name.clone(), self.config.history_size)
+                });
+
             history.add_result(now, result.status.clone());
         }
     }
@@ -237,9 +236,12 @@ impl HealthMonitor {
 
         for result in results {
             let service_name = &result.service_name;
-            
+
             // Check if we should create an alert
-            if self.should_create_alert(service_name, &result.status, &alerts, now).await {
+            if self
+                .should_create_alert(service_name, &result.status, &alerts, now)
+                .await
+            {
                 let alert_type = match result.status {
                     HealthStatus::Unhealthy => AlertType::ServiceDown,
                     HealthStatus::Degraded => AlertType::ServiceDegraded,
@@ -293,7 +295,8 @@ impl HealthMonitor {
         }
 
         // Check cooldown period
-        let cooldown_cutoff = now - chrono::Duration::minutes(self.config.alert_cooldown_minutes as i64);
+        let cooldown_cutoff =
+            now - chrono::Duration::minutes(self.config.alert_cooldown_minutes as i64);
         let recent_alerts: Vec<_> = alerts
             .iter()
             .filter(|alert| {
@@ -312,16 +315,16 @@ impl HealthMonitor {
         alerts: &[HealthAlert],
         now: DateTime<Utc>,
     ) -> bool {
-        let recent_cutoff = now - chrono::Duration::minutes(self.config.alert_cooldown_minutes as i64);
-        
-        alerts
-            .iter()
-            .any(|alert| {
-                alert.service_name == service_name
-                    && alert.timestamp >= recent_cutoff
-                    && !alert.resolved
-                    && (matches!(alert.alert_type, AlertType::ServiceDown) || matches!(alert.alert_type, AlertType::ServiceDegraded))
-            })
+        let recent_cutoff =
+            now - chrono::Duration::minutes(self.config.alert_cooldown_minutes as i64);
+
+        alerts.iter().any(|alert| {
+            alert.service_name == service_name
+                && alert.timestamp >= recent_cutoff
+                && !alert.resolved
+                && (matches!(alert.alert_type, AlertType::ServiceDown)
+                    || matches!(alert.alert_type, AlertType::ServiceDegraded))
+        })
     }
 
     fn calculate_overall_status(&self, results: &[HealthCheckResult]) -> HealthStatus {
@@ -329,15 +332,9 @@ impl HealthMonitor {
             return HealthStatus::Unknown;
         }
 
-        let unhealthy_count = results
-            .iter()
-            .filter(|r| r.status.is_unhealthy())
-            .count();
+        let unhealthy_count = results.iter().filter(|r| r.status.is_unhealthy()).count();
 
-        let degraded_count = results
-            .iter()
-            .filter(|r| r.status.is_degraded())
-            .count();
+        let degraded_count = results.iter().filter(|r| r.status.is_degraded()).count();
 
         let total_count = results.len();
 
@@ -354,7 +351,7 @@ impl HealthMonitor {
 
     async fn calculate_overall_uptime(&self) -> f64 {
         let histories = self.health_histories.read().await;
-        
+
         if histories.is_empty() {
             return 100.0;
         }
@@ -397,7 +394,7 @@ impl HealthMonitor {
 
     pub async fn resolve_alert(&self, alert_id: &str) -> Result<bool> {
         let mut alerts = self.alerts.write().await;
-        
+
         for alert in alerts.iter_mut() {
             if alert.id == alert_id {
                 alert.resolve();
@@ -405,7 +402,7 @@ impl HealthMonitor {
                 return Ok(true);
             }
         }
-        
+
         Ok(false)
     }
 
@@ -466,11 +463,11 @@ mod tests {
     #[test]
     fn test_health_history() {
         let mut history = HealthHistory::new("test".to_string(), 5);
-        
+
         history.add_result(Utc::now(), HealthStatus::Healthy);
         history.add_result(Utc::now(), HealthStatus::Healthy);
         history.add_result(Utc::now(), HealthStatus::Degraded);
-        
+
         assert_eq!(history.get_current_status(), HealthStatus::Degraded);
         assert!(history.calculate_uptime(24) > 0.0);
     }
@@ -483,10 +480,10 @@ mod tests {
             "Service is down".to_string(),
             AlertSeverity::Critical,
         );
-        
+
         assert!(!alert.resolved);
         assert!(alert.resolved_at.is_none());
-        
+
         alert.resolve();
         assert!(alert.resolved);
         assert!(alert.resolved_at.is_some());

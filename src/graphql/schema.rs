@@ -23,4 +23,3 @@ pub async fn graphql_handler(
 ) -> GraphQLResponse {
     schema.execute(req.into_inner()).await.into()
 }
-

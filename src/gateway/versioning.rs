@@ -118,7 +118,7 @@ fn detect_version_from_header(headers: &axum::http::HeaderMap) -> Option<&'stati
             }
         }
     }
-    
+
     if let Some(header_value) = headers.get("API-Version") {
         if let Ok(version_str) = header_value.to_str() {
             match version_str {
@@ -128,14 +128,14 @@ fn detect_version_from_header(headers: &axum::http::HeaderMap) -> Option<&'stati
             }
         }
     }
-    
+
     None
 }
 
 /// Resolve API version using multiple strategies in priority order
 fn resolve_api_version(req: &axum::extract::Request) -> Option<VersionResolution> {
     let path = req.uri().path();
-    
+
     // Priority 1: Path-based versioning (most explicit)
     if let Some(version) = detect_version(path) {
         return Some(VersionResolution {
@@ -144,7 +144,7 @@ fn resolve_api_version(req: &axum::extract::Request) -> Option<VersionResolution
             confidence: 1.0,
         });
     }
-    
+
     // Priority 2: Custom headers
     if let Some(version) = detect_version_from_header(req.headers()) {
         return Some(VersionResolution {
@@ -153,7 +153,7 @@ fn resolve_api_version(req: &axum::extract::Request) -> Option<VersionResolution
             confidence: 0.9,
         });
     }
-    
+
     // Priority 3: Accept header (content negotiation)
     if let Some(accept_header) = req.headers().get(axum::http::header::ACCEPT) {
         if let Ok(accept_str) = accept_header.to_str() {
@@ -166,7 +166,7 @@ fn resolve_api_version(req: &axum::extract::Request) -> Option<VersionResolution
             }
         }
     }
-    
+
     // Priority 4: Default version (if no version specified)
     None
 }
@@ -195,7 +195,7 @@ pub async fn version_negotiation(req: Request, next: Next) -> Response {
 
     // Resolve version using multiple strategies
     let version_resolution = resolve_api_version(&req);
-    
+
     // For non-versioned paths (like /metrics), pass through
     if version_resolution.is_none() && !path.starts_with("/api/") {
         return next.run(req).await;
@@ -218,15 +218,14 @@ pub async fn version_negotiation(req: Request, next: Next) -> Response {
                 mgr.versions.keys().cloned().collect::<Vec<_>>().join(", ")
             )))
             .unwrap();
-        
+
         // Add supported versions header
         response.headers_mut().insert(
             "X-API-Versions",
-            HeaderValue::from_str(
-                &mgr.versions.keys().cloned().collect::<Vec<_>>().join(", ")
-            ).unwrap_or(HeaderValue::from_static("v1,v2")),
+            HeaderValue::from_str(&mgr.versions.keys().cloned().collect::<Vec<_>>().join(", "))
+                .unwrap_or(HeaderValue::from_static("v1,v2")),
         );
-        
+
         return response;
     }
 
@@ -248,7 +247,8 @@ pub async fn version_negotiation(req: Request, next: Next) -> Response {
                 VersionSource::Header => "header",
                 VersionSource::AcceptHeader => "accept",
                 VersionSource::Default => "default",
-            }).unwrap_or(HeaderValue::from_static("unknown")),
+            })
+            .unwrap_or(HeaderValue::from_static("unknown")),
         );
     }
 
@@ -286,7 +286,10 @@ pub async fn version_negotiation(req: Request, next: Next) -> Response {
     }
 
     // Add API documentation links
-    let docs_link = format!("<https://docs.example.com/api/{}>; rel=\"api-documentation\"", version_str);
+    let docs_link = format!(
+        "<https://docs.example.com/api/{}>; rel=\"api-documentation\"",
+        version_str
+    );
     if let Ok(v) = HeaderValue::from_str(&docs_link) {
         headers.insert("Link", v);
     }
@@ -298,7 +301,7 @@ pub async fn version_negotiation(req: Request, next: Next) -> Response {
 pub async fn version_routing(req: Request, next: Next) -> Response {
     let mgr = default_version_manager();
     let path = req.uri().path();
-    
+
     // Only apply to API endpoints without explicit version
     if path.starts_with("/api/") && !path.contains("/v1/") && !path.contains("/v2/") {
         let resolution = resolve_api_version(&req);
@@ -311,12 +314,14 @@ pub async fn version_routing(req: Request, next: Next) -> Response {
         let mut req = req;
         req.extensions_mut().insert(ApiVersionContext {
             version: target_version.clone(),
-            source: resolution.map(|r| r.source).unwrap_or(VersionSource::Default),
+            source: resolution
+                .map(|r| r.source)
+                .unwrap_or(VersionSource::Default),
         });
-        
+
         return next.run(req).await;
     }
-    
+
     next.run(req).await
 }
 

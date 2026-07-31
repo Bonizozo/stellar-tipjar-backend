@@ -16,7 +16,7 @@ impl SearchCache {
         key: &str,
     ) -> Result<Option<T>, redis::RedisError> {
         let data: Option<String> = self.redis.get(key).await?;
-        
+
         match data {
             Some(json) => {
                 let result = serde_json::from_str(&json).ok();
@@ -39,8 +39,10 @@ impl SearchCache {
                 e.to_string(),
             ))
         })?;
-        
-        self.redis.set_ex::<_, _, ()>(key, json, ttl.as_secs() as u64).await?;
+
+        self.redis
+            .set_ex::<_, _, ()>(key, json, ttl.as_secs() as u64)
+            .await?;
         Ok(())
     }
 
@@ -53,11 +55,11 @@ impl SearchCache {
             .arg(pattern)
             .query_async(&mut self.redis)
             .await?;
-        
+
         if !keys.is_empty() {
             self.redis.del::<_, ()>(keys).await?;
         }
-        
+
         Ok(())
     }
 }

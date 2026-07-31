@@ -22,7 +22,10 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 #[cfg(test)]
@@ -32,7 +35,12 @@ mod tests {
     #[test]
     fn round_trip() {
         let sig = generate_signature("secret", r#"{"foo":"bar"}"#, 1_700_000_000);
-        assert!(verify_signature("secret", r#"{"foo":"bar"}"#, 1_700_000_000, &sig));
+        assert!(verify_signature(
+            "secret",
+            r#"{"foo":"bar"}"#,
+            1_700_000_000,
+            &sig
+        ));
     }
 
     #[test]

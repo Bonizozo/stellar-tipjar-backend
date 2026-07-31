@@ -37,10 +37,13 @@ struct ReleaseBody {
     token: String,
 }
 
-fn lock_svc(state: &AppState) -> Result<&crate::services::distributed_lock::DistributedLockService, AppError> {
-    state.lock_service.as_deref().ok_or_else(|| {
-        AppError::service_unavailable("Distributed locking requires Redis")
-    })
+fn lock_svc(
+    state: &AppState,
+) -> Result<&crate::services::distributed_lock::DistributedLockService, AppError> {
+    state
+        .lock_service
+        .as_deref()
+        .ok_or_else(|| AppError::service_unavailable("Distributed locking requires Redis"))
 }
 
 async fn stats(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
@@ -53,7 +56,10 @@ async fn is_locked(
     Path(resource): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     let locked = lock_svc(&state)?.is_locked(&resource).await;
-    Ok((StatusCode::OK, Json(serde_json::json!({ "resource": resource, "locked": locked }))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "resource": resource, "locked": locked })),
+    ))
 }
 
 async fn acquire(
@@ -63,14 +69,20 @@ async fn acquire(
 ) -> Result<impl IntoResponse, AppError> {
     let ttl_ms = body.ttl_ms.unwrap_or(30_000).clamp(100, 300_000);
     match lock_svc(&state)?.acquire(&resource, ttl_ms).await {
-        Ok(guard) => Ok((StatusCode::OK, Json(serde_json::json!({
-            "resource": guard.resource,
-            "token": guard.token,
-            "ttl_ms": guard.ttl_ms,
-        }))).into_response()),
-        Err(crate::services::distributed_lock::LockError::AlreadyHeld) => {
-            Ok((StatusCode::CONFLICT, Json(serde_json::json!({ "error": "lock already held" }))).into_response())
-        }
+        Ok(guard) => Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "resource": guard.resource,
+                "token": guard.token,
+                "ttl_ms": guard.ttl_ms,
+            })),
+        )
+            .into_response()),
+        Err(crate::services::distributed_lock::LockError::AlreadyHeld) => Ok((
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "lock already held" })),
+        )
+            .into_response()),
         Err(e) => Err(AppError::service_unavailable(e.to_string())),
     }
 }
@@ -85,12 +97,18 @@ async fn release(
             message: "token is required".to_string(),
         }));
     }
-    let guard = LockGuard { resource: resource.clone(), token: body.token, ttl_ms: 0 };
+    let guard = LockGuard {
+        resource: resource.clone(),
+        token: body.token,
+        ttl_ms: 0,
+    };
     match lock_svc(&state)?.release(&guard).await {
         Ok(()) => Ok(StatusCode::NO_CONTENT.into_response()),
-        Err(crate::services::distributed_lock::LockError::NotOwner) => {
-            Ok((StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "not the lock owner" }))).into_response())
-        }
+        Err(crate::services::distributed_lock::LockError::NotOwner) => Ok((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "not the lock owner" })),
+        )
+            .into_response()),
         Err(e) => Err(AppError::service_unavailable(e.to_string())),
     }
 }
@@ -101,12 +119,22 @@ async fn renew(
     Json(body): Json<RenewBody>,
 ) -> Result<impl IntoResponse, AppError> {
     let ttl_ms = body.ttl_ms.unwrap_or(30_000).clamp(100, 300_000);
-    let guard = LockGuard { resource: resource.clone(), token: body.token, ttl_ms };
+    let guard = LockGuard {
+        resource: resource.clone(),
+        token: body.token,
+        ttl_ms,
+    };
     match lock_svc(&state)?.renew(&guard, ttl_ms).await {
-        Ok(()) => Ok((StatusCode::OK, Json(serde_json::json!({ "resource": resource, "ttl_ms": ttl_ms }))).into_response()),
-        Err(crate::services::distributed_lock::LockError::NotOwner) => {
-            Ok((StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "not the lock owner" }))).into_response())
-        }
+        Ok(()) => Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({ "resource": resource, "ttl_ms": ttl_ms })),
+        )
+            .into_response()),
+        Err(crate::services::distributed_lock::LockError::NotOwner) => Ok((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "not the lock owner" })),
+        )
+            .into_response()),
         Err(e) => Err(AppError::service_unavailable(e.to_string())),
     }
 }

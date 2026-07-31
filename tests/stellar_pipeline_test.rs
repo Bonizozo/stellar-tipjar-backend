@@ -237,7 +237,9 @@ async fn validate_balance_succeeds_when_sufficient() {
 
     let svc = make_service(&server);
     // Tip of 5 XLM is well within the 9 XLM spendable.
-    svc.validate_spendable_balance(address, "5.0").await.unwrap();
+    svc.validate_spendable_balance(address, "5.0")
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -391,7 +393,10 @@ async fn verify_transaction_maps_tx_insufficient_fee() {
     let err = svc.verify_transaction(&hash).await.unwrap_err();
     assert_stellar_code(&err, "STELLAR_TX_FAILED");
     if let AppError::Stellar(StellarError::TransactionFailed { message, .. }) = err {
-        assert!(message.contains("surge"), "message should mention surge: {message}");
+        assert!(
+            message.contains("surge"),
+            "message should mention surge: {message}"
+        );
     }
 }
 
@@ -416,7 +421,10 @@ async fn verify_transaction_maps_op_underfunded() {
     assert_stellar_code(&err, "STELLAR_OP_FAILED");
     if let AppError::Stellar(StellarError::OperationFailed { code, message }) = err {
         assert_eq!(code, "op_underfunded");
-        assert!(message.contains("balance"), "message should mention balance: {message}");
+        assert!(
+            message.contains("balance"),
+            "message should mention balance: {message}"
+        );
     }
 }
 
@@ -537,7 +545,11 @@ fn error_messages_are_user_displayable() {
         );
         // details() must be valid JSON.
         let details = err.details();
-        assert!(details.is_object(), "details for {} is not an object", err.code());
+        assert!(
+            details.is_object(),
+            "details for {} is not an object",
+            err.code()
+        );
     }
 }
 

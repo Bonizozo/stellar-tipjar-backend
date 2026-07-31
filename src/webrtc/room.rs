@@ -55,10 +55,7 @@ impl Room {
     }
 
     pub fn get_connected_peers(&self) -> Vec<&PeerConnection> {
-        self.peers
-            .values()
-            .filter(|p| p.is_connected())
-            .collect()
+        self.peers.values().filter(|p| p.is_connected()).collect()
     }
 
     pub fn is_empty(&self) -> bool {

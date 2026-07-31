@@ -612,7 +612,7 @@ mod integration {
 
     fn creator_token(username: &str) -> String {
         set_jwt_secret();
-        crate::services::auth_service::generate_tokens(username, "creator")
+        crate::services::auth_service::generate_tokens(username, "creator", uuid::Uuid::new_v4(), 0)
             .unwrap()
             .access_token
     }
@@ -801,9 +801,12 @@ mod integration {
 
         state.ws_shutdown_tx.send(true).unwrap();
 
+        // Skip any non-Close frames (e.g. a Ping) that might arrive first;
+        // only the eventual Close frame ends the wait.
         let frame = loop {
             match ws.receive_message().await {
                 axum_test::WsMessage::Close(frame) => break frame.expect("close frame present"),
+                axum_test::WsMessage::Ping(_) => continue,
                 other => panic!("unexpected frame while waiting for close: {other:?}"),
             }
         };

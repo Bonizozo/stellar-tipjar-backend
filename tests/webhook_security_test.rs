@@ -9,11 +9,11 @@
 
 use httpmock::prelude::*;
 use serde_json::json;
-use stellar_tipjar_backend::webhooks::signature::{
-    build_signature_header_at, parse_signature_header, verify_signature_at,
-    SignatureError, SIGNATURE_TOLERANCE_SECS,
-};
 use stellar_tipjar_backend::webhooks::sender::DeliveryContext;
+use stellar_tipjar_backend::webhooks::signature::{
+    build_signature_header_at, parse_signature_header, verify_signature_at, SignatureError,
+    SIGNATURE_TOLERANCE_SECS,
+};
 
 const SECRET: &str = "whsec_test_abc123";
 const BODY: &str = r#"{"event":"tip.created","amount":"10.0"}"#;
@@ -33,7 +33,10 @@ fn header_starts_with_timestamp() {
 #[test]
 fn header_contains_v1_component() {
     let header = build_signature_header_at(&[SECRET], BODY, NOW);
-    assert!(header.contains("v1="), "header must contain 'v1=': {header}");
+    assert!(
+        header.contains("v1="),
+        "header must contain 'v1=': {header}"
+    );
 }
 
 #[test]
@@ -44,7 +47,10 @@ fn signed_message_includes_timestamp() {
     let h2 = build_signature_header_at(&[SECRET], BODY, NOW + 1);
     let v1_1 = h1.split("v1=").nth(1).unwrap_or("");
     let v1_2 = h2.split("v1=").nth(1).unwrap_or("");
-    assert_ne!(v1_1, v1_2, "different timestamps must produce different v1 values");
+    assert_ne!(
+        v1_1, v1_2,
+        "different timestamps must produce different v1 values"
+    );
 }
 
 #[test]
@@ -95,8 +101,8 @@ fn verify_at_exact_boundary_passes() {
 fn verify_one_second_past_boundary_fails() {
     let header = build_signature_header_at(&[SECRET], BODY, NOW);
     let one_over = NOW + SIGNATURE_TOLERANCE_SECS + 1;
-    let err = verify_signature_at(&header, BODY, SECRET, SIGNATURE_TOLERANCE_SECS, one_over)
-        .unwrap_err();
+    let err =
+        verify_signature_at(&header, BODY, SECRET, SIGNATURE_TOLERANCE_SECS, one_over).unwrap_err();
     assert!(
         matches!(err, SignatureError::TimestampOutOfWindow { .. }),
         "expected TimestampOutOfWindow, got {err:?}"
@@ -113,10 +119,9 @@ fn verify_one_second_before_boundary_passes() {
 #[test]
 fn verify_future_timestamp_beyond_tolerance_fails() {
     // Clock skew attack: timestamp claims to be far in the future.
-    let header =
-        build_signature_header_at(&[SECRET], BODY, NOW + SIGNATURE_TOLERANCE_SECS + 1);
-    let err = verify_signature_at(&header, BODY, SECRET, SIGNATURE_TOLERANCE_SECS, NOW)
-        .unwrap_err();
+    let header = build_signature_header_at(&[SECRET], BODY, NOW + SIGNATURE_TOLERANCE_SECS + 1);
+    let err =
+        verify_signature_at(&header, BODY, SECRET, SIGNATURE_TOLERANCE_SECS, NOW).unwrap_err();
     assert!(matches!(err, SignatureError::TimestampOutOfWindow { .. }));
 }
 
@@ -125,9 +130,8 @@ fn verify_future_timestamp_beyond_tolerance_fails() {
 #[test]
 fn wrong_secret_fails() {
     let header = build_signature_header_at(&[SECRET], BODY, NOW);
-    let err =
-        verify_signature_at(&header, BODY, "wrong_secret", SIGNATURE_TOLERANCE_SECS, NOW)
-            .unwrap_err();
+    let err = verify_signature_at(&header, BODY, "wrong_secret", SIGNATURE_TOLERANCE_SECS, NOW)
+        .unwrap_err();
     assert_eq!(err, SignatureError::SignatureMismatch);
 }
 
@@ -181,9 +185,12 @@ fn rotation_overlap_zero_missed_verifications() {
     let h_after = build_signature_header_at(&[new], BODY, NOW);
     verify_signature_at(&h_after, BODY, new, SIGNATURE_TOLERANCE_SECS, NOW).unwrap();
     // Old receiver now fails — expected.
-    let err =
-        verify_signature_at(&h_after, BODY, old, SIGNATURE_TOLERANCE_SECS, NOW).unwrap_err();
-    assert_eq!(err, SignatureError::SignatureMismatch, "old secret must fail after rotation");
+    let err = verify_signature_at(&h_after, BODY, old, SIGNATURE_TOLERANCE_SECS, NOW).unwrap_err();
+    assert_eq!(
+        err,
+        SignatureError::SignatureMismatch,
+        "old secret must fail after rotation"
+    );
 }
 
 // ── Delivery ID stability ─────────────────────────────────────────────────────
@@ -193,7 +200,10 @@ fn delivery_id_stable_within_context() {
     let ctx = DeliveryContext::new("tip.created", SECRET.to_string());
     let id1 = ctx.delivery_id;
     let id2 = ctx.delivery_id;
-    assert_eq!(id1, id2, "delivery_id must be stable within the same context");
+    assert_eq!(
+        id1, id2,
+        "delivery_id must be stable within the same context"
+    );
 }
 
 #[test]
@@ -288,53 +298,44 @@ async fn send_webhook_signature_header_verifiable() {
 async fn send_webhook_delivery_id_matches_context() {
     let server = MockServer::start();
 
-    // Capture the X-TipJar-Delivery-Id header value.
-    let capture = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-    let cap = capture.clone();
-
-    server.mock(|when, then| {
-        when.method(POST).path("/hook2");
-        then.status(200);
-    });
-
     let url = format!("{}/hook2", server.base_url());
     let ctx = DeliveryContext::new("tip.created", SECRET.to_string());
     let expected_id = ctx.delivery_id.to_string();
 
-    stellar_tipjar_backend::webhooks::sender::send_webhook(
-        &url,
-        &ctx,
-        json!({"x": 1}),
-    )
-    .await
-    .unwrap();
+    // Assert the delivered request itself carries the expected header value,
+    // rather than inspecting a request log after the fact (httpmock doesn't
+    // expose one — `when.header(...)` is how it verifies request contents).
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/hook2")
+            .header("X-TipJar-Delivery-Id", expected_id.clone());
+        then.status(200);
+    });
 
-    // Verify via the mock request log.
-    let requests = server.requests();
-    let req = requests.first().expect("at least one request");
-    let actual_id = req
-        .headers
-        .iter()
-        .find(|(k, _)| k.to_lowercase() == "x-tipjar-delivery-id")
-        .map(|(_, v)| v.clone())
-        .unwrap_or_default();
+    stellar_tipjar_backend::webhooks::sender::send_webhook(&url, &ctx, json!({"x": 1}))
+        .await
+        .unwrap();
 
-    assert_eq!(actual_id, expected_id, "X-TipJar-Delivery-Id must match context.delivery_id");
+    mock.assert();
 }
 
 // ── Circuit breaker integration ───────────────────────────────────────────────
 
 #[test]
 fn circuit_breaker_opens_after_threshold_failures() {
-    use stellar_tipjar_backend::services::circuit_breaker::{CircuitBreaker, CircuitState};
     use std::time::Duration;
+    use stellar_tipjar_backend::services::circuit_breaker::{CircuitBreaker, CircuitState};
 
     let cb = CircuitBreaker::new(3, Duration::from_secs(60));
     assert_eq!(cb.state(), CircuitState::Closed);
 
     cb.record_failure();
     cb.record_failure();
-    assert_eq!(cb.state(), CircuitState::Closed, "still closed before threshold");
+    assert_eq!(
+        cb.state(),
+        CircuitState::Closed,
+        "still closed before threshold"
+    );
 
     cb.record_failure(); // threshold hit
     assert_eq!(cb.state(), CircuitState::Open, "must open after threshold");
@@ -343,8 +344,8 @@ fn circuit_breaker_opens_after_threshold_failures() {
 
 #[test]
 fn circuit_breaker_recovers_to_half_open() {
-    use stellar_tipjar_backend::services::circuit_breaker::{CircuitBreaker, CircuitState};
     use std::time::Duration;
+    use stellar_tipjar_backend::services::circuit_breaker::{CircuitBreaker, CircuitState};
 
     // Zero recovery timeout so it transitions to HalfOpen immediately.
     let cb = CircuitBreaker::new(2, Duration::from_secs(0));
@@ -353,19 +354,27 @@ fn circuit_breaker_recovers_to_half_open() {
     assert_eq!(cb.state(), CircuitState::Open);
 
     // After 0s timeout the circuit should be HalfOpen.
-    assert_eq!(cb.state(), CircuitState::HalfOpen, "zero-timeout circuit must go HalfOpen");
+    assert_eq!(
+        cb.state(),
+        CircuitState::HalfOpen,
+        "zero-timeout circuit must go HalfOpen"
+    );
     assert!(cb.allow_request(), "HalfOpen must allow a probe request");
 }
 
 #[test]
 fn circuit_breaker_resets_on_success() {
-    use stellar_tipjar_backend::services::circuit_breaker::{CircuitBreaker, CircuitState};
     use std::time::Duration;
+    use stellar_tipjar_backend::services::circuit_breaker::{CircuitBreaker, CircuitState};
 
     let cb = CircuitBreaker::new(2, Duration::from_secs(60));
     cb.record_failure();
     cb.record_success();
-    assert_eq!(cb.state(), CircuitState::Closed, "success must reset the circuit");
+    assert_eq!(
+        cb.state(),
+        CircuitState::Closed,
+        "success must reset the circuit"
+    );
 }
 
 // ── Nova Launch artifact: removed ────────────────────────────────────────────

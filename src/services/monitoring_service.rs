@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio::time::interval;
@@ -131,9 +131,7 @@ impl MonitoringService {
                     warn!(tx_hash = %hash, "Transaction not found or unsuccessful on Stellar");
                 }
                 Err(e) => {
-                    self.stats
-                        .network_errors
-                        .fetch_add(1, Ordering::Relaxed);
+                    self.stats.network_errors.fetch_add(1, Ordering::Relaxed);
 
                     error!(tx_hash = %hash, error = %e, "Network error verifying transaction");
                 }

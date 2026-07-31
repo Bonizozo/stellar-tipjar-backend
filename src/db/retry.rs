@@ -7,11 +7,7 @@ use sqlx::PgPool;
 ///
 /// Uses exponential backoff starting at 100 ms, doubling each attempt.
 /// Non-retryable errors are returned immediately.
-pub async fn with_db_retry<F, T, E>(
-    pool: &PgPool,
-    max_retries: u32,
-    f: F,
-) -> Result<T, E>
+pub async fn with_db_retry<F, T, E>(pool: &PgPool, max_retries: u32, f: F) -> Result<T, E>
 where
     F: Fn(&PgPool) -> std::pin::Pin<Box<dyn Future<Output = Result<T, E>> + Send>>,
     E: From<sqlx::Error> + std::fmt::Debug,

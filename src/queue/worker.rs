@@ -2,19 +2,16 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+use super::VerificationJob;
 use crate::db::connection::AppState;
 use crate::services::stellar_service::{TipVerifyRequest, VerifyOutcome};
-use super::VerificationJob;
 
 /// Maximum attempts before a job is abandoned (tip left as pending for reconciliation).
 const MAX_ATTEMPTS: u32 = 5;
 
 /// Spawn a background task that drains the verification job queue and
 /// drives `pending_verification` tips to `confirmed` or `rejected`.
-pub fn spawn_worker(
-    state: Arc<AppState>,
-    mut receiver: mpsc::Receiver<VerificationJob>,
-) {
+pub fn spawn_worker(state: Arc<AppState>, mut receiver: mpsc::Receiver<VerificationJob>) {
     tokio::spawn(async move {
         tracing::info!("Verification queue worker started");
 
@@ -65,7 +62,9 @@ async fn process_job(state: Arc<AppState>, job: VerificationJob) {
         }
         Ok(VerifyOutcome::Rejected { reason }) => {
             tracing::warn!(tip_id = %tip_id, reason = %reason, "Tip rejected by on-chain verification");
-            if let Err(e) = crate::controllers::tip_controller::reject_tip(&state, tip_id, &reason).await {
+            if let Err(e) =
+                crate::controllers::tip_controller::reject_tip(&state, tip_id, &reason).await
+            {
                 tracing::error!(tip_id = %tip_id, error = %e, "Failed to reject tip in database");
             }
         }

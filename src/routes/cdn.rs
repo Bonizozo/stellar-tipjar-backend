@@ -35,7 +35,10 @@ pub async fn upload(
         }
     };
 
-    match cdn.upload_file(body.file_name, body.content_type, data).await {
+    match cdn
+        .upload_file(body.file_name, body.content_type, data)
+        .await
+    {
         Ok(resp) => (StatusCode::CREATED, Json(serde_json::json!(resp))).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,

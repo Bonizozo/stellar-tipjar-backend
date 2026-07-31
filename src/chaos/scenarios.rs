@@ -30,11 +30,9 @@ impl ChaosScenarios {
 
     /// Simulates high latency on the database connection (500 ms).
     pub fn high_database_latency() -> ChaosExperiment {
-        ChaosExperiment::new("High Database Latency", Duration::from_secs(30))
-            .with_injector(Box::new(LatencyInjector::new(
-                "database",
-                Duration::from_millis(500),
-            )))
+        ChaosExperiment::new("High Database Latency", Duration::from_secs(30)).with_injector(
+            Box::new(LatencyInjector::new("database", Duration::from_millis(500))),
+        )
     }
 
     /// Simulates a crash of the tip-processing service.

@@ -71,7 +71,8 @@ async fn create_tenant(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateTenantRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    req.validate().map_err(|e| AppError::bad_request(e.to_string()))?;
+    req.validate()
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
     let tenant = tenant_controller::create_tenant(&state, &req).await?;
     Ok((StatusCode::CREATED, Json(tenant)))
 }
@@ -85,9 +86,7 @@ async fn create_tenant(
         (status = 200, description = "List of tenants", body = Vec<TenantResponse>)
     )
 )]
-async fn list_tenants(
-    State(state): State<Arc<AppState>>,
-) -> Result<impl IntoResponse, AppError> {
+async fn list_tenants(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
     let tenants = tenant_controller::list_tenants(&state).await?;
     Ok((StatusCode::OK, Json(tenants)))
 }
@@ -129,7 +128,8 @@ async fn update_tenant(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateTenantRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    req.validate().map_err(|e| AppError::bad_request(e.to_string()))?;
+    req.validate()
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
     let tenant = tenant_controller::update_tenant(&state, id, &req).await?;
     Ok((StatusCode::OK, Json(tenant)))
 }

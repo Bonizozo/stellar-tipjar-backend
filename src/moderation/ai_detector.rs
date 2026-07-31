@@ -187,8 +187,13 @@ fn parse_moderation_response(text: &str) -> anyhow::Result<AiDetectionResult> {
         .trim_end_matches("```")
         .trim();
 
-    let parsed: ModerationResponse = serde_json::from_str(json_str)
-        .map_err(|e| anyhow::anyhow!("Failed to parse moderation response: {} — raw: {}", e, json_str))?;
+    let parsed: ModerationResponse = serde_json::from_str(json_str).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to parse moderation response: {} — raw: {}",
+            e,
+            json_str
+        )
+    })?;
 
     let violations: Vec<Violation> = parsed
         .violations

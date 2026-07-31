@@ -49,12 +49,13 @@ pub fn generate_receipt_pdf(data: &ReceiptData) -> AppResult<Vec<u8>> {
         ),
         (
             "Tax Amount:",
-            data.tax_amount
-                .clone()
-                .unwrap_or_else(|| "N/A".to_string()),
+            data.tax_amount.clone().unwrap_or_else(|| "N/A".to_string()),
         ),
         ("Total (XLM):", data.total_amount.clone()),
-        ("Issued At:", data.issued_at.format("%Y-%m-%d %H:%M UTC").to_string()),
+        (
+            "Issued At:",
+            data.issued_at.format("%Y-%m-%d %H:%M UTC").to_string(),
+        ),
     ];
 
     for (label, value) in rows {

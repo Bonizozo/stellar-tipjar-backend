@@ -79,9 +79,7 @@ pub async fn trace_request(req: Request, next: Next) -> Response {
     // include it in bug reports / support tickets.
     if let Some(tid) = trace_id {
         if let Ok(value) = axum::http::HeaderValue::from_str(&tid) {
-            response
-                .headers_mut()
-                .insert("x-trace-id", value);
+            response.headers_mut().insert("x-trace-id", value);
         }
     }
 

@@ -2,7 +2,9 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::errors::AppResult;
-use crate::models::notification::{Notification, NotificationPreferences, UpdatePreferencesRequest};
+use crate::models::notification::{
+    Notification, NotificationPreferences, UpdatePreferencesRequest,
+};
 
 /// Get preferences for a creator, creating defaults if none exist.
 pub async fn get_preferences(pool: &PgPool, username: &str) -> AppResult<NotificationPreferences> {
@@ -95,13 +97,11 @@ pub async fn list_notifications(
 }
 
 pub async fn mark_read(pool: &PgPool, username: &str, notification_id: Uuid) -> AppResult<()> {
-    sqlx::query(
-        "UPDATE notifications SET read = TRUE WHERE id = $1 AND creator_username = $2",
-    )
-    .bind(notification_id)
-    .bind(username)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE notifications SET read = TRUE WHERE id = $1 AND creator_username = $2")
+        .bind(notification_id)
+        .bind(username)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

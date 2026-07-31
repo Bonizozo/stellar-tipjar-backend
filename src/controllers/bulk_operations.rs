@@ -8,10 +8,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::db::DatabasePool;
 use crate::errors::AppError;
 use crate::models::creator::Creator;
 use crate::models::tip::Tip;
-use crate::db::DatabasePool;
 
 /// Configuration for bulk operations
 #[derive(Debug, Clone)]
@@ -160,18 +160,21 @@ fn generate_operation_id() -> String {
 }
 
 /// Validate bulk request size
-fn validate_bulk_request_size<T>(items: &[T], config: &BulkOperationConfig) -> Result<(), AppError> {
+fn validate_bulk_request_size<T>(
+    items: &[T],
+    config: &BulkOperationConfig,
+) -> Result<(), AppError> {
     if items.len() > config.max_items_per_request {
         return Err(AppError::bad_request(format!(
             "Bulk request exceeds maximum size of {} items",
             config.max_items_per_request
         )));
     }
-    
+
     if items.is_empty() {
         return Err(AppError::bad_request("Bulk request cannot be empty"));
     }
-    
+
     Ok(())
 }
 
@@ -182,9 +185,18 @@ pub async fn bulk_create_creators(
     Json(request): Json<BulkCreateCreatorsRequest>,
 ) -> Result<Json<BulkOperationResponse<Creator>>, AppError> {
     let start_time = std::time::Instant::now();
-    let request_id = request.metadata.request_id.unwrap_or_else(generate_operation_id);
-    let continue_on_failure = request.metadata.continue_on_failure.unwrap_or(state.config.continue_on_failure);
-    let max_operations = request.metadata.max_operations.unwrap_or(request.creators.len());
+    let request_id = request
+        .metadata
+        .request_id
+        .unwrap_or_else(generate_operation_id);
+    let continue_on_failure = request
+        .metadata
+        .continue_on_failure
+        .unwrap_or(state.config.continue_on_failure);
+    let max_operations = request
+        .metadata
+        .max_operations
+        .unwrap_or(request.creators.len());
 
     // Validate request
     validate_bulk_request_size(&request.creators, &state.config)?;
@@ -194,11 +206,15 @@ pub async fn bulk_create_creators(
     let mut failed_count = 0;
 
     // Process creators in batches to avoid overwhelming the database
-    let mut creators_to_process = request.creators.into_iter().take(max_operations).enumerate();
+    let mut creators_to_process = request
+        .creators
+        .into_iter()
+        .take(max_operations)
+        .enumerate();
 
     while let Some((index, creator)) = creators_to_process.next() {
         let operation_id = generate_operation_id();
-        
+
         match create_single_creator(&state.db_pool, creator).await {
             Ok(created_creator) => {
                 results.push(BulkOperationResult {
@@ -219,7 +235,7 @@ pub async fn bulk_create_creators(
                     operation_id,
                 });
                 failed_count += 1;
-                
+
                 if !continue_on_failure {
                     break;
                 }
@@ -274,9 +290,18 @@ pub async fn bulk_update_creators(
     Json(request): Json<BulkUpdateCreatorsRequest>,
 ) -> Result<Json<BulkOperationResponse<Creator>>, AppError> {
     let start_time = std::time::Instant::now();
-    let request_id = request.metadata.request_id.unwrap_or_else(generate_operation_id);
-    let continue_on_failure = request.metadata.continue_on_failure.unwrap_or(state.config.continue_on_failure);
-    let max_operations = request.metadata.max_operations.unwrap_or(request.creators.len());
+    let request_id = request
+        .metadata
+        .request_id
+        .unwrap_or_else(generate_operation_id);
+    let continue_on_failure = request
+        .metadata
+        .continue_on_failure
+        .unwrap_or(state.config.continue_on_failure);
+    let max_operations = request
+        .metadata
+        .max_operations
+        .unwrap_or(request.creators.len());
 
     // Validate request
     validate_bulk_request_size(&request.creators, &state.config)?;
@@ -285,9 +310,14 @@ pub async fn bulk_update_creators(
     let mut successful_count = 0;
     let mut failed_count = 0;
 
-    for (index, update) in request.creators.into_iter().take(max_operations).enumerate() {
+    for (index, update) in request
+        .creators
+        .into_iter()
+        .take(max_operations)
+        .enumerate()
+    {
         let operation_id = generate_operation_id();
-        
+
         match update_single_creator(&state.db_pool, update).await {
             Ok(updated_creator) => {
                 results.push(BulkOperationResult {
@@ -308,7 +338,7 @@ pub async fn bulk_update_creators(
                     operation_id,
                 });
                 failed_count += 1;
-                
+
                 if !continue_on_failure {
                     break;
                 }
@@ -363,8 +393,14 @@ pub async fn bulk_delete_creators(
     Json(request): Json<BulkDeleteRequest>,
 ) -> Result<Json<BulkOperationResponse<Uuid>>, AppError> {
     let start_time = std::time::Instant::now();
-    let request_id = request.metadata.request_id.unwrap_or_else(generate_operation_id);
-    let continue_on_failure = request.metadata.continue_on_failure.unwrap_or(state.config.continue_on_failure);
+    let request_id = request
+        .metadata
+        .request_id
+        .unwrap_or_else(generate_operation_id);
+    let continue_on_failure = request
+        .metadata
+        .continue_on_failure
+        .unwrap_or(state.config.continue_on_failure);
     let max_operations = request.metadata.max_operations.unwrap_or(request.ids.len());
 
     // Validate request
@@ -376,7 +412,7 @@ pub async fn bulk_delete_creators(
 
     for (index, id) in request.ids.into_iter().take(max_operations).enumerate() {
         let operation_id = generate_operation_id();
-        
+
         match delete_single_creator(&state.db_pool, id).await {
             Ok(_) => {
                 results.push(BulkOperationResult {
@@ -397,7 +433,7 @@ pub async fn bulk_delete_creators(
                     operation_id,
                 });
                 failed_count += 1;
-                
+
                 if !continue_on_failure {
                     break;
                 }
@@ -453,10 +489,10 @@ async fn create_single_creator(
     // This would typically use SQLx to insert into the database
     // For now, we'll simulate the operation
     tracing::info!("Creating creator: {}", creator.username);
-    
+
     // Simulate database operation
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    
+
     // In a real implementation, this would be:
     // let query = sqlx::query_as!(
     //     Creator,
@@ -471,7 +507,7 @@ async fn create_single_creator(
     // )
     // .fetch_one(db_pool)
     // .await?;
-    
+
     Ok(creator)
 }
 
@@ -481,13 +517,13 @@ async fn update_single_creator(
     update: CreatorUpdate,
 ) -> Result<Creator, AppError> {
     tracing::info!("Updating creator: {}", update.id);
-    
+
     // Simulate database operation
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    
+
     // In a real implementation, this would fetch the existing creator,
     // apply updates, and save it back to the database
-    
+
     // For now, return a mock creator
     Ok(Creator {
         id: update.id,
@@ -510,20 +546,17 @@ async fn update_single_creator(
 }
 
 /// Helper function to delete a single creator
-async fn delete_single_creator(
-    db_pool: &DatabasePool,
-    id: Uuid,
-) -> Result<(), AppError> {
+async fn delete_single_creator(db_pool: &DatabasePool, id: Uuid) -> Result<(), AppError> {
     tracing::info!("Deleting creator: {}", id);
-    
+
     // Simulate database operation
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    
+
     // In a real implementation, this would be:
     // sqlx::query!("DELETE FROM creators WHERE id = $1", id)
     //     .execute(db_pool)
     //     .await?;
-    
+
     Ok(())
 }
 

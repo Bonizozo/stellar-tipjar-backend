@@ -1,4 +1,10 @@
-use axum::{extract::{Path, State}, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::get,
+    Json, Router,
+};
 use std::sync::Arc;
 use uuid::Uuid;
 

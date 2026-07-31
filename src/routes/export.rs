@@ -146,14 +146,8 @@ async fn export_creator_data(
             "csv" => {
                 // CSV: export tips with analytics summary header
                 let mut wtr = csv::Writer::from_writer(vec![]);
-                wtr.write_record([
-                    "id",
-                    "amount",
-                    "transaction_hash",
-                    "message",
-                    "created_at",
-                ])
-                .unwrap();
+                wtr.write_record(["id", "amount", "transaction_hash", "message", "created_at"])
+                    .unwrap();
                 for t in &package.tips {
                     wtr.write_record([
                         t.id.as_str(),
@@ -203,15 +197,8 @@ async fn list_backups(
 /// Trigger a manual backup (records the attempt and runs backup script)
 async fn trigger_backup(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     // Record backup attempt
-    let _ = export_controller::record_backup(
-        &state.db,
-        "manual",
-        "initiated",
-        None,
-        None,
-        None,
-    )
-    .await;
+    let _ =
+        export_controller::record_backup(&state.db, "manual", "initiated", None, None, None).await;
 
     // Run backup script
     let output = std::process::Command::new("./scripts/backup.sh").output();
@@ -226,8 +213,14 @@ async fn trigger_backup(State(state): State<Arc<AppState>>) -> impl IntoResponse
             };
 
             let size = backup_info.get("size").and_then(|v| v.as_i64());
-            let location = backup_info.get("file").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let checksum = backup_info.get("checksum").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let location = backup_info
+                .get("file")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let checksum = backup_info
+                .get("checksum")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
 
             let _ = export_controller::record_backup(
                 &state.db,
@@ -252,15 +245,9 @@ async fn trigger_backup(State(state): State<Arc<AppState>>) -> impl IntoResponse
         Ok(out) => {
             let err = String::from_utf8_lossy(&out.stderr).to_string();
             tracing::error!("Backup script failed: {}", err);
-            let _ = export_controller::record_backup(
-                &state.db,
-                "manual",
-                "failed",
-                None,
-                None,
-                None,
-            )
-            .await;
+            let _ =
+                export_controller::record_backup(&state.db, "manual", "failed", None, None, None)
+                    .await;
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "status": "failed", "error": err })),
@@ -268,15 +255,9 @@ async fn trigger_backup(State(state): State<Arc<AppState>>) -> impl IntoResponse
         }
         Err(e) => {
             tracing::error!("Failed to run backup script: {}", e);
-            let _ = export_controller::record_backup(
-                &state.db,
-                "manual",
-                "failed",
-                None,
-                None,
-                None,
-            )
-            .await;
+            let _ =
+                export_controller::record_backup(&state.db, "manual", "failed", None, None, None)
+                    .await;
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "status": "failed", "error": e.to_string() })),

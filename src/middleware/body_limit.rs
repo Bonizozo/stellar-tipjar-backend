@@ -75,7 +75,12 @@ mod tests {
             .layer(middleware::from_fn(require_json_content_type))
     }
 
-    async fn post_request(app: Router, uri: &str, content_type: &str, body: impl Into<Body>) -> StatusCode {
+    async fn post_request(
+        app: Router,
+        uri: &str,
+        content_type: &str,
+        body: impl Into<Body>,
+    ) -> StatusCode {
         app.oneshot(
             Request::builder()
                 .method("POST")
@@ -102,7 +107,10 @@ mod tests {
         // 64-byte hard limit; the JSON payload will exceed it.
         let app = limited_app(64);
         let payload = serde_json::to_vec(&json!({"data": "a".repeat(200)})).unwrap();
-        assert!(payload.len() > 64, "payload must exceed the configured limit");
+        assert!(
+            payload.len() > 64,
+            "payload must exceed the configured limit"
+        );
         let status = post_request(app, "/echo", "application/json", payload).await;
         assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
     }
@@ -135,7 +143,13 @@ mod tests {
     #[tokio::test]
     async fn json_content_type_with_charset_passes() {
         let app = content_type_app();
-        let status = post_request(app, "/data", "application/json; charset=utf-8", Body::from("{}")).await;
+        let status = post_request(
+            app,
+            "/data",
+            "application/json; charset=utf-8",
+            Body::from("{}"),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
     }
 

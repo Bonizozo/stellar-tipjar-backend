@@ -102,11 +102,7 @@ fn tier_monthly_quota(tier: &str) -> i64 {
 
 /// Fetch the quota row for `client_id` in the current period.
 /// Returns `None` when no custom quota row exists.
-async fn fetch_quota(
-    db: &PgPool,
-    client_id: &str,
-    period: QuotaPeriod,
-) -> Option<ClientQuota> {
+async fn fetch_quota(db: &PgPool, client_id: &str, period: QuotaPeriod) -> Option<ClientQuota> {
     let period_start = period.current_period_start();
     sqlx::query_as::<_, ClientQuota>(
         r#"
@@ -163,7 +159,9 @@ async fn increment_quota(
 fn client_id_from_identity(identity: Option<&GatewayIdentity>, req: &Request) -> String {
     match identity {
         Some(GatewayIdentity::Jwt { subject, .. }) => format!("jwt:{}", subject),
-        Some(GatewayIdentity::ApiKey { key, .. }) => format!("apikey:{}", &key[..key.len().min(16)]),
+        Some(GatewayIdentity::ApiKey { key, .. }) => {
+            format!("apikey:{}", &key[..key.len().min(16)])
+        }
         _ => {
             use axum::extract::ConnectInfo;
             req.extensions()
@@ -196,12 +194,7 @@ fn tier_from_identity(identity: Option<&GatewayIdentity>) -> &'static str {
 
 // ── Response helpers ──────────────────────────────────────────────────────────
 
-fn quota_too_many_requests(
-    client_id: &str,
-    period: QuotaPeriod,
-    used: i64,
-    max: i64,
-) -> Response {
+fn quota_too_many_requests(client_id: &str, period: QuotaPeriod, used: i64, max: i64) -> Response {
     let reset_hint = match period {
         QuotaPeriod::Daily => "at midnight UTC",
         QuotaPeriod::Monthly => "at the start of next month",
@@ -224,14 +217,10 @@ fn quota_too_many_requests(
         "X-Quota-Limit",
         HeaderValue::from_str(&max.to_string()).unwrap_or(HeaderValue::from_static("0")),
     );
-    resp.headers_mut().insert(
-        "X-Quota-Remaining",
-        HeaderValue::from_static("0"),
-    );
-    resp.headers_mut().insert(
-        "X-Quota-Period",
-        HeaderValue::from_static(period.as_str()),
-    );
+    resp.headers_mut()
+        .insert("X-Quota-Remaining", HeaderValue::from_static("0"));
+    resp.headers_mut()
+        .insert("X-Quota-Period", HeaderValue::from_static(period.as_str()));
     resp
 }
 
@@ -283,7 +272,9 @@ pub async fn quota_enforcement(
     // ── Check existing quota before incrementing ──────────────────────────────
     if let Some(existing) = fetch_quota(&state.db, &client_id, period).await {
         if existing.is_exhausted() {
-            QUOTA_EXCEEDED_TOTAL.with_label_values(&[tier, period.as_str()]).inc();
+            QUOTA_EXCEEDED_TOTAL
+                .with_label_values(&[tier, period.as_str()])
+                .inc();
             tracing::warn!(
                 client_id = %client_id,
                 tier,

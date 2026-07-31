@@ -1,12 +1,11 @@
 use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 const SUNSET_DATE: &str = "Sat, 01 Jan 2027 00:00:00 GMT";
-const MIGRATION_LINK: &str =
-    r#"<https://docs.example.com/migration/v1-to-v2>; rel="deprecation""#;
+const MIGRATION_LINK: &str = r#"<https://docs.example.com/migration/v1-to-v2>; rel="deprecation""#;
 
 /// Injects `Deprecation`, `Sunset`, and `Link` headers on v1 responses.
 pub async fn deprecation_notice(req: Request, next: Next) -> Response {

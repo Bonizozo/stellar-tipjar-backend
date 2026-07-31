@@ -184,7 +184,7 @@ async fn test_rate_limiting_behavior() {
             }))
             .await;
 
-        responses.push(response.status());
+        responses.push(response.status_code());
 
         // Small delay to avoid overwhelming the system
         sleep(Duration::from_millis(10)).await;
@@ -297,7 +297,8 @@ async fn test_large_payload_handling() {
 
     // Should either succeed (if within limits) or fail gracefully
     assert!(
-        response.status() == StatusCode::CREATED || response.status() == StatusCode::BAD_REQUEST
+        response.status_code() == StatusCode::CREATED
+            || response.status_code() == StatusCode::BAD_REQUEST
     );
 
     ctx.cleanup().await;
@@ -324,14 +325,11 @@ async fn test_network_resilience() {
             "not_found" => ctx.stellar_mocks.mock_nonexistent_transaction(tx_hash),
             "server_error" => {
                 // Mock server error
-                let mock = ctx.mock_server.mock(|when, then| {
+                ctx.mock_server.mock(|when, then| {
                     when.method(httpmock::Method::GET)
                         .path(format!("/transactions/{}", tx_hash));
                     then.status(500);
                 });
-                ctx.stellar_mocks
-                    .transaction_mocks
-                    .insert(tx_hash.to_string(), mock);
             }
             _ => {}
         }
@@ -348,9 +346,9 @@ async fn test_network_resilience() {
 
         // Should handle network failures gracefully
         assert!(
-            response.status() == StatusCode::UNPROCESSABLE_ENTITY
-                || response.status() == StatusCode::BAD_GATEWAY
-                || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            response.status_code() == StatusCode::UNPROCESSABLE_ENTITY
+                || response.status_code() == StatusCode::BAD_GATEWAY
+                || response.status_code() == StatusCode::SERVICE_UNAVAILABLE
         );
     }
 
@@ -424,13 +422,13 @@ async fn test_unicode_and_internationalization() {
 
         // Should either handle unicode properly or reject gracefully
         assert!(
-            response.status() == StatusCode::CREATED
-                || response.status() == StatusCode::BAD_REQUEST,
+            response.status_code() == StatusCode::CREATED
+                || response.status_code() == StatusCode::BAD_REQUEST,
             "Failed to handle unicode username: {}",
             username
         );
 
-        if response.status() == StatusCode::CREATED {
+        if response.status_code() == StatusCode::CREATED {
             // Verify the creator can be retrieved
             let get_response = ctx
                 .server
@@ -439,8 +437,8 @@ async fn test_unicode_and_internationalization() {
 
             // Should be able to retrieve the creator
             assert!(
-                get_response.status() == StatusCode::OK
-                    || get_response.status() == StatusCode::NOT_FOUND
+                get_response.status_code() == StatusCode::OK
+                    || get_response.status_code() == StatusCode::NOT_FOUND
             );
         }
     }

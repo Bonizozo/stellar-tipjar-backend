@@ -28,7 +28,10 @@ pub enum AppError {
     #[error("service unavailable")]
     ServiceUnavailable { message: String },
     #[error("too many requests")]
-    RateLimited { message: String, retry_after_secs: Option<u64> },
+    RateLimited {
+        message: String,
+        retry_after_secs: Option<u64>,
+    },
     #[error("idempotency key reused with a different request")]
     IdempotencyKeyReused { message: String },
     #[error("idempotency key locked")]
@@ -162,9 +165,7 @@ impl AppError {
             Self::Unauthorized { message } => ("UNAUTHORIZED", message.clone(), None),
             Self::Forbidden { message } => ("FORBIDDEN", message.clone(), None),
             Self::Conflict { code, message } => (code, message.clone(), None),
-            Self::ServiceUnavailable { message } => {
-                ("SERVICE_UNAVAILABLE", message.clone(), None)
-            }
+            Self::ServiceUnavailable { message } => ("SERVICE_UNAVAILABLE", message.clone(), None),
             Self::RateLimited {
                 message,
                 retry_after_secs,
@@ -173,11 +174,9 @@ impl AppError {
                 message.clone(),
                 retry_after_secs.map(|s| serde_json::json!({ "retry_after_secs": s })),
             ),
-            Self::IdempotencyKeyReused { message } => (
-                "IDEMPOTENCY_KEY_REUSED",
-                message.clone(),
-                None,
-            ),
+            Self::IdempotencyKeyReused { message } => {
+                ("IDEMPOTENCY_KEY_REUSED", message.clone(), None)
+            }
             Self::IdempotencyKeyLocked { retry_after_secs } => (
                 "IDEMPOTENCY_KEY_LOCKED",
                 "A request with this Idempotency-Key is already in progress".to_string(),
@@ -241,7 +240,9 @@ impl IntoResponse for AppError {
 
         // For rate-limited / lock-contended errors, inject a Retry-After header.
         let retry_after_secs = match &self {
-            Self::RateLimited { retry_after_secs, .. } => *retry_after_secs,
+            Self::RateLimited {
+                retry_after_secs, ..
+            } => *retry_after_secs,
             Self::IdempotencyKeyLocked { retry_after_secs } => Some(*retry_after_secs),
             _ => None,
         };

@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use super::checks::{HealthCheckRegistry, HealthCheckResult, HealthStatus};
-use super::monitoring::{HealthAlert, AlertType, AlertSeverity};
+use super::monitoring::{AlertSeverity, AlertType, HealthAlert};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecoveryAction {
@@ -124,19 +124,26 @@ impl RecoveryHandler for DatabaseRecoveryHandler {
     async fn execute_action(&self, action: &RecoveryActionType) -> Result<RecoveryResult> {
         match action {
             RecoveryActionType::ReconnectDatabase => {
-                info!("Attempting to reconnect database for service: {}", self.service_name);
-                
+                info!(
+                    "Attempting to reconnect database for service: {}",
+                    self.service_name
+                );
+
                 // Simulate reconnection attempt
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                
+
                 // In a real implementation, you would:
                 // 1. Close existing connections
                 // 2. Test connectivity
                 // 3. Re-establish connection pool
-                
-                Ok(RecoveryResult::Success("Database reconnected successfully".to_string()))
+
+                Ok(RecoveryResult::Success(
+                    "Database reconnected successfully".to_string(),
+                ))
             }
-            _ => Ok(RecoveryResult::Failed("Action not supported for database".to_string())),
+            _ => Ok(RecoveryResult::Failed(
+                "Action not supported for database".to_string(),
+            )),
         }
     }
 
@@ -160,32 +167,41 @@ impl RecoveryHandler for RedisRecoveryHandler {
     async fn execute_action(&self, action: &RecoveryActionType) -> Result<RecoveryResult> {
         match action {
             RecoveryActionType::ReconnectRedis => {
-                info!("Attempting to reconnect Redis for service: {}", self.service_name);
-                
+                info!(
+                    "Attempting to reconnect Redis for service: {}",
+                    self.service_name
+                );
+
                 // Simulate reconnection attempt
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                
+
                 // In a real implementation, you would:
                 // 1. Close existing Redis connections
                 // 2. Test connectivity
                 // 3. Re-establish Redis connection
-                
-                Ok(RecoveryResult::Success("Redis reconnected successfully".to_string()))
+
+                Ok(RecoveryResult::Success(
+                    "Redis reconnected successfully".to_string(),
+                ))
             }
             RecoveryActionType::ClearCache => {
                 info!("Clearing Redis cache for service: {}", self.service_name);
-                
+
                 // Simulate cache clearing
                 tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-                
+
                 // In a real implementation, you would:
                 // 1. Flush Redis cache
                 // 2. Clear local cache
                 // 3. Invalidate cache entries
-                
-                Ok(RecoveryResult::Success("Cache cleared successfully".to_string()))
+
+                Ok(RecoveryResult::Success(
+                    "Cache cleared successfully".to_string(),
+                ))
             }
-            _ => Ok(RecoveryResult::Failed("Action not supported for Redis".to_string())),
+            _ => Ok(RecoveryResult::Failed(
+                "Action not supported for Redis".to_string(),
+            )),
         }
     }
 
@@ -210,35 +226,43 @@ impl RecoveryHandler for ServiceRecoveryHandler {
         match action {
             RecoveryActionType::RestartService => {
                 info!("Attempting to restart service: {}", self.service_name);
-                
+
                 // Simulate service restart
                 tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
-                
+
                 // In a real implementation, you would:
                 // 1. Gracefully shutdown the service
                 // 2. Wait for shutdown completion
                 // 3. Start the service
                 // 4. Verify health
-                
-                Ok(RecoveryResult::Success("Service restarted successfully".to_string()))
+
+                Ok(RecoveryResult::Success(
+                    "Service restarted successfully".to_string(),
+                ))
             }
             RecoveryActionType::FlushQueue => {
                 info!("Flushing message queue for service: {}", self.service_name);
-                
+
                 // Simulate queue flush
                 tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-                
-                Ok(RecoveryResult::Success("Queue flushed successfully".to_string()))
+
+                Ok(RecoveryResult::Success(
+                    "Queue flushed successfully".to_string(),
+                ))
             }
             RecoveryActionType::ResetMetrics => {
                 info!("Resetting metrics for service: {}", self.service_name);
-                
+
                 // Simulate metrics reset
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                
-                Ok(RecoveryResult::Success("Metrics reset successfully".to_string()))
+
+                Ok(RecoveryResult::Success(
+                    "Metrics reset successfully".to_string(),
+                ))
             }
-            _ => Ok(RecoveryResult::Failed("Action not supported for this service".to_string())),
+            _ => Ok(RecoveryResult::Failed(
+                "Action not supported for this service".to_string(),
+            )),
         }
     }
 
@@ -292,7 +316,11 @@ impl RecoveryManager {
         self.policies.insert(policy.service_name.clone(), policy);
     }
 
-    pub async fn handle_health_failure(&self, service_name: &str, health_result: &HealthCheckResult) -> Result<Vec<RecoveryAction>> {
+    pub async fn handle_health_failure(
+        &self,
+        service_name: &str,
+        health_result: &HealthCheckResult,
+    ) -> Result<Vec<RecoveryAction>> {
         if health_result.status.is_healthy() {
             return Ok(Vec::new());
         }
@@ -318,12 +346,16 @@ impl RecoveryManager {
                     true,
                 );
 
-                info!("Executing recovery action: {:?} for service: {}", action_type, service_name);
+                info!(
+                    "Executing recovery action: {:?} for service: {}",
+                    action_type, service_name
+                );
 
                 let result = tokio::time::timeout(
                     tokio::time::Duration::from_secs(self.config.action_timeout_seconds),
-                    self.execute_action_with_retry(handler, action_type)
-                ).await;
+                    self.execute_action_with_retry(handler, action_type),
+                )
+                .await;
 
                 match result {
                     Ok(Ok(recovery_result)) => {
@@ -368,8 +400,14 @@ impl RecoveryManager {
                 Err(e) => {
                     last_error = Some(e);
                     if attempt < self.config.retry_attempts {
-                        warn!("Recovery action attempt {} failed, retrying in {}ms: {:?}", attempt, self.config.retry_delay_ms, action_type);
-                        tokio::time::sleep(tokio::time::Duration::from_millis(self.config.retry_delay_ms)).await;
+                        warn!(
+                            "Recovery action attempt {} failed, retrying in {}ms: {:?}",
+                            attempt, self.config.retry_delay_ms, action_type
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(
+                            self.config.retry_delay_ms,
+                        ))
+                        .await;
                     }
                 }
             }
@@ -381,7 +419,7 @@ impl RecoveryManager {
     async fn should_trigger_recovery(&self, service_name: &str, policy: &RecoveryPolicy) -> bool {
         let actions = self.actions.read().await;
         let now = Utc::now();
-        
+
         // Check cooldown period
         let cooldown_cutoff = now - chrono::Duration::minutes(policy.cooldown_minutes as i64);
         let recent_actions: Vec<_> = actions
@@ -401,9 +439,7 @@ impl RecoveryManager {
         // Check failure threshold
         let failed_actions = recent_actions
             .iter()
-            .filter(|action| {
-                matches!(action.result, Some(RecoveryResult::Failed(_)))
-            })
+            .filter(|action| matches!(action.result, Some(RecoveryResult::Failed(_))))
             .count();
 
         failed_actions >= policy.failure_threshold as usize
@@ -412,7 +448,7 @@ impl RecoveryManager {
     async fn store_action(&self, action: RecoveryAction) {
         let mut actions = self.actions.write().await;
         actions.push(action);
-        
+
         // Keep only recent actions (last 1000)
         let len = actions.len();
         if len > 1000 {
@@ -422,7 +458,7 @@ impl RecoveryManager {
 
     pub async fn get_recovery_actions(&self, service_name: Option<&str>) -> Vec<RecoveryAction> {
         let actions = self.actions.read().await;
-        
+
         if let Some(service_name) = service_name {
             actions
                 .iter()
@@ -444,7 +480,7 @@ impl RecoveryManager {
             .iter()
             .filter(|action| matches!(action.result, Some(RecoveryResult::Success(_))))
             .count();
-        
+
         let failed_actions = actions
             .iter()
             .filter(|action| matches!(action.result, Some(RecoveryResult::Failed(_))))
@@ -455,14 +491,13 @@ impl RecoveryManager {
             .filter(|action| action.created_at >= last_24h)
             .count();
 
-        let automatic_actions = actions
-            .iter()
-            .filter(|action| action.automatic)
-            .count();
+        let automatic_actions = actions.iter().filter(|action| action.automatic).count();
 
         let mut service_stats = HashMap::new();
         for action in actions.iter() {
-            let stats = service_stats.entry(action.service_name.clone()).or_insert((0, 0, 0));
+            let stats = service_stats
+                .entry(action.service_name.clone())
+                .or_insert((0, 0, 0));
             stats.0 += 1; // total
             if matches!(action.result, Some(RecoveryResult::Success(_))) {
                 stats.1 += 1; // successful
@@ -495,17 +530,24 @@ impl RecoveryManager {
                 false,
             );
 
-            info!("Executing manual recovery action: {:?} for service: {}", action_type, service_name);
+            info!(
+                "Executing manual recovery action: {:?} for service: {}",
+                action_type, service_name
+            );
 
             let result = tokio::time::timeout(
                 tokio::time::Duration::from_secs(self.config.action_timeout_seconds),
-                self.execute_action_with_retry(handler, &action_type)
-            ).await;
+                self.execute_action_with_retry(handler, &action_type),
+            )
+            .await;
 
             match result {
                 Ok(Ok(recovery_result)) => {
                     action.execute(recovery_result);
-                    info!("Manual recovery action completed successfully: {:?}", action_type);
+                    info!(
+                        "Manual recovery action completed successfully: {:?}",
+                        action_type
+                    );
                 }
                 Ok(Err(e)) => {
                     action.execute(RecoveryResult::Failed(format!("Execution failed: {}", e)));
@@ -522,7 +564,10 @@ impl RecoveryManager {
 
             Ok(action_clone)
         } else {
-            Err(anyhow::anyhow!("No recovery handler found for service: {}", service_name))
+            Err(anyhow::anyhow!(
+                "No recovery handler found for service: {}",
+                service_name
+            ))
         }
     }
 }
@@ -573,7 +618,7 @@ mod tests {
     #[tokio::test]
     async fn test_recovery_manager() {
         let config = RecoveryConfig::default();
-        let manager = RecoveryManager::new(config);
+        let mut manager = RecoveryManager::new(config);
 
         // Add a test handler
         let handler = Box::new(ServiceRecoveryHandler::new("test".to_string()));

@@ -47,9 +47,21 @@ mod tests {
 
     #[test]
     fn scope_hash_is_stable_and_distinguishes_keys() {
-        let a = compute_scope_hash("user:1", "POST /tips", "11111111-1111-1111-1111-111111111111");
-        let b = compute_scope_hash("user:1", "POST /tips", "22222222-2222-2222-2222-222222222222");
-        let c = compute_scope_hash("user:1", "POST /tips", "11111111-1111-1111-1111-111111111111");
+        let a = compute_scope_hash(
+            "user:1",
+            "POST /tips",
+            "11111111-1111-1111-1111-111111111111",
+        );
+        let b = compute_scope_hash(
+            "user:1",
+            "POST /tips",
+            "22222222-2222-2222-2222-222222222222",
+        );
+        let c = compute_scope_hash(
+            "user:1",
+            "POST /tips",
+            "11111111-1111-1111-1111-111111111111",
+        );
         assert_ne!(a, b);
         assert_eq!(a, c);
     }

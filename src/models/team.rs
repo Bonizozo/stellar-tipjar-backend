@@ -32,7 +32,11 @@ pub struct TipSplit {
 
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct TeamMemberRequest {
-    #[validate(length(min = 3, max = 30, message = "Username must be between 3 and 30 characters"))]
+    #[validate(length(
+        min = 3,
+        max = 30,
+        message = "Username must be between 3 and 30 characters"
+    ))]
     pub creator_username: String,
 
     #[validate(range(min = 1, message = "Share percentage must be greater than 0"))]
@@ -41,10 +45,18 @@ pub struct TeamMemberRequest {
 
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CreateTeamRequest {
-    #[validate(length(min = 3, max = 50, message = "Team name must be between 3 and 50 characters"))]
+    #[validate(length(
+        min = 3,
+        max = 50,
+        message = "Team name must be between 3 and 50 characters"
+    ))]
     pub name: String,
 
-    #[validate(length(min = 3, max = 30, message = "Owner username must be between 3 and 30 characters"))]
+    #[validate(length(
+        min = 3,
+        max = 30,
+        message = "Owner username must be between 3 and 30 characters"
+    ))]
     pub owner_username: String,
 
     #[validate(nested)]

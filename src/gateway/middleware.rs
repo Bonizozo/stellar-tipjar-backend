@@ -27,24 +27,19 @@ use crate::gateway::context::GatewayIdentity;
 ///     require_scope("tips:write", req, next)
 /// }))
 /// ```
-pub async fn require_scope(
-    scope: &'static str,
-    req: Request,
-    next: Next,
-) -> Response {
+pub async fn require_scope(scope: &'static str, req: Request, next: Next) -> Response {
     let identity = req.extensions().get::<GatewayIdentity>().cloned();
 
     match identity {
         Some(GatewayIdentity::Jwt { .. }) => next.run(req).await,
-        Some(GatewayIdentity::ApiKey { ref permissions, .. }) => {
+        Some(GatewayIdentity::ApiKey {
+            ref permissions, ..
+        }) => {
             if permissions.iter().any(|p| p == scope || p == "*") {
                 next.run(req).await
             } else {
-                AppError::forbidden(format!(
-                    "API key does not have the '{}' permission",
-                    scope
-                ))
-                .into_response()
+                AppError::forbidden(format!("API key does not have the '{}' permission", scope))
+                    .into_response()
             }
         }
         Some(GatewayIdentity::Anonymous) | None => {
@@ -99,10 +94,7 @@ pub async fn gateway_metrics(req: Request, next: Next) -> Response {
 /// Inject the `x-request-id` value (set by `tower_http::SetRequestIdLayer`)
 /// into the response so callers can correlate requests with server logs.
 pub async fn propagate_request_id_to_response(req: Request, next: Next) -> Response {
-    let request_id = req
-        .headers()
-        .get("x-request-id")
-        .cloned();
+    let request_id = req.headers().get("x-request-id").cloned();
 
     let mut response = next.run(req).await;
 

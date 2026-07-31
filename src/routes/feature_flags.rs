@@ -28,8 +28,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route_layer(middleware::from_fn_with_state(state, require_admin));
 
-    let public_routes = Router::new()
-        .route("/feature-flags/:name/evaluate", get(evaluate_flag));
+    let public_routes = Router::new().route("/feature-flags/:name/evaluate", get(evaluate_flag));
 
     Router::new().merge(admin_routes).merge(public_routes)
 }
