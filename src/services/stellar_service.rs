@@ -25,6 +25,10 @@ const BASE_RESERVE_XLM: &str = "0.5";
 const MIN_ACCOUNT_RESERVES: u64 = 2;
 /// Maximum UTF-8 byte length for a Stellar text memo.
 pub const MEMO_MAX_BYTES: usize = 28;
+/// Stroops in one XLM. Stellar amounts carry exactly 7 decimal places.
+pub const STROOPS_PER_XLM: i64 = 10_000_000;
+/// Number of decimal places in a Stellar amount.
+pub const STELLAR_DECIMAL_PLACES: usize = 7;
 
 // ─────────────────────────── Horizon Response Types ─────────────────────────
 
@@ -466,25 +470,91 @@ impl StellarService {
         Ok(tx.map(|t| t.successful).unwrap_or(false))
     }
 
-    /// Convert XLM amount string (e.g. "10.5000000") to stroops (integer).
-    /// Horizon always returns 7 decimal places.
+    /// Convert an XLM amount string (e.g. `"10.5000000"`) to stroops.
+    ///
+    /// Integer-only: no `f64` is involved at any point, so no amount is ever
+    /// rounded. Horizon normally returns exactly 7 decimal places, but this
+    /// parses whatever the remote endpoint sends, so every malformed shape is
+    /// rejected rather than coerced. Its result is compared against the
+    /// caller's expected amount to decide whether a tip is confirmed, so a
+    /// value that is silently wrong is worse than an error: it would confirm
+    /// or reject the wrong payment.
+    ///
+    /// Rejected, each for a specific reason:
+    ///
+    /// - **Negative amounts** (`"-5.5"`). A Horizon payment amount is never
+    ///   negative. The sign also cannot survive this representation: the whole
+    ///   and fractional parts are parsed separately, so `-5` and `5000000`
+    ///   recombine as `-50000000 + 5000000` = `-45000000` (that is, -4.5 XLM),
+    ///   and for `"-0.5"` the sign is lost altogether because `"-0"` parses to
+    ///   `0`. Rejecting is both correct and consistent with
+    ///   [`crate::validation::amount::xlm_to_stroops_str`].
+    /// - **More than 7 decimal places** (`"1.12345678"`). Truncating to
+    ///   Stellar's precision would understate an amount that the network
+    ///   cannot have produced in the first place, so an over-precise value
+    ///   means the response is not what we think it is.
+    /// - **Values that overflow `i64`.** Total XLM supply is ~10^11, far
+    ///   inside `i64` stroops, but the multiplication is applied to a remote
+    ///   value, and unchecked it panics in debug and silently wraps to a
+    ///   negative amount in release.
+    /// - **Anything that is not `digits[.digits]`** — a sign, whitespace,
+    ///   exponents (`"1e3"`), a second `.` (`"1.2.3"`, whose tail was
+    ///   previously ignored), or non-ASCII digits. Restricting to ASCII digits
+    ///   also keeps the fixed-width fractional handling byte-safe.
     pub fn xlm_to_stroops(amount_str: &str) -> AppResult<i64> {
-        // Parse as a decimal with exactly 7 decimal places.
-        let parts: Vec<&str> = amount_str.split('.').collect();
-        let whole: i64 = parts[0].parse().map_err(|_| {
-            AppError::Stellar(StellarError::InvalidTransaction {
-                reason: format!("Could not parse amount whole part: {}", amount_str),
-            })
-        })?;
-        let fractional_str = parts.get(1).copied().unwrap_or("0");
-        // Pad or truncate to exactly 7 digits
-        let padded = format!("{:0<7}", fractional_str);
-        let fractional: i64 = padded[..7].parse().map_err(|_| {
-            AppError::Stellar(StellarError::InvalidTransaction {
-                reason: format!("Could not parse amount fractional part: {}", amount_str),
-            })
-        })?;
-        Ok(whole * 10_000_000 + fractional)
+        let invalid =
+            |reason: String| AppError::Stellar(StellarError::InvalidTransaction { reason });
+
+        let (whole_str, frac_str) = match amount_str.split_once('.') {
+            Some((whole, frac)) => (whole, frac),
+            None => (amount_str, ""),
+        };
+
+        let is_ascii_digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+
+        if !is_ascii_digits(whole_str) {
+            return Err(invalid(format!(
+                "Amount '{}' is not a non-negative decimal number",
+                amount_str
+            )));
+        }
+
+        // `frac_str` is empty when there was no '.' at all, which is fine; it is
+        // only invalid when a '.' was present with a non-digit tail — including
+        // the second '.' of "1.2.3".
+        if !frac_str.is_empty() && !is_ascii_digits(frac_str) {
+            return Err(invalid(format!(
+                "Amount '{}' has an invalid fractional part",
+                amount_str
+            )));
+        }
+
+        if frac_str.len() > STELLAR_DECIMAL_PLACES {
+            return Err(invalid(format!(
+                "Amount '{}' has more than {} decimal places",
+                amount_str, STELLAR_DECIMAL_PLACES
+            )));
+        }
+
+        let whole: i64 = whole_str
+            .parse()
+            .map_err(|_| invalid(format!("Amount '{}' is too large", amount_str)))?;
+
+        // Right-pad to exactly 7 digits so "5" means 0.5 XLM, not 0.0000005.
+        // All bytes are ASCII digits by now, so this cannot overflow i64.
+        let fractional: i64 = format!("{:0<width$}", frac_str, width = STELLAR_DECIMAL_PLACES)
+            .parse()
+            .map_err(|_| {
+                invalid(format!(
+                    "Amount '{}' has an invalid fractional part",
+                    amount_str
+                ))
+            })?;
+
+        whole
+            .checked_mul(STROOPS_PER_XLM)
+            .and_then(|stroops| stroops.checked_add(fractional))
+            .ok_or_else(|| invalid(format!("Amount '{}' overflows i64 stroops", amount_str)))
     }
 
     /// Get the current health of the Stellar network connection.
@@ -597,6 +667,170 @@ impl TipVerifier for StellarService {
                     Ok(VerifyOutcome::Confirmed)
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod xlm_to_stroops_tests {
+    use super::*;
+
+    fn stroops(amount: &str) -> i64 {
+        StellarService::xlm_to_stroops(amount)
+            .unwrap_or_else(|e| panic!("expected '{}' to parse, got {:?}", amount, e))
+    }
+
+    fn err(amount: &str) -> String {
+        match StellarService::xlm_to_stroops(amount) {
+            Err(AppError::Stellar(StellarError::InvalidTransaction { reason })) => reason,
+            other => panic!("expected '{}' to be rejected, got {:?}", amount, other),
+        }
+    }
+
+    #[test]
+    fn parses_horizon_shaped_amounts() {
+        assert_eq!(stroops("10.5000000"), 105_000_000);
+        assert_eq!(stroops("0.0000001"), 1);
+        assert_eq!(stroops("1.0000000"), 10_000_000);
+        assert_eq!(stroops("0.0000000"), 0);
+    }
+
+    #[test]
+    fn pads_short_and_absent_fractional_parts() {
+        // A short fraction is left-aligned: "5" is five tenths, not five stroops.
+        assert_eq!(stroops("10.5"), 105_000_000);
+        assert_eq!(stroops("0.1"), 1_000_000);
+        assert_eq!(stroops("100"), 1_000_000_000);
+        assert_eq!(stroops("0"), 0);
+        // A trailing '.' has an empty fraction, which pads to zero.
+        assert_eq!(stroops("7."), 70_000_000);
+    }
+
+    // ── Negative amounts ──────────────────────────────────────────────────
+    // Decision: reject. Horizon never reports a negative payment amount, and
+    // the whole/fractional split cannot represent one — see the doc comment on
+    // xlm_to_stroops for the arithmetic. These assertions pin the rejection so
+    // nobody reintroduces the silently-wrong magnitude.
+
+    #[test]
+    fn negative_amounts_are_rejected() {
+        for amount in ["-5.0000000", "-5.5", "-0.5", "-0.0000001", "-1", "-0"] {
+            assert!(
+                err(amount).contains("non-negative"),
+                "unexpected rejection reason for '{}'",
+                amount
+            );
+        }
+    }
+
+    #[test]
+    fn negative_amount_is_not_coerced_to_a_wrong_magnitude() {
+        // Parsing whole and fractional parts independently would yield
+        // -5 * 10_000_000 + 5_000_000 = -45_000_000, i.e. -4.5 XLM for -5.5,
+        // and "-0.5" would lose its sign entirely because "-0" parses to 0.
+        assert!(StellarService::xlm_to_stroops("-5.5").is_err());
+        assert!(StellarService::xlm_to_stroops("-0.5").is_err());
+    }
+
+    // ── Over-precision ────────────────────────────────────────────────────
+    // Decision: reject rather than truncate. Truncation silently understates
+    // an amount the network cannot have produced, and this value is compared
+    // against the expected amount to confirm a tip.
+
+    #[test]
+    fn more_than_seven_decimal_places_is_rejected_not_truncated() {
+        let reason = err("1.12345678");
+        assert!(reason.contains("more than 7 decimal places"), "{}", reason);
+
+        // Even a trailing zero past the 7th place is refused: the string is
+        // not a shape Horizon produces, so we do not guess at its intent.
+        assert!(StellarService::xlm_to_stroops("1.00000000").is_err());
+        // Exactly 7 places remains the boundary that is accepted.
+        assert_eq!(stroops("1.1234567"), 11_234_567);
+    }
+
+    // ── Overflow ──────────────────────────────────────────────────────────
+    // Decision: reject. Unchecked, `whole * 10_000_000` panics in debug and
+    // wraps to a negative amount in release.
+
+    #[test]
+    fn amounts_that_overflow_i64_stroops_are_rejected() {
+        // Parses as i64 but overflows once scaled to stroops.
+        let reason = err(&i64::MAX.to_string());
+        assert!(reason.contains("overflows"), "{}", reason);
+        assert!(StellarService::xlm_to_stroops("1000000000000.0000000").is_err());
+
+        // Overflow in the addition rather than the multiplication:
+        // 922_337_203_685 * 10^7 leaves less than 10^7 of headroom.
+        assert!(StellarService::xlm_to_stroops("922337203685.4775808").is_err());
+
+        // Too large for i64 before scaling at all.
+        assert!(StellarService::xlm_to_stroops("99999999999999999999").is_err());
+    }
+
+    #[test]
+    fn largest_representable_amount_is_accepted() {
+        // 922_337_203_685.4775807 XLM is i64::MAX stroops exactly — orders of
+        // magnitude above total XLM supply (~10^11), but it must not error.
+        assert_eq!(stroops("922337203685.4775807"), i64::MAX);
+    }
+
+    // ── Malformed input ───────────────────────────────────────────────────
+    // Decision: reject anything that is not `digits[.digits]`.
+
+    #[test]
+    fn malformed_amounts_are_rejected() {
+        for amount in [
+            "",            // empty
+            ".",           // no digits at all
+            ".5",          // no whole part
+            "1.2.3",       // second '.' was previously ignored, silently parsing as 1.2
+            "1e3",         // exponent notation
+            "+5.0",        // explicit sign
+            " 5.0",        // leading whitespace
+            "5.0 ",        // trailing whitespace
+            "abc",         // not a number
+            "1.abcdefg",   // non-digit fraction
+            "1.٥",         // non-ASCII digit (Arabic-Indic five)
+            "1.5\u{00e9}", // non-ASCII byte in the fraction
+        ] {
+            assert!(
+                StellarService::xlm_to_stroops(amount).is_err(),
+                "expected '{}' to be rejected",
+                amount
+            );
+        }
+    }
+
+    #[test]
+    fn multibyte_fraction_does_not_panic() {
+        // The previous implementation right-padded to 7 chars and then sliced
+        // `padded[..7]` by byte index, which panics when byte 7 falls inside a
+        // multi-byte character. Each of these is now a plain error.
+        for amount in ["1.ééééééé", "1.\u{10348}\u{10348}", "0.é"] {
+            assert!(
+                StellarService::xlm_to_stroops(amount).is_err(),
+                "expected '{}' to be rejected",
+                amount
+            );
+        }
+    }
+
+    #[test]
+    fn agrees_with_the_validation_helper() {
+        // The two converters must not disagree: one parses our own request
+        // amounts, the other the on-chain amount they are compared against.
+        for amount in ["10.5", "0.0000001", "100", "1.1234567", "0"] {
+            assert_eq!(
+                stroops(amount),
+                crate::validation::amount::xlm_to_stroops_str(amount).unwrap(),
+                "mismatch for '{}'",
+                amount
+            );
+        }
+        for amount in ["-1.5", "1.12345678", ".5", ""] {
+            assert!(StellarService::xlm_to_stroops(amount).is_err());
+            assert!(crate::validation::amount::xlm_to_stroops_str(amount).is_err());
         }
     }
 }
