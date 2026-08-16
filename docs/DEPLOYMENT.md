@@ -24,6 +24,35 @@ A guide for deploying the Nova Launch TipJar API to production and staging envir
 | **`RUST_LOG`** | No | `info` | Trait-based logging level. |
 | **`STELLAR_RPC_URL`** | Yes | - | Horizon provider (e.g., `https://horizon-testnet.stellar.org`). |
 | **`STELLAR_NETWORK`** | No | `testnet` | Stellar network mode (`testnet`, `public`). |
+| **`CIRCUIT_BREAKER_FAILURE_THRESHOLD`** | No | `5` | Consecutive failures before a circuit breaker trips open. |
+| **`CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECS`** | No | `60` | Seconds an open circuit waits before allowing a probe request. |
+| **`DB_CIRCUIT_BREAKER_*`** | No | global value | Database-specific overrides for the two variables above. |
+| **`HORIZON_CIRCUIT_BREAKER_*`** | No | global value | Horizon-specific overrides for the two variables above. |
+
+---
+
+## Tuning Circuit Breakers
+
+Every circuit breaker resolves its thresholds at startup in this order:
+
+1. `<DEPENDENCY>_CIRCUIT_BREAKER_FAILURE_THRESHOLD` / `<DEPENDENCY>_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECS`
+2. `CIRCUIT_BREAKER_FAILURE_THRESHOLD` / `CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECS`
+3. The compiled-in defaults (`5` failures, `60` seconds)
+
+Each field resolves independently, so a per-dependency threshold can be combined
+with a globally configured recovery window. Supported dependency prefixes are
+`DB` (primary Postgres pool) and `HORIZON` (Stellar Horizon / Soroban RPC).
+
+This makes incident response a config change rather than a redeploy — for
+example, to ride out a known-flaky Horizon window:
+
+```bash
+HORIZON_CIRCUIT_BREAKER_FAILURE_THRESHOLD=20
+HORIZON_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECS=15
+```
+
+Unset, unparsable, or zero-threshold values are logged and fall back to the
+defaults, so a typo can never prevent startup.
 
 ---
 

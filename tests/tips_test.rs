@@ -128,10 +128,7 @@ async fn test_confirmed_tip_appears_in_list() {
             cache: None,
             invalidator: None,
             db_circuit_breaker: Arc::new(
-                stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
-                    5,
-                    std::time::Duration::from_secs(60),
-                ),
+                stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::default(),
             ),
             lock_service: None,
             stellar: Arc::new(
@@ -210,10 +207,7 @@ async fn test_rejected_tip_hidden_from_list() {
             cache: None,
             invalidator: None,
             db_circuit_breaker: Arc::new(
-                stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
-                    5,
-                    std::time::Duration::from_secs(60),
-                ),
+                stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::default(),
             ),
             lock_service: None,
             stellar: Arc::new(
@@ -423,10 +417,7 @@ async fn test_horizon_5xx_retry_eventual_confirm() {
         cache: None,
         invalidator: None,
         db_circuit_breaker: Arc::new(
-            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
-                5,
-                std::time::Duration::from_secs(60),
-            ),
+            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::default(),
         ),
         lock_service: None,
         stellar: Arc::new(
@@ -532,10 +523,7 @@ async fn test_reconciliation_re_enqueues_stuck_tips() {
         cache: None,
         invalidator: None,
         db_circuit_breaker: Arc::new(
-            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
-                5,
-                std::time::Duration::from_secs(60),
-            ),
+            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::default(),
         ),
         lock_service: None,
         stellar: Arc::new(

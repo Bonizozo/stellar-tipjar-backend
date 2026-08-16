@@ -91,14 +91,20 @@ async fn main() -> anyhow::Result<()> {
     );
     crate::crypto::encryption::set_global_encryption_manager(Arc::clone(&encryption_manager))?;
 
+    // Circuit-breaker thresholds for the primary database, tunable via
+    // DB_CIRCUIT_BREAKER_* / CIRCUIT_BREAKER_* env vars. The same config backs
+    // the connect-time breaker below and `AppState::db_circuit_breaker`.
+    let db_circuit_config =
+        services::circuit_breaker::CircuitBreakerConfig::from_env_prefixed("DB");
+
     let pool = db::connection::connect_with_retry(
         &database_url,
         20, // max_connections
         5,  // min_connections
         Duration::from_secs(3),
-        5,  // max_retries
-        5,  // circuit breaker threshold
-        60, // circuit breaker recovery secs
+        5, // max_retries
+        db_circuit_config.failure_threshold,
+        db_circuit_config.recovery_timeout.as_secs(),
     )
     .await?;
 
@@ -203,9 +209,8 @@ async fn main() -> anyhow::Result<()> {
         redis,
         broadcast_tx,
         moderation,
-        db_circuit_breaker: Arc::new(services::circuit_breaker::CircuitBreaker::new(
-            5,
-            std::time::Duration::from_secs(60),
+        db_circuit_breaker: Arc::new(services::circuit_breaker::CircuitBreaker::from_config(
+            db_circuit_config,
         )),
         cache: Some(Arc::clone(&cache)),
         invalidator: Some(Arc::clone(&invalidator)),
