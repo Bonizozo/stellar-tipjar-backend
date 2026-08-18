@@ -8,11 +8,11 @@ use tokio::time::sleep;
 mod common;
 mod helpers;
 
-use helpers::{ConcurrentTestRunner, PerformanceMetrics, TestContext};
+use helpers::{ConcurrentTestRunner, TestContext};
 
 #[tokio::test]
 async fn test_high_volume_concurrent_operations() {
-    let mut ctx = TestContext::new().await;
+    let ctx = TestContext::new().await;
 
     // Create multiple creators
     let creator_count = 20;
@@ -22,13 +22,15 @@ async fn test_high_volume_concurrent_operations() {
     let mut creator_tasks = ConcurrentTestRunner::new();
     for i in 0..creator_count {
         let server = ctx.server.clone();
+        let username = ctx.scoped(&format!("volume_creator_{}", i));
+        let email = format!("volume_{}_{}@test.com", i, ctx.namespace);
         creator_tasks.spawn(async move {
             let response = server
                 .post("/creators")
                 .json(&json!({
-                    "username": format!("volume_creator_{}", i),
+                    "username": username,
                     "wallet_address": format!("GVOLUME{:03}", i),
-                    "email": format!("volume_{}@test.com", i)
+                    "email": email
                 }))
                 .await;
             response.assert_status(StatusCode::CREATED);
@@ -41,7 +43,7 @@ async fn test_high_volume_concurrent_operations() {
     for i in 0..creator_count {
         for j in 0..tips_per_creator {
             let tx_hash = format!("TXVOLUME{}_{:03}", i, j);
-            let username = format!("volume_creator_{}", i);
+            let username = ctx.scoped(&format!("volume_creator_{}", i));
             let amount = format!("{}.{:02}", j + 1, (i + j) % 100);
 
             // Mock stellar transaction
@@ -74,7 +76,7 @@ async fn test_high_volume_concurrent_operations() {
 
     // Verify all tips were recorded
     for i in 0..creator_count {
-        let username = format!("volume_creator_{}", i);
+        let username = ctx.scoped(&format!("volume_creator_{}", i));
         let tips = ctx.get_creator_tips(&username).await;
         assert_eq!(
             tips.len(),
@@ -93,8 +95,13 @@ async fn test_mixed_success_failure_scenarios() {
     let mut ctx = TestContext::new().await;
 
     // Create creator
-    ctx.create_creator("mixed_creator", "GMIXED123", "mixed@test.com")
-        .await;
+    let mixed_creator = ctx.scoped("mixed_creator");
+    ctx.create_creator(
+        &mixed_creator,
+        "GMIXED123",
+        &format!("mixed_{}@test.com", ctx.namespace),
+    )
+    .await;
 
     let scenarios = vec![
         ("TXMIXED001", "10.0", true),  // Success
@@ -107,7 +114,7 @@ async fn test_mixed_success_failure_scenarios() {
     let mut successful_tips = 0;
     for (tx_hash, amount, should_succeed) in scenarios {
         let response = ctx
-            .record_tip_with_mock("mixed_creator", amount, tx_hash, should_succeed)
+            .record_tip_with_mock(&mixed_creator, amount, tx_hash, should_succeed)
             .await;
 
         if should_succeed {
@@ -119,7 +126,7 @@ async fn test_mixed_success_failure_scenarios() {
     }
 
     // Verify only successful tips were recorded
-    let tips = ctx.get_creator_tips("mixed_creator").await;
+    let tips = ctx.get_creator_tips(&mixed_creator).await;
     assert_eq!(tips.len(), successful_tips);
 
     ctx.cleanup().await;
@@ -130,19 +137,24 @@ async fn test_database_transaction_rollback() {
     let mut ctx = TestContext::new().await;
 
     // Create creator
-    ctx.create_creator("rollback_creator", "GROLLBACK123", "rollback@test.com")
-        .await;
+    let rollback_creator = ctx.scoped("rollback_creator");
+    ctx.create_creator(
+        &rollback_creator,
+        "GROLLBACK123",
+        &format!("rollback_{}@test.com", ctx.namespace),
+    )
+    .await;
 
     // Record a successful tip first
     let response = ctx
-        .record_tip_with_mock("rollback_creator", "10.0", "TXROLLBACK001", true)
+        .record_tip_with_mock(&rollback_creator, "10.0", "TXROLLBACK001", true)
         .await;
     response.assert_status(StatusCode::CREATED);
 
     // Try to record a tip with duplicate transaction hash (should fail)
     let response = ctx
         .record_tip_with_mock(
-            "rollback_creator",
+            &rollback_creator,
             "15.0",
             "TXROLLBACK001", // Same hash as before
             true,
@@ -151,7 +163,7 @@ async fn test_database_transaction_rollback() {
     response.assert_status(StatusCode::CONFLICT);
 
     // Verify only the first tip exists
-    let tips = ctx.get_creator_tips("rollback_creator").await;
+    let tips = ctx.get_creator_tips(&rollback_creator).await;
     assert_eq!(tips.len(), 1);
     assert_eq!(tips[0]["amount"], "10.0");
 
@@ -160,11 +172,16 @@ async fn test_database_transaction_rollback() {
 
 #[tokio::test]
 async fn test_rate_limiting_behavior() {
-    let mut ctx = TestContext::new().await;
+    let ctx = TestContext::new().await;
 
     // Create creator
-    ctx.create_creator("rate_limit_creator", "GRATE123", "rate@test.com")
-        .await;
+    let rate_limit_creator = ctx.scoped("rate_limit_creator");
+    ctx.create_creator(
+        &rate_limit_creator,
+        "GRATE123",
+        &format!("rate_{}@test.com", ctx.namespace),
+    )
+    .await;
 
     // Rapidly send many requests to test rate limiting
     let request_count = 50;
@@ -178,7 +195,7 @@ async fn test_rate_limiting_behavior() {
             .server
             .post("/tips")
             .json(&json!({
-                "username": "rate_limit_creator",
+                "username": rate_limit_creator,
                 "amount": format!("{}.0", i + 1),
                 "transaction_hash": tx_hash
             }))
@@ -213,15 +230,15 @@ async fn test_rate_limiting_behavior() {
 
 #[tokio::test]
 async fn test_data_consistency_under_load() {
-    let mut ctx = TestContext::new().await;
+    let ctx = TestContext::new().await;
 
     // Create multiple creators
     let creator_count = 10;
     for i in 0..creator_count {
         ctx.create_creator(
-            &format!("consistency_creator_{}", i),
+            &ctx.scoped(&format!("consistency_creator_{}", i)),
             &format!("GCONS{:03}", i),
-            &format!("cons_{}@test.com", i),
+            &format!("cons_{}_{}@test.com", i, ctx.namespace),
         )
         .await;
     }
@@ -233,7 +250,7 @@ async fn test_data_consistency_under_load() {
     for i in 0..creator_count {
         for j in 0..tips_per_creator {
             let tx_hash = format!("TXCONS{}_{:03}", i, j);
-            let username = format!("consistency_creator_{}", i);
+            let username = ctx.scoped(&format!("consistency_creator_{}", i));
             let amount = format!("{}.{:02}", j + 1, i % 100);
 
             ctx.stellar_mocks.mock_successful_transaction(&tx_hash);
@@ -257,7 +274,7 @@ async fn test_data_consistency_under_load() {
 
     // Verify data consistency
     for i in 0..creator_count {
-        let username = format!("consistency_creator_{}", i);
+        let username = ctx.scoped(&format!("consistency_creator_{}", i));
         let tips = ctx.get_creator_tips(&username).await;
 
         // Each creator should have exactly the expected number of tips
@@ -306,11 +323,16 @@ async fn test_large_payload_handling() {
 
 #[tokio::test]
 async fn test_network_resilience() {
-    let mut ctx = TestContext::new().await;
+    let ctx = TestContext::new().await;
 
     // Create creator
-    ctx.create_creator("network_creator", "GNETWORK123", "network@test.com")
-        .await;
+    let network_creator = ctx.scoped("network_creator");
+    ctx.create_creator(
+        &network_creator,
+        "GNETWORK123",
+        &format!("network_{}@test.com", ctx.namespace),
+    )
+    .await;
 
     // Test various network failure scenarios
     let scenarios = vec![
@@ -338,7 +360,7 @@ async fn test_network_resilience() {
             .server
             .post("/tips")
             .json(&json!({
-                "username": "network_creator",
+                "username": network_creator,
                 "amount": "10.0",
                 "transaction_hash": tx_hash
             }))
@@ -364,11 +386,11 @@ async fn test_memory_leak_prevention() {
 
     for i in 0..iterations {
         // Create creator
-        let username = format!("temp_creator_{}", i);
+        let username = ctx.scoped(&format!("temp_creator_{}", i));
         ctx.create_creator(
             &username,
             &format!("GTEMP{:03}", i),
-            &format!("temp_{}@test.com", i),
+            &format!("temp_{}_{}@test.com", i, ctx.namespace),
         )
         .await;
 
@@ -382,11 +404,14 @@ async fn test_memory_leak_prevention() {
         // Periodically clean up to prevent excessive memory usage
         if i % 10 == 0 {
             // Clean up some data (this would be implementation-specific)
-            sqlx::query("DELETE FROM tips WHERE creator_username LIKE 'temp_creator_%'")
+            let scoped_like = format!("temp_creator_%_{}", ctx.namespace);
+            sqlx::query("DELETE FROM tips WHERE creator_username LIKE $1")
+                .bind(&scoped_like)
                 .execute(&ctx.pool)
                 .await
                 .unwrap();
-            sqlx::query("DELETE FROM creators WHERE username LIKE 'temp_creator_%'")
+            sqlx::query("DELETE FROM creators WHERE username LIKE $1")
+                .bind(&scoped_like)
                 .execute(&ctx.pool)
                 .await
                 .unwrap();
