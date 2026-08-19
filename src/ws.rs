@@ -642,10 +642,9 @@ mod integration {
             redis: None,
             broadcast_tx,
             moderation: Arc::new(crate::moderation::ModerationService::new(db.clone())),
-            db_circuit_breaker: Arc::new(crate::services::circuit_breaker::CircuitBreaker::new(
-                5,
-                Duration::from_secs(60),
-            )),
+            db_circuit_breaker: Arc::new(
+                crate::services::circuit_breaker::CircuitBreaker::default(),
+            ),
             cache: None,
             invalidator: None,
             encryption: Arc::new(crate::crypto::encryption::EncryptionKeyManager::new()),

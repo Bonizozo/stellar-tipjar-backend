@@ -18,32 +18,42 @@ pub fn configured_ratio() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// `OTEL_SAMPLE_RATIO` is process-global, so these tests must not run
+    /// concurrently: one clearing the variable while another has just set it
+    /// makes both read the wrong value.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Run `body` with `OTEL_SAMPLE_RATIO` set to `value` (or unset for `None`),
+    /// serialized against the other tests in this module.
+    fn with_ratio(value: Option<&str>, body: impl FnOnce()) {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        match value {
+            Some(v) => std::env::set_var("OTEL_SAMPLE_RATIO", v),
+            None => std::env::remove_var("OTEL_SAMPLE_RATIO"),
+        }
+        body();
+        std::env::remove_var("OTEL_SAMPLE_RATIO");
+    }
 
     #[test]
     fn defaults_to_one() {
-        // Ensure the env var is absent for this test.
-        std::env::remove_var("OTEL_SAMPLE_RATIO");
-        assert_eq!(configured_ratio(), 1.0);
+        with_ratio(None, || assert_eq!(configured_ratio(), 1.0));
     }
 
     #[test]
     fn parses_valid_ratio() {
-        std::env::set_var("OTEL_SAMPLE_RATIO", "0.25");
-        assert_eq!(configured_ratio(), 0.25);
-        std::env::remove_var("OTEL_SAMPLE_RATIO");
+        with_ratio(Some("0.25"), || assert_eq!(configured_ratio(), 0.25));
     }
 
     #[test]
     fn clamps_above_one() {
-        std::env::set_var("OTEL_SAMPLE_RATIO", "2.5");
-        assert_eq!(configured_ratio(), 1.0);
-        std::env::remove_var("OTEL_SAMPLE_RATIO");
+        with_ratio(Some("2.5"), || assert_eq!(configured_ratio(), 1.0));
     }
 
     #[test]
     fn clamps_below_zero() {
-        std::env::set_var("OTEL_SAMPLE_RATIO", "-0.5");
-        assert_eq!(configured_ratio(), 0.0);
-        std::env::remove_var("OTEL_SAMPLE_RATIO");
+        with_ratio(Some("-0.5"), || assert_eq!(configured_ratio(), 0.0));
     }
 }

@@ -149,10 +149,7 @@ pub async fn create_test_app_with_verifier(
         ),
         replicas: None,
         db_circuit_breaker: Arc::new(
-            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
-                5,
-                std::time::Duration::from_secs(60),
-            ),
+            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::default(),
         ),
         lock_service: None,
         ws_shutdown_tx: tokio::sync::watch::channel(false).0,
@@ -216,10 +213,7 @@ pub async fn create_test_app_with_redis(
         ),
         replicas: None,
         db_circuit_breaker: Arc::new(
-            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
-                5,
-                std::time::Duration::from_secs(60),
-            ),
+            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::default(),
         ),
         lock_service: None,
         ws_shutdown_tx: tokio::sync::watch::channel(false).0,
@@ -276,10 +270,7 @@ pub async fn create_test_app_with_mock_stellar(
         ),
         replicas: None,
         db_circuit_breaker: Arc::new(
-            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::new(
-                5,
-                std::time::Duration::from_secs(60),
-            ),
+            stellar_tipjar_backend::services::circuit_breaker::CircuitBreaker::default(),
         ),
         lock_service: None,
         ws_shutdown_tx: tokio::sync::watch::channel(false).0,

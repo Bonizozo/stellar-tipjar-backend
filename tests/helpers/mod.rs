@@ -2,10 +2,8 @@
 
 use axum_test::TestServer;
 use httpmock::prelude::*;
-use httpmock::Mock;
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
@@ -19,6 +17,13 @@ pub struct TestContext {
     pub pool: PgPool,
     pub mock_server: Arc<MockServer>,
     pub stellar_mocks: StellarMocks,
+    /// Unique per-context suffix. Every test in this suite runs against the
+    /// same database, and cargo runs test functions (and test binaries) in
+    /// parallel, so any fixed username collides with a concurrently running
+    /// test on `creators.username UNIQUE`. Scoping names per context keeps
+    /// tests independent of each other's data and of leftovers from a
+    /// previous run.
+    pub namespace: String,
 }
 
 /// Stellar API mock handlers. Each `mock_*` method just registers an
@@ -106,7 +111,15 @@ impl TestContext {
             pool,
             mock_server,
             stellar_mocks,
+            namespace: Uuid::new_v4().simple().to_string()[..8].to_string(),
         }
+    }
+
+    /// Qualify `base` with this context's namespace, yielding a name no other
+    /// concurrently running test will use. Look-ups must use the same scoped
+    /// name the record was created with.
+    pub fn scoped(&self, base: &str) -> String {
+        format!("{}_{}", base, self.namespace)
     }
 
     /// Create a test creator and return the response
@@ -131,9 +144,9 @@ impl TestContext {
         for i in 0..count {
             let creator = self
                 .create_creator(
-                    &format!("creator_{}", i),
+                    &self.scoped(&format!("creator_{}", i)),
                     &format!("WALLET{:03}", i),
-                    &format!("creator_{}@test.com", i),
+                    &format!("creator_{}_{}@test.com", i, self.namespace),
                 )
                 .await;
             creators.push(creator);
@@ -212,8 +225,30 @@ impl TestContext {
     }
 
     /// Clean up test data
+    /// Remove only the rows this context created.
+    ///
+    /// This deliberately does not call `common::cleanup_test_db`, which
+    /// `TRUNCATE`s the shared tables: cargo runs the test functions in a
+    /// binary on parallel threads against one database, so a global truncate
+    /// deletes every concurrently running test's data out from under it. That
+    /// is what made this suite fail — a neighbouring test would wipe the
+    /// creator another test had just inserted, and the retry then collided on
+    /// `creators.username UNIQUE`. Scoping the delete to this context's
+    /// namespace lets the tests keep running in parallel.
     pub async fn cleanup(&self) {
-        crate::common::cleanup_test_db(&self.pool).await;
+        let scoped = format!("%_{}", self.namespace);
+        sqlx::query(
+            "DELETE FROM tips WHERE creator_username IN              (SELECT username FROM creators WHERE username LIKE $1)",
+        )
+        .bind(&scoped)
+        .execute(&self.pool)
+        .await
+        .unwrap();
+        sqlx::query("DELETE FROM creators WHERE username LIKE $1")
+            .bind(&scoped)
+            .execute(&self.pool)
+            .await
+            .unwrap();
     }
 }
 
@@ -276,11 +311,10 @@ impl ConcurrentTestRunner {
 pub fn generate_test_wallet() -> String {
     format!(
         "G{}",
-        uuid::Uuid::new_v4()
+        &uuid::Uuid::new_v4()
             .to_string()
             .replace("-", "")
             .to_uppercase()[..55]
-            .to_string()
     )
 }
 

@@ -180,7 +180,8 @@ impl StellarService {
             network,
             submit_timeout: Duration::from_secs(30),
             retry_config: RetryConfig::default(),
-            circuit_breaker: Arc::new(CircuitBreaker::new(5, Duration::from_secs(60))),
+            // Tunable via HORIZON_CIRCUIT_BREAKER_* / CIRCUIT_BREAKER_* env vars.
+            circuit_breaker: Arc::new(CircuitBreaker::from_env_prefixed("HORIZON")),
         }
     }
 

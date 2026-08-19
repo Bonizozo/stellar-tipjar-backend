@@ -59,10 +59,7 @@ pub async fn build_app() -> Router {
         redis,
         broadcast_tx,
         moderation,
-        db_circuit_breaker: Arc::new(services::circuit_breaker::CircuitBreaker::new(
-            5,
-            Duration::from_secs(60),
-        )),
+        db_circuit_breaker: Arc::new(services::circuit_breaker::CircuitBreaker::default()),
         cache: None,
         invalidator: None,
         encryption: Arc::new(
