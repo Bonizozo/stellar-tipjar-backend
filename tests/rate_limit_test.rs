@@ -178,6 +178,48 @@ async fn test_gcra_exceeded_returns_429_with_retry_after() {
     common::cleanup_test_db(&pool).await;
 }
 
+/// The `tower_governor` backstop enforces a limit even when the authoritative
+/// Redis GCRA layer is absent (e.g. `create_app()` in tests, or Redis being
+/// down in production on a fail-open route).
+///
+/// This is the defense-in-depth guarantee: the in-process limiter is *not*
+/// authoritative (it would multiply with N replicas), but it must still
+/// reject a client that exceeds its per-process budget so that a Redis
+/// outage never turns into unlimited throughput on fail-open routes.
+#[tokio::test]
+async fn test_governor_backstop_enforces_limit_without_gcra() {
+    // Tight per-process limit so the backstop trips quickly.
+    std::env::set_var("RATE_LIMIT_PER_SECOND", "1");
+    std::env::set_var("RATE_LIMIT_BURST_SIZE", "1");
+
+    let pool = common::setup_test_db().await;
+    let (app, _) = common::create_test_app(pool.clone()).await;
+    let server = common::test_server(app);
+
+    // `create_app()` serves routes at root (not /api/v1), and wires only the
+    // governor backstop — so this exercises the backstop in isolation, which
+    // is exactly the degraded/fail-open path production takes when Redis is
+    // down.
+    server
+        .get("/health")
+        .await
+        .assert_status(StatusCode::OK);
+
+    // Second request within the same second exceeds the burst of 1.
+    let resp = server.get("/health").await;
+    assert_eq!(
+        resp.status_code(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "governor backstop must reject a client over its per-process budget"
+    );
+    let body = resp.json::<serde_json::Value>();
+    assert_eq!(body["code"], "RATE_LIMIT_EXCEEDED");
+
+    std::env::remove_var("RATE_LIMIT_PER_SECOND");
+    std::env::remove_var("RATE_LIMIT_BURST_SIZE");
+    common::cleanup_test_db(&pool).await;
+}
+
 /// A fail-closed route (auth) must respond 503 — not silently allow — when
 /// Redis is unreachable.
 #[tokio::test]
