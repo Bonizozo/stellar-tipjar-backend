@@ -3,19 +3,78 @@
 The API implements distributed request rate limiting to ensure platform
 stability and protect against abuse and Denial-of-Service attacks.
 
-Rate limiting has two layers:
+## Layering (authoritative → backstop)
 
-1. **`tower_governor`** — a per-process, in-memory token bucket. It runs on
-   every replica independently and acts purely as a cheap, local backstop.
-2. **Redis-backed GCRA (Generic Cell Rate Algorithm)** — the primary,
-   authoritative limiter (`src/gateway/rate_limiter.rs` +
-   `src/gateway/rate_limit_script.rs`). Every replica evaluates the same
-   Lua script against the same Redis instance, so the limit is shared
-   correctly across all replicas — it does not multiply with `N_replicas`
-   the way a purely in-memory limiter would, and it does not reset on
-   restart/deploy.
+There are **three** rate-limiting mechanisms wired into the production
+router (`src/main.rs`). They are **not** mutually exclusive alternatives —
+they compose as defense-in-depth, with the Redis-backed limiter authoritative
+and the in-process limiter a cheap local backstop:
 
----
+| Layer | Mechanism | Scope | Authoritative? |
+| :--- | :--- | :--- | :--- |
+| 1 | **Redis GCRA** (`gateway::gateway_rate_limit`, `src/gateway/rate_limiter.rs` + `rate_limit_script.rs`) | Per-identity (JWT subject / API key / IP), shared across all replicas | **Yes** — this is the limit clients are held to |
+| 2 | **Postgres quotas** (`gateway::quota_enforcement`, `src/gateway/quota_manager.rs`) | Per-client daily/monthly totals | Yes — layered on top of GCRA |
+| 3 | **`tower_governor`** (`middleware::rate_limiter`, `src/middleware/rate_limiter.rs`) | Per-IP, in-process, per-replica | No — cheap local backstop only |
+| 4 | **Redis sliding-window throttle** (`middleware::rate_limiter::redis_throttle_middleware`) | Global, coarse | No — outermost safety net |
+
+### Why the in-process limiter is safe as a backstop
+
+`tower_governor` keeps its buckets in per-process memory, so with `N`
+replicas the effective limit would be `N × configured_limit` if it were
+authoritative. It is **not** — the authoritative limit is the Redis GCRA
+check, which every replica evaluates against the same Redis instance via a
+single atomic Lua script. The in-process limiter therefore only ever
+*reduces* throughput below the shared limit (a client that exceeds the
+shared GCRA limit is rejected before it reaches the governor layer), never
+*increases* it. The `scripts/rate_limit_multi_replica_test.sh` harness
+proves the combined admitted count across two replicas matches the single
+shared limit, not double it.
+
+### Wiring
+
+- **Production** (`src/main.rs`): all four layers are applied to the
+  versioned `/api/v1` and `/api/v2` routers. `tower_governor` is innermost
+  (on the write/read sub-routers), then GCRA + quota (on the versioned
+  router), then the global Redis throttle outermost.
+- **Test factory** (`src/lib.rs::create_app`): currently wires **only** the
+  `tower_governor` backstop. The GCRA/quota layers are **not** applied, and
+  routes are served at root (`/health`) rather than under `/api/v1`. This is
+  a known drift between the test surface and production — see
+  [Test/production drift](#testproduction-drift) below.
+
+### Degraded mode (Redis unreachable)
+
+When Redis is unreachable the GCRA limiter cannot verify whether a caller is
+over their limit. The decision is an explicit per-route policy
+(`src/gateway/rate_limit_policy.rs`), not a single global default:
+
+- **Fail-closed** (reject with `503` rather than risk unlimited throughput):
+  auth, registration, password reset, MFA, and API key endpoints, by default.
+- **Fail-open** (allow through, `tower_governor` remains a backstop):
+  everything else, by default — mainly public reads.
+
+On the fail-open branch, the in-process `tower_governor` layers are the only
+thing still enforcing a limit while Redis is down — which is exactly why they
+are kept as a backstop rather than removed.
+
+### Test/production drift
+
+`create_app()` (used by the integration test suite) does **not** wire the
+GCRA or quota layers, and serves routes at root rather than under `/api/v1`.
+Consequences:
+
+- Tests that hit `/api/v1/health` (e.g. the GCRA header/429 tests in
+  `tests/rate_limit_test.rs`) 404 against `create_app()` and never exercise
+  the authoritative limiter.
+- The `tower_governor` backstop is the only limiter exercised by tests, so
+  the layering is untested.
+
+**Fix:** `create_app()` should mirror `main.rs`'s versioned structure and
+wire the GCRA + quota layers so the test surface matches production. Until
+then, the GCRA behavior is verified by the pure-Rust unit tests in
+`src/gateway/rate_limit_script.rs` and the Docker-based
+`scripts/rate_limit_multi_replica_test.sh` harness.
+
 
 ## How the distributed limiter works
 
