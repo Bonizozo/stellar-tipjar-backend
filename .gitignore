@@ -1,7 +1,6 @@
 /target
 .env
 **/*.rs.bk
-Cargo.lock
 dump.rdb
 
 # OS artifacts
