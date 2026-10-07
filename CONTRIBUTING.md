@@ -6,6 +6,7 @@ Thank you for taking the time to contribute! The following guidelines will help 
 
 - [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
+  - [Toolchain Setup & Cargo Configuration](#toolchain-setup--cargo-configuration)
 - [Development Workflow](#development-workflow)
 - [Coding Guidelines](#coding-guidelines)
 - [Adding a New Endpoint](#adding-a-new-endpoint)
@@ -44,6 +45,16 @@ Please be respectful and constructive in all interactions. We follow the [Contri
    ```
 
    The server applies pending migrations automatically on startup and listens on `0.0.0.0:8000` by default.
+
+### Toolchain Setup & Cargo Configuration
+
+Please keep the following toolchain guidelines in mind to avoid cross-platform compilation regressions:
+
+- **Shared Repository Configuration**: Files like `.cargo/config.toml` and `rust-toolchain.toml` in the repository root are shared, tracked files that dictate build and test behavior for **all contributors and automated CI workflows**.
+- **No Forced Platform Targets**: Never commit platform-specific build targets (e.g., `[build] target = "x86_64-pc-windows-gnu"`) or host-specific linker paths into the repository's `.cargo/config.toml`. Doing so forces cross-compilation on other contributors and breaks standard `cargo build`, `cargo check`, and `cargo test` runs on Linux/macOS systems and CI runners.
+- **Handling Local Platform Quirks**:
+  - If your specific local environment (such as Git Bash, MSYS2, or custom MinGW setups on Windows) requires custom linker flags or target overrides, configure them in your user-global Cargo configuration at `$CARGO_HOME/config.toml` (typically `~/.cargo/config.toml` on Unix or `%USERPROFILE%\.cargo\config.toml` on Windows).
+  - Alternatively, use environment variables (e.g., `CARGO_BUILD_TARGET`) for temporary local testing. Repository-level Cargo configuration must remain strictly platform-neutral.
 
 ## Development Workflow
 
