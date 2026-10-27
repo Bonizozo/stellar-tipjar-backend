@@ -81,9 +81,17 @@ impl AppError {
     }
 
     pub fn not_found(message: impl Into<String>) -> Self {
+        let msg = message.into();
+        let entity: &'static str = match msg.as_str() {
+            "creator" => "creator",
+            "user" => "user",
+            "tenant" | "Tenant not found" => "tenant",
+            "session" | "Session not found" => "session",
+            _ => "resource",
+        };
         Self::Database(crate::errors::DatabaseError::NotFound {
-            entity: "resource",
-            identifier: message.into(),
+            entity,
+            identifier: msg,
         })
     }
 

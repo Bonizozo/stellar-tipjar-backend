@@ -45,6 +45,7 @@ pub mod tests;
 pub mod upload;
 pub mod validation;
 pub mod webhooks;
+#[cfg(feature = "webrtc")]
 pub mod webrtc;
 pub mod ws;
 
