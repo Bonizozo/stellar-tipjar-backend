@@ -459,4 +459,13 @@ mod tests {
         assert!(!constant_time_eq(b"", b"a"));
         assert!(constant_time_eq(b"", b""));
     }
+
+    #[test]
+    fn verify_constant_time_eq_timing_invariance() {
+        let h1 = b"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        let h2 = b"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b856";
+        let h3 = b"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        assert!(!constant_time_eq(h1, h2));
+        assert!(constant_time_eq(h1, h3));
+    }
 }

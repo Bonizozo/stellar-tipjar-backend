@@ -55,6 +55,7 @@ mod tenancy;
 mod upload;
 mod validation;
 mod webhooks;
+#[cfg(feature = "webrtc")]
 mod webrtc;
 mod ws;
 

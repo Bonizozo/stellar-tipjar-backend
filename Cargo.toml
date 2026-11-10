@@ -102,3 +102,7 @@ harness = false
 [[bench]]
 name = "tracing_overhead"
 harness = false
+
+[features]
+default = []
+webrtc = []
